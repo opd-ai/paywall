@@ -1,0 +1,110 @@
+<!-- templates/payment.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitcoin Payment Required</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .payment-container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .qr-code {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .address {
+            background: #f5f5f7;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .amount {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #1a73e8;
+        }
+        .instructions {
+            margin: 20px 0;
+        }
+        .message {
+            margin-top: 20px;
+            padding: 10px;
+            background: #e8f0fe;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="payment-container">
+        <h1>Payment Required</h1>
+        
+        <div class="instructions">
+            <p>To access this content, please send exactly <span class="amount">{{.Amount}} BTC</span> to:</p>
+            
+            <div class="qr-code">
+                <!-- Generate QR code using JavaScript -->
+                <div id="qrcode"></div>
+            </div>
+            
+            <div class="address">
+                {{.Address}}
+            </div>
+        </div>
+
+        <div class="message">
+            <h3>Important Instructions:</h3>
+            <ol>
+                <li>Send exactly {{.Amount}} BTC to the address above</li>
+                <li>Sign this message with your Bitcoin wallet:
+                    <pre>{{.Message}}</pre>
+                </li>
+                <li>Once payment is confirmed, the page will automatically refresh</li>
+            </ol>
+        </div>
+
+        <div class="verification-status" id="verificationStatus">
+            Waiting for payment...
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+    <script>
+        // Generate QR code for the Bitcoin address
+        QRCode.toCanvas(document.getElementById('qrcode'), 'bitcoin:{{.Address}}?amount={{.Amount}}', {
+            width: 200,
+            margin: 2
+        });
+
+        // Poll for payment verification
+        function checkPayment() {
+            fetch(window.location.href, {
+                headers: {
+                    'X-Payment-Message': '{{.Message}}',
+                    'X-Payment-Check': 'true'
+                }
+            })
+            .then(response => {
+                if (response.ok) {
+                    window.location.reload();
+                }
+            });
+        }
+
+        // Check every 10 seconds
+        setInterval(checkPayment, 10000);
+    </script>
+</body>
+</html>
