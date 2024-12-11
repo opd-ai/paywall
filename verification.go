@@ -1,47 +1,60 @@
-// verification.go
+// blockchain.go
 package paywall
 
 import (
-	"encoding/hex"
-	"fmt"
+	"context"
 	"time"
 )
 
-func (p *Paywall) verifyPayment(message, signatureHex string) (bool, error) {
-	// Check existing verified payment
-	p.mu.RLock()
-	if payment, exists := p.payments[message]; exists && payment.Verified {
-		if time.Now().Before(payment.ExpiresAt) {
-			p.mu.RUnlock()
-			return true, nil
+type BlockchainMonitor struct {
+	paywall *Paywall
+	client  BitcoinClient
+}
+
+type BitcoinClient interface {
+	GetAddressBalance(address string) (float64, error)
+	GetTransactionConfirmations(txID string) (int, error)
+}
+
+func (m *BlockchainMonitor) Start(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Minute)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				m.checkPendingPayments()
+			}
+		}
+	}()
+}
+
+func (m *BlockchainMonitor) checkPendingPayments() {
+	payments, err := m.paywall.store.ListPendingPayments()
+	if err != nil {
+		// Handle error
+		return
+	}
+
+	for _, payment := range payments {
+		balance, err := m.client.GetAddressBalance(payment.Address)
+		if err != nil {
+			continue
+		}
+
+		if balance >= payment.AmountBTC {
+			confirmations, err := m.client.GetTransactionConfirmations(payment.TransactionID)
+			if err != nil {
+				continue
+			}
+
+			if confirmations >= m.paywall.minConfirmations {
+				payment.Status = StatusConfirmed
+				payment.Confirmations = confirmations
+				m.paywall.store.UpdatePayment(payment)
+			}
 		}
 	}
-	p.mu.RUnlock()
-
-	// Decode signature
-	signature, err := hex.DecodeString(signatureHex)
-	if err != nil {
-		return false, fmt.Errorf("invalid signature format: %w", err)
-	}
-
-	// Verify signature
-	valid, err := p.wallet.VerifyMessage([]byte(message), signature)
-	if err != nil {
-		return false, fmt.Errorf("signature verification failed: %w", err)
-	}
-
-	if valid {
-		p.mu.Lock()
-		p.payments[message] = Payment{
-			Amount:    p.priceInBTC,
-			Timestamp: time.Now(),
-			Message:   message,
-			Signature: signatureHex,
-			Verified:  true,
-			ExpiresAt: time.Now().Add(24 * time.Hour),
-		}
-		p.mu.Unlock()
-	}
-
-	return valid, nil
 }

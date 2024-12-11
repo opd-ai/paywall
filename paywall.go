@@ -2,17 +2,14 @@
 package paywall
 
 import (
-	"embed"
-	"fmt"
-	"html/template"
-
 	"crypto/rand"
+	"embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
-	"github.com/your/project/wallet"
 )
 
 //go:embed templates/payment.html
@@ -63,9 +60,9 @@ func NewPaywall(config Config) (*Paywall, error) {
 }
 
 func (p *Paywall) CreatePayment() (*Payment, error) {
-	address, err := p.wallet.DeriveNextAddress()
+	address, err := p.wallet.GetAddress()
 	if err != nil {
-		return nil, fmt.Errorf("derive address: %w", err)
+		return nil, fmt.Errorf("failed to get address: %w", err)
 	}
 
 	payment := &Payment{
@@ -78,8 +75,15 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 	}
 
 	if err := p.store.CreatePayment(payment); err != nil {
-		return nil, fmt.Errorf("store payment: %w", err)
+		return nil, fmt.Errorf("failed to store payment: %w", err)
 	}
 
 	return payment, nil
+}
+
+// Helper function to generate payment ID
+func generatePaymentID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }

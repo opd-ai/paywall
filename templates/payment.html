@@ -1,110 +1,58 @@
 <!-- templates/payment.html -->
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bitcoin Payment Required</title>
+    <title>Payment Required</title>
     <style>
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
+        .payment-details {
+            margin: 20px;
             padding: 20px;
-            background: #f5f5f5;
-        }
-        .payment-container {
-            background: white;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .qr-code {
-            text-align: center;
-            margin: 20px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
         }
         .address {
-            background: #f5f5f7;
-            padding: 10px;
-            border-radius: 4px;
             font-family: monospace;
-            word-break: break-all;
-        }
-        .amount {
             font-size: 1.2em;
-            font-weight: bold;
-            color: #1a73e8;
-        }
-        .instructions {
-            margin: 20px 0;
-        }
-        .message {
-            margin-top: 20px;
-            padding: 10px;
-            background: #e8f0fe;
-            border-radius: 4px;
+            word-break: break-all;
+            margin: 10px 0;
         }
     </style>
 </head>
 <body>
-    <div class="payment-container">
+    <div class="payment-details">
         <h1>Payment Required</h1>
-        
-        <div class="instructions">
-            <p>To access this content, please send exactly <span class="amount">{{.Amount}} BTC</span> to:</p>
-            
-            <div class="qr-code">
-                <!-- Generate QR code using JavaScript -->
-                <div id="qrcode"></div>
-            </div>
-            
-            <div class="address">
-                {{.Address}}
-            </div>
-        </div>
-
-        <div class="message">
-            <h3>Important Instructions:</h3>
-            <ol>
-                <li>Send exactly {{.Amount}} BTC to the address above</li>
-                <li>Sign this message with your Bitcoin wallet:
-                    <pre>{{.Message}}</pre>
-                </li>
-                <li>Once payment is confirmed, the page will automatically refresh</li>
-            </ol>
-        </div>
-
-        <div class="verification-status" id="verificationStatus">
-            Waiting for payment...
-        </div>
+        <p>Please send exactly {{.AmountBTC}} BTC to:</p>
+        <div class="address">{{.Address}}</div>
+        <div id="qrcode"></div>
+        <p>Payment will expire at: {{.ExpiresAt}}</p>
+        <p>Payment ID: {{.PaymentID}}</p>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.4.4/build/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
     <script>
-        // Generate QR code for the Bitcoin address
-        QRCode.toCanvas(document.getElementById('qrcode'), 'bitcoin:{{.Address}}?amount={{.Amount}}', {
-            width: 200,
-            margin: 2
-        });
+        // Generate QR code
+        var qr = qrcode(0, 'M');
+        var qrData = 'bitcoin:{{.Address}}?amount={{.AmountBTC}}';
+        qr.addData(qrData);
+        qr.make();
+        document.getElementById('qrcode').innerHTML = qr.createImgTag(4);
 
-        // Poll for payment verification
-        function checkPayment() {
-            fetch(window.location.href, {
-                headers: {
-                    'X-Payment-Message': '{{.Message}}',
-                    'X-Payment-Check': 'true'
-                }
-            })
-            .then(response => {
-                if (response.ok) {
-                    window.location.reload();
-                }
-            });
+        // Add countdown
+        var expiresAt = new Date('{{.ExpiresAt}}');
+        function updateCountdown() {
+            var now = new Date();
+            var diff = expiresAt - now;
+            if (diff <= 0) {
+                location.reload();
+                return;
+            }
+            var minutes = Math.floor(diff / 60000);
+            var seconds = Math.floor((diff % 60000) / 1000);
+            document.getElementById('countdown').textContent = 
+                minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
         }
-
-        // Check every 10 seconds
-        setInterval(checkPayment, 10000);
+        setInterval(updateCountdown, 1000);
+        updateCountdown();
     </script>
 </body>
 </html>

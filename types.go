@@ -31,3 +31,10 @@ type PaymentStore interface {
 	UpdatePayment(payment *Payment) error
 	ListPendingPayments() ([]*Payment, error)
 }
+
+type PaymentPageData struct {
+	Address   string  `json:"address"`
+	AmountBTC float64 `json:"amount_btc"`
+	ExpiresAt string  `json:"expires_at"`
+	PaymentID string  `json:"payment_id"`
+}
