@@ -1,22 +1,33 @@
+// types.go
 package paywall
 
-import "time"
+import (
+	"time"
+)
 
-// Payment represents a verified payment record
+type PaymentStatus string
+
+const (
+	StatusPending   PaymentStatus = "pending"
+	StatusConfirmed PaymentStatus = "confirmed"
+	StatusExpired   PaymentStatus = "expired"
+)
+
 type Payment struct {
-	Amount    float64   // Amount in BTC
-	Timestamp time.Time // When the payment was verified
-	Message   string    // Payment message used for verification
-	Signature string    // Payment signature
-	Verified  bool      // Payment verification status
-	ExpiresAt time.Time // When the payment expires
+	ID            string        `json:"id"`
+	Address       string        `json:"address"`
+	AmountBTC     float64       `json:"amount_btc"`
+	CreatedAt     time.Time     `json:"created_at"`
+	ExpiresAt     time.Time     `json:"expires_at"`
+	Status        PaymentStatus `json:"status"`
+	Confirmations int           `json:"confirmations"`
+	TransactionID string        `json:"transaction_id,omitempty"`
 }
 
-// PaymentPageData contains the data needed to render the payment page template
-type PaymentPageData struct {
-	Address   string  // Bitcoin address to receive payment
-	Amount    float64 // Amount in BTC
-	ReturnURL string  // URL to return to after payment
-	PaymentID string  // Unique payment identifier
-	Message   string  // Payment message to sign
+type PaymentStore interface {
+	CreatePayment(payment *Payment) error
+	GetPayment(id string) (*Payment, error)
+	GetPaymentByAddress(address string) (*Payment, error)
+	UpdatePayment(payment *Payment) error
+	ListPendingPayments() ([]*Payment, error)
 }
