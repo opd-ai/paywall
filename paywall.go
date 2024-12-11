@@ -1,4 +1,4 @@
-// paywall.go
+// Package paywall implements a Bitcoin payment system for protecting web content
 package paywall
 
 import (
@@ -12,29 +12,63 @@ import (
 	"github.com/opd-ai/paywall/wallet"
 )
 
+// TemplateFS embeds the payment page HTML template
+//
 //go:embed templates/payment.html
 var TemplateFS embed.FS
 
+// QrcodeJS embeds the QR code generation JavaScript library
+//
 //go:embed static/qrcode.min.js
 var QrcodeJs embed.FS
 
+// Config defines the configuration options for initializing a Paywall
+// All fields are required unless otherwise noted
 type Config struct {
-	PriceInBTC       float64
-	PaymentTimeout   time.Duration
+	// PriceInBTC is the amount in Bitcoin required for access
+	PriceInBTC float64
+	// PaymentTimeout is the duration after which pending payments expire
+	PaymentTimeout time.Duration
+	// MinConfirmations is the required number of blockchain confirmations
 	MinConfirmations int
-	TestNet          bool
-	Store            PaymentStore
+	// TestNet determines whether to use Bitcoin testnet (true) or mainnet (false)
+	TestNet bool
+	// Store implements the payment persistence interface
+	Store PaymentStore
 }
 
+// Paywall manages Bitcoin payment processing and verification
+// It generates payment addresses, tracks payment status, and validates transactions
+// Related types: Config, Payment, PaymentStore, wallet.HDWallet
 type Paywall struct {
-	HDWallet         *wallet.HDWallet
-	store            PaymentStore
-	priceInBTC       float64
-	paymentTimeout   time.Duration
+	// HDWallet generates unique Bitcoin addresses for payments
+	HDWallet *wallet.HDWallet
+	// store persists payment information
+	store PaymentStore
+	// priceInBTC is the required payment amount in Bitcoin
+	priceInBTC float64
+	// paymentTimeout is how long payments can remain pending
+	paymentTimeout time.Duration
+	// minConfirmations is required blockchain confirmations
 	minConfirmations int
-	template         *template.Template
+	// template is the parsed payment page HTML template
+	template *template.Template
 }
 
+// NewPaywall creates and initializes a new Paywall instance
+// Parameters:
+//   - config: Configuration options for the paywall
+//
+// Returns:
+//   - *Paywall: Initialized paywall instance
+//   - error: If initialization fails
+//
+// Errors:
+//   - If random seed generation fails
+//   - If HD wallet creation fails
+//   - If template parsing fails
+//
+// Related types: Config, Paywall
 func NewPaywall(config Config) (*Paywall, error) {
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)
@@ -62,6 +96,14 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}, nil
 }
 
+// CreatePayment generates a new payment request
+// It creates a unique Bitcoin address and payment record
+// Returns:
+//   - *Payment: The created payment record
+//   - error: If address generation or storage fails
+//
+// The payment starts in StatusPending state and expires after paymentTimeout
+// Related types: Payment, PaymentStatus
 func (p *Paywall) CreatePayment() (*Payment, error) {
 	address, err := p.HDWallet.GetAddress()
 	if err != nil {
@@ -84,7 +126,11 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 	return payment, nil
 }
 
-// Helper function to generate payment ID
+// generatePaymentID creates a random 16-byte hex-encoded payment identifier
+// Returns:
+//   - string: A 32-character hexadecimal string
+//
+// This is an internal helper function that uses crypto/rand for secure randomness
 func generatePaymentID() string {
 	b := make([]byte, 16)
 	rand.Read(b)

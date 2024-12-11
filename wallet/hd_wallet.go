@@ -1,4 +1,5 @@
-// wallet/hd_wallet.go
+// Package wallet implements Bitcoin HD (Hierarchical Deterministic) wallet functionality
+// according to BIP32, BIP44, and BIP49 specifications.
 package wallet
 
 import (
@@ -16,21 +17,38 @@ import (
 )
 
 const (
-	// HDWallet constants
-	hardenedKeyStart = 0x80000000
-	purposeBIP44     = 44
-	coinTypeBTC      = 0
-	accountDefault   = 0
-	changeExternal   = 0
+	// HDWallet constants for BIP44 derivation path
+	hardenedKeyStart = 0x80000000 // Hardened key starting index
+	purposeBIP44     = 44         // BIP44 purpose level
+	coinTypeBTC      = 0          // Bitcoin coin type
+	accountDefault   = 0          // Default account index
+	changeExternal   = 0          // External chain for receiving addresses
 )
 
+// HDWallet represents a hierarchical deterministic Bitcoin wallet
+// implementing BIP32 and BIP44 standards.
 type HDWallet struct {
-	masterKey []byte
-	chainCode []byte
-	network   *chaincfg.Params
-	nextIndex uint32
+	masterKey []byte           // Master private key
+	chainCode []byte           // Master chain code for key derivation
+	network   *chaincfg.Params // Network parameters (mainnet/testnet)
+	nextIndex uint32           // Next address index to derive
 }
 
+// NewHDWallet creates a new HD wallet from a seed.
+//
+// Parameters:
+//   - seed: Random seed bytes (must be 16-64 bytes)
+//   - testnet: Boolean flag for testnet/mainnet network selection
+//
+// Returns:
+//   - *HDWallet: Initialized wallet instance
+//   - error: If seed length is invalid
+//
+// Security:
+//   - Seed must be generated with sufficient entropy
+//   - Seed should be backed up securely
+//
+// Related: DeriveNextAddress, GetAddress
 func NewHDWallet(seed []byte, testnet bool) (*HDWallet, error) {
 	if len(seed) < 16 || len(seed) > 64 {
 		return nil, errors.New("seed must be between 16 and 64 bytes")
@@ -57,6 +75,20 @@ func NewHDWallet(seed []byte, testnet bool) (*HDWallet, error) {
 	}, nil
 }
 
+// DeriveNextAddress derives the next Bitcoin address using BIP44 path m/44'/0'/0'/0/index
+//
+// Returns:
+//   - string: Base58Check encoded Bitcoin address
+//   - error: If key derivation or address generation fails
+//
+// Path components:
+//   - 44' : BIP44 purpose
+//   - 0'  : Bitcoin coin type
+//   - 0'  : Account 0
+//   - 0   : External chain
+//   - i   : Address index
+//
+// Related: GetAddress, pubKeyToAddress
 func (w *HDWallet) DeriveNextAddress() (string, error) {
 	// Derive BIP44 path: m/44'/0'/0'/0/index
 	path := []uint32{
@@ -93,6 +125,21 @@ func (w *HDWallet) DeriveNextAddress() (string, error) {
 	return address, nil
 }
 
+// deriveKey derives a child key from a parent key and chain code.
+//
+// Parameters:
+//   - key: Parent private key
+//   - chainCode: Parent chain code
+//   - index: Child index (hardened if >= 0x80000000)
+//
+// Returns:
+//   - []byte: Child private key
+//   - []byte: Child chain code
+//   - error: If derived key is invalid
+//
+// Security:
+//   - Implements BIP32 key derivation
+//   - Validates derived keys against curve order
 func (w *HDWallet) deriveKey(key, chainCode []byte, index uint32) ([]byte, []byte, error) {
 	var data []byte
 	if index >= hardenedKeyStart {
@@ -136,6 +183,23 @@ func (w *HDWallet) deriveKey(key, chainCode []byte, index uint32) ([]byte, []byt
 	return childKeyBytes, childChainCode, nil
 }
 
+// pubKeyToAddress converts a public key to a Bitcoin address.
+//
+// Parameters:
+//   - pubKey: Compressed public key bytes
+//
+// Returns:
+//   - string: Base58Check encoded Bitcoin address
+//   - error: If address generation fails
+//
+// Process:
+//  1. SHA256 hash
+//  2. RIPEMD160 hash
+//  3. Add version byte
+//  4. Add checksum
+//  5. Base58 encode
+//
+// Related: base58Encode
 func (w *HDWallet) pubKeyToAddress(pubKey []byte) (string, error) {
 	// SHA256
 	sha256Hash := sha256.Sum256(pubKey)
@@ -158,43 +222,22 @@ func (w *HDWallet) pubKeyToAddress(pubKey []byte) (string, error) {
 	fullPayload := append(versionedPayload, checksum...)
 
 	// Base58 encode
-	address := base58Encode(fullPayload)
+	address := Base58Encode(fullPayload)
 
 	return address, nil
 }
 
-// base58Encode encodes a byte slice to base58
-func base58Encode(input []byte) string {
-	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-
-	var result []byte
-	x := new(big.Int).SetBytes(input)
-	base := big.NewInt(58)
-	zero := big.NewInt(0)
-	mod := new(big.Int)
-
-	for x.Cmp(zero) > 0 {
-		x.DivMod(x, base, mod)
-		result = append(result, alphabet[mod.Int64()])
-	}
-
-	// Add leading zeros
-	for _, b := range input {
-		if b != 0 {
-			break
-		}
-		result = append(result, alphabet[0])
-	}
-
-	// Reverse
-	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
-		result[i], result[j] = result[j], result[i]
-	}
-
-	return string(result)
-}
-
-// GetAddress returns the next available Bitcoin address
+// GetAddress returns the next available Bitcoin address.
+//
+// Returns:
+//   - string: Base58Check encoded Bitcoin address
+//   - error: If address derivation fails
+//
+// Notes:
+//   - Increments internal address counter
+//   - Thread-safe for single wallet instance
+//
+// Related: DeriveNextAddress
 func (w *HDWallet) GetAddress() (string, error) {
 	address, err := w.DeriveNextAddress()
 	if err != nil {

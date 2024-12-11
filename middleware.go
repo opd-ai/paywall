@@ -1,4 +1,4 @@
-// middleware.go
+// Package paywall provides Bitcoin payment protection for HTTP handlers
 package paywall
 
 import (
@@ -6,6 +6,35 @@ import (
 	"time"
 )
 
+// Middleware wraps an http.Handler to enforce Bitcoin payment requirements
+//
+// Parameters:
+//   - next: The HTTP handler to protect with payment verification
+//
+// Returns:
+//   - http.Handler: A handler that checks payment status before allowing access
+//
+// Flow:
+//  1. Checks for existing payment_id cookie
+//  2. If cookie exists:
+//     - Verifies payment status and expiration
+//     - Allows access for confirmed, unexpired payments
+//     - Shows payment page for pending, unexpired payments
+//  3. If no valid payment:
+//     - Creates new payment
+//     - Sets secure payment_id cookie
+//     - Shows payment page
+//
+// Error Handling:
+//   - Returns 500 Internal Server Error if payment creation fails
+//   - Invalid/expired payments result in new payment creation
+//
+// Security:
+//   - Uses secure, HTTP-only cookies with SameSite=Strict
+//   - Payment IDs are cryptographically random
+//   - Validates payment status and expiration
+//
+// Related types: Payment, PaymentStore, PaymentStatus
 func (p *Paywall) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// First check for existing cookie
