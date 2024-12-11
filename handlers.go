@@ -6,14 +6,8 @@ import (
 	"time"
 )
 
-func (p *Paywall) servePaymentPage(w http.ResponseWriter, r *http.Request) {
-	// Create new payment
-	payment, err := p.CreatePayment()
-	if err != nil {
-		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
-		return
-	}
-
+// Move the rendering logic to a separate method
+func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 	// Prepare template data
 	data := PaymentPageData{
 		Address:   payment.Address,
@@ -32,9 +26,7 @@ func (p *Paywall) servePaymentPage(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode,
 	})
 
-	// Render payment page
 	if err := p.template.Execute(w, data); err != nil {
 		http.Error(w, "Failed to render payment page", http.StatusInternalServerError)
-		return
 	}
 }
