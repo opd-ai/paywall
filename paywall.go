@@ -13,7 +13,7 @@ import (
 )
 
 //go:embed templates/payment.html
-var templateFS embed.FS
+var TemplateFS embed.FS
 
 type Config struct {
 	PriceInBTC       float64
@@ -44,7 +44,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, fmt.Errorf("create wallet: %w", err)
 	}
 
-	tmpl, err := template.ParseFS(templateFS, "templates/payment.html")
+	tmpl, err := template.ParseFS(TemplateFS, "templates/payment.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
