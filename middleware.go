@@ -81,3 +81,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 func (p *Paywall) MiddlewareFunc(next http.Handler) http.HandlerFunc {
 	return http.HandlerFunc(p.Middleware(next).(http.HandlerFunc))
 }
+
+func (p *Paywall) MiddlewareFuncFunc(next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(p.Middleware(next).(http.HandlerFunc))
+}
