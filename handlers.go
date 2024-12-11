@@ -14,6 +14,7 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 		AmountBTC: payment.AmountBTC,
 		ExpiresAt: payment.ExpiresAt.Format(time.RFC3339),
 		PaymentID: payment.ID,
+		QrcodeJs:  QrcodeJs,
 	}
 
 	// Set payment cookie

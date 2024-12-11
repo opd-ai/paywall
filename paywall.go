@@ -15,6 +15,9 @@ import (
 //go:embed templates/payment.html
 var TemplateFS embed.FS
 
+//go:embed static/qrcode.min.js
+var QrcodeJs embed.FS
+
 type Config struct {
 	PriceInBTC       float64
 	PaymentTimeout   time.Duration
