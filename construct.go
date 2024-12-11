@@ -40,7 +40,7 @@ func ConstructPaywall() (*Paywall, error) {
 		PriceInBTC:     0.0001,    // 0.0001 BTC
 		TestNet:        true,      // Use testnet
 		Store:          fileStore, // Required for payment tracking
-		PaymentTimeout: time.Hour * 24,
+		PaymentTimeout: time.Minute * 45,
 	})
 	if err != nil {
 		return nil, err
