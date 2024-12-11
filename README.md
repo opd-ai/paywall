@@ -1,46 +1,132 @@
-# paywall
+# Go Bitcoin Paywall
 
-This is a bitcoin-based paywall as a middleware, which site operators can use to place content behind a gateway requiring payment.
-It is a normal Go middleware, and can be incorporated into any HTTP/S services.
+[![Go Report Card](https://goreportcard.com/badge/github.com/opd-ai/paywall)](https://goreportcard.com/report/github.com/opd-ai/paywall)
+[![GoDoc](https://godoc.org/github.com/opd-ai/paywall?status.svg)](https://godoc.org/github.com/opd-ai/paywall)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-```Go
-	flag.Parse()
-	key, err := wallet.GenerateEncryptionKey()
-	if err != nil {
-		log.Fatal(err)
-	}
+A secure, production-ready Bitcoin paywall implementation in Go, designed to help creative workers join the Bitcoin economy by controlling their own content distribution platforms with minimal barriers to entry.
 
-	config := wallet.StorageConfig{
-		DataDir:       "./paywallet",
-		EncryptionKey: key,
-	}
+## Features
 
-	// Initialize paywall with minimal config
-	pw, err := paywall.NewPaywall(paywall.Config{
-		PriceInBTC:     0.001,            // 0.001 BTC
-		TestNet:        true,             // Use testnet
-		Store:          NewMemoryStore(), // Required for payment tracking
-		PaymentTimeout: time.Hour * 24,
-	})
-	// Attempt to load wallet from disk, if it fails store the new one
-	if HDWallet, err := wallet.LoadFromFile(config); err != nil {
-		// Save newly generated wallet
-		if err := pw.HDWallet.SaveToFile(config); err != nil {
-			log.Fatal(err)
-		}
-	} else {
-		// Load stored wallet from disk
-		pw.HDWallet = HDWallet
-	}
+- 🔒 Secure Bitcoin HD wallet implementation
+- 💰 Flexible payment tracking and verification
+- 🌐 Easy-to-use HTTP middleware
+- 💾 Multiple storage backends (Memory, File)
+- 🔑 AES-256 encrypted wallet storage
+- ⚡ Real-time payment verification
+- 📱 Mobile-friendly payment UI with QR codes
+- 🧪 Testnet support for development
 
-	// Protected content handler
-	protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("Protected content"))
-	})
+## Installation
 
-	// Apply paywall middleware
-	http.Handle("/protected", pw.Middleware(protected))
-
-	log.Println("Server starting on :8000")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+```bash
+go get github.com/opd-ai/paywall
 ```
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "log"
+    "net/http"
+    "time"
+    
+    "github.com/opd-ai/paywall"
+)
+
+func main() {
+    // Initialize paywall with minimal config
+    pw, err := paywall.NewPaywall(paywall.Config{
+        PriceInBTC:     0.001,                    // 0.001 BTC
+        TestNet:        true,                     // Use testnet
+        Store:          paywall.NewMemoryStore(), // In-memory storage
+        PaymentTimeout: time.Hour * 24,           // 24-hour payment window
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Protected content handler
+    protected := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Write([]byte("Protected content"))
+    })
+
+    // Apply paywall middleware
+    http.Handle("/protected", pw.Middleware(protected))
+
+    log.Fatal(http.ListenAndServe(":8000", nil))
+}
+```
+
+## Documentation
+
+### Configuration
+
+```go
+type Config struct {
+    PriceInBTC     float64
+    TestNet        bool
+    Store          Store
+    PaymentTimeout time.Duration
+}
+```
+
+### Storage Options
+
+- `NewMemoryStore()`: In-memory payment tracking (default)
+- `NewFileStore()`: Filesystem-based persistent storage
+
+### Wallet Management
+
+```go
+// Generate new wallet encryption key
+key, err := wallet.GenerateEncryptionKey()
+
+// Configure wallet storage
+config := wallet.StorageConfig{
+    DataDir:       "./paywallet",
+    EncryptionKey: key,
+}
+
+// Save/load wallet
+err = pw.HDWallet.SaveToFile(config)
+wallet, err := wallet.LoadFromFile(config)
+```
+
+## Security Features
+
+- Secure cookie handling with SameSite=Strict
+- AES-256-GCM wallet encryption
+- Cryptographically secure random payment IDs
+- Base58Check address encoding
+- Proper error handling and input validation
+
+## Use Cases
+
+Perfect for:
+- Digital content creators
+- Artists selling digital works
+- Subscription-based services
+- Pay-per-view content
+- API monetization
+- Digital downloads
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Support the Project
+
+If you find this project useful, consider supporting the developer:
+
+Bitcoin Address: `bc1qew5kx0srtp8c4hlpw8ax0gllhnpsnp9ylthpas`
+
+## License
+
+MIT License - see LICENSE file for details
+
+## Credits
+
+Created and maintained by the OPD AI team.
