@@ -77,3 +77,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 		p.renderPaymentPage(w, payment)
 	})
 }
+
+func (p *Paywall) MiddlewareFunc(next http.Handler) http.HandlerFunc {
+	return http.HandlerFunc(p.Middleware(next).(http.HandlerFunc))
+}
