@@ -43,7 +43,12 @@
             var now = new Date();
             var diff = expiresAt - now;
             if (diff <= 0) {
-                location.reload();
+                // Instead of reloading, show expired message
+                document.querySelector('.payment-details').innerHTML = 
+                    '<h1>Payment Expired</h1>' +
+                    '<p>This payment session has expired. Please refresh the page to generate a new payment address.</p>';
+                // Stop the countdown
+                clearInterval(countdownInterval);
                 return;
             }
             var minutes = Math.floor(diff / 60000);
@@ -51,7 +56,9 @@
             document.getElementById('countdown').textContent = 
                 minutes + ':' + (seconds < 10 ? '0' : '') + seconds;
         }
-        setInterval(updateCountdown, 1000);
+
+        // Store interval ID so we can clear it
+        var countdownInterval = setInterval(updateCountdown, 1000);
         updateCountdown();
     </script>
 </body>

@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/opd-ai/paywall"
 )
@@ -10,9 +11,10 @@ import (
 func main() {
 	// Initialize paywall with minimal config
 	pw, err := paywall.NewPaywall(paywall.Config{
-		PriceInBTC: 0.001,            // 0.001 BTC
-		TestNet:    true,             // Use testnet
-		Store:      NewMemoryStore(), // Required for payment tracking
+		PriceInBTC:     0.001,            // 0.001 BTC
+		TestNet:        true,             // Use testnet
+		Store:          NewMemoryStore(), // Required for payment tracking
+		PaymentTimeout: time.Hour * 24,
 	})
 	if err != nil {
 		log.Fatal(err)
