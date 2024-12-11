@@ -24,12 +24,13 @@
         <p>Please send exactly {{.AmountBTC}} BTC to:</p>
         <div class="address">{{.Address}}</div>
         <div id="qrcode"></div>
+        <div id="countdown"></div>
         <p>Payment will expire at: {{.ExpiresAt}}</p>
         <p>Payment ID: {{.PaymentID}}</p>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-    <script>'{{.QrcodeJs}}'</script>
+    <!--<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>-->
+    <script>{{.QrcodeJs}}</script>
     <script>
         // Generate QR code
         var qr = qrcode(0, 'M');

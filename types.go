@@ -2,6 +2,7 @@
 package paywall
 
 import (
+	"html/template"
 	"time"
 )
 
@@ -37,5 +38,5 @@ type PaymentPageData struct {
 	AmountBTC float64 `json:"amount_btc"`
 	ExpiresAt string  `json:"expires_at"`
 	PaymentID string  `json:"payment_id"`
-	QrcodeJs  string
+	QrcodeJs  template.JS
 }
