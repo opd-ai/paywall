@@ -24,7 +24,7 @@ type Config struct {
 }
 
 type Paywall struct {
-	wallet           *wallet.HDWallet
+	HDWallet         *wallet.HDWallet
 	store            PaymentStore
 	priceInBTC       float64
 	paymentTimeout   time.Duration
@@ -50,7 +50,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 
 	return &Paywall{
-		wallet:           hdWallet,
+		HDWallet:         hdWallet,
 		store:            config.Store,
 		priceInBTC:       config.PriceInBTC,
 		paymentTimeout:   config.PaymentTimeout,
@@ -60,7 +60,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 }
 
 func (p *Paywall) CreatePayment() (*Payment, error) {
-	address, err := p.wallet.GetAddress()
+	address, err := p.HDWallet.GetAddress()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get address: %w", err)
 	}

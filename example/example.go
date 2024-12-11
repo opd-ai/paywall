@@ -5,10 +5,26 @@ import (
 	"net/http"
 	"time"
 
+	"flag"
+
 	"github.com/opd-ai/paywall"
+	"github.com/opd-ai/paywall/wallet"
 )
 
+var seed = flag.String("seed", "", "Sequence of bytes to use as a seed for the wallet")
+
 func main() {
+	flag.Parse()
+	key, err := wallet.GenerateEncryptionKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	config := wallet.StorageConfig{
+		DataDir:       "./paywallet",
+		EncryptionKey: key,
+	}
+
 	// Initialize paywall with minimal config
 	pw, err := paywall.NewPaywall(paywall.Config{
 		PriceInBTC:     0.001,            // 0.001 BTC
@@ -16,8 +32,15 @@ func main() {
 		Store:          NewMemoryStore(), // Required for payment tracking
 		PaymentTimeout: time.Hour * 24,
 	})
-	if err != nil {
-		log.Fatal(err)
+	// Attempt to load wallet from disk, if it fails store the new one
+	if HDWallet, err := wallet.LoadFromFile(config); err != nil {
+		// Save newly generated wallet
+		if err := pw.HDWallet.SaveToFile(config); err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		// Load stored wallet from disk
+		pw.HDWallet = HDWallet
 	}
 
 	// Protected content handler
