@@ -37,7 +37,7 @@ func ConstructPaywall() (*Paywall, error) {
 
 	// Initialize paywall with minimal config
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,     // 0.001 BTC
+		PriceInBTC:     0.0001,    // 0.0001 BTC
 		TestNet:        true,      // Use testnet
 		Store:          fileStore, // Required for payment tracking
 		PaymentTimeout: time.Hour * 24,
