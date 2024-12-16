@@ -33,9 +33,8 @@
         </div>
     </div>
 
-    <!--<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>-->
-    <script>{{.QrcodeJs}}</script>
-    <script>
+    <script id="qr">{{.QrcodeJs}}</script>
+    <script id="btcqr">
         // Generate QR code
         var qr = qrcode(0, 'M');
         var qrData = 'bitcoin:{{.Address}}?amount={{.AmountBTC}}';
