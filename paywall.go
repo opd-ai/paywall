@@ -85,6 +85,9 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
+	if config.MinConfirmations < 1 {
+		config.MinConfirmations = 1
+	}
 
 	return &Paywall{
 		HDWallet:         hdWallet,
