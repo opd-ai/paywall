@@ -42,7 +42,7 @@ type Config struct {
 // Related types: Config, Payment, PaymentStore, wallet.HDWallet
 type Paywall struct {
 	// HDWallet generates unique Bitcoin addresses for payments
-	HDWallet *wallet.HDWallet
+	HDWallet *wallet.BTCHDWallet
 	// store persists payment information
 	store PaymentStore
 	// priceInBTC is the required payment amount in Bitcoin

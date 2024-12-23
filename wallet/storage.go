@@ -42,7 +42,7 @@ type StorageConfig struct {
 //   - Sets restrictive file permissions (0600)
 //
 // Related: LoadFromFile
-func (w *HDWallet) SaveToFile(config StorageConfig) error {
+func (w *BTCHDWallet) SaveToFile(config StorageConfig) error {
 	if len(config.EncryptionKey) != 32 {
 		return errors.New("encryption key must be 32 bytes")
 	}
@@ -102,7 +102,7 @@ func (w *HDWallet) SaveToFile(config StorageConfig) error {
 //   - Returns errors for any decryption failures
 //
 // Related: SaveToFile
-func LoadFromFile(config StorageConfig) (*HDWallet, error) {
+func LoadFromFile(config StorageConfig) (*BTCHDWallet, error) {
 	if len(config.EncryptionKey) != 32 {
 		return nil, errors.New("encryption key must be 32 bytes")
 	}
@@ -145,7 +145,7 @@ func LoadFromFile(config StorageConfig) (*HDWallet, error) {
 	}
 
 	// Reconstruct wallet
-	w := &HDWallet{
+	w := &BTCHDWallet{
 		masterKey: make([]byte, 32),
 		chainCode: make([]byte, 32),
 		network:   &chaincfg.MainNetParams, // Default to mainnet
