@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"log"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
@@ -27,6 +28,8 @@ var QrcodeJs embed.FS
 type Config struct {
 	// PriceInBTC is the amount in Bitcoin required for access
 	PriceInBTC float64
+	// PriceInXMR is the amount in Monero required for access
+	PriceInXMR float64
 	// PaymentTimeout is the duration after which pending payments expire
 	PaymentTimeout time.Duration
 	// MinConfirmations is the required number of blockchain confirmations
@@ -35,18 +38,24 @@ type Config struct {
 	TestNet bool
 	// Store implements the payment persistence interface
 	Store PaymentStore
+	// XMRUser is the monero-rpc username
+	XMRUser string
+	// XMRPassword is the monero-rpc password
+	XMRPassword string
+	// XMRRPC is the monero-rpc URL
+	XMRRPC string
 }
 
 // Paywall manages Bitcoin payment processing and verification
 // It generates payment addresses, tracks payment status, and validates transactions
 // Related types: Config, Payment, PaymentStore, wallet.HDWallet
 type Paywall struct {
-	// HDWallet generates unique Bitcoin addresses for payments
-	HDWallet *wallet.BTCHDWallet
+	// HDWallets generates unique Bitcoin or XMR addresses for payments
+	HDWallets map[wallet.WalletType]wallet.HDWallet
 	// store persists payment information
 	store PaymentStore
-	// priceInBTC is the required payment amount in Bitcoin
-	priceInBTC float64
+	// prices is the required payment amount in crypto per wallet
+	prices map[wallet.WalletType]float64
 	// paymentTimeout is how long payments can remain pending
 	paymentTimeout time.Duration
 	// minConfirmations is required blockchain confirmations
@@ -76,9 +85,20 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, fmt.Errorf("generate seed: %w", err)
 	}
 
-	hdWallet, err := wallet.NewHDWallet(seed, config.TestNet)
+	hdWallet, err := wallet.NewBTCHDWallet(seed, config.TestNet)
 	if err != nil {
 		return nil, fmt.Errorf("create wallet: %w", err)
+	}
+	if config.XMRRPC == "" {
+		config.XMRRPC = "http://127.0.0.1:18081"
+	}
+	xmrHdWallet, err := wallet.NewMoneroWallet(wallet.MoneroConfig{
+		RPCUser:     config.XMRUser,
+		RPCURL:      config.XMRRPC,
+		RPCPassword: config.XMRPassword,
+	})
+	if err != nil {
+		log.Printf("error creating XMR wallet %s,\n\tXMR will be disabled", err)
 	}
 
 	tmpl, err := template.ParseFS(TemplateFS, "templates/payment.html")
@@ -88,15 +108,57 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.MinConfirmations < 1 {
 		config.MinConfirmations = 1
 	}
-
+	hdWallets := make(map[wallet.WalletType]wallet.HDWallet)
+	hdWallets[wallet.WalletType(hdWallet.Currency())] = hdWallet
+	if xmrHdWallet != nil {
+		hdWallets[wallet.WalletType(xmrHdWallet.Currency())] = xmrHdWallet
+	}
+	prices := make(map[wallet.WalletType]float64)
+	prices[wallet.WalletType(hdWallet.Currency())] = config.PriceInBTC
+	if xmrHdWallet != nil {
+		prices[wallet.WalletType(xmrHdWallet.Currency())] = config.PriceInXMR
+	}
 	return &Paywall{
-		HDWallet:         hdWallet,
+		HDWallets:        hdWallets,
 		store:            config.Store,
-		priceInBTC:       config.PriceInBTC,
+		prices:           prices,
 		paymentTimeout:   config.PaymentTimeout,
 		minConfirmations: config.MinConfirmations,
 		template:         tmpl,
 	}, nil
+}
+
+func (p *Paywall) btcWalletAddress() (string, error) {
+	return p.HDWallets[wallet.Bitcoin].GetAddress()
+}
+
+func (p *Paywall) xmrWalletAddress() (string, error) {
+	if _, ok := p.HDWallets[wallet.Monero]; !ok {
+		log.Printf("Warning: XMR wallet is not in use, your privacy is sub-optimal")
+		return "", nil
+	}
+	xmrAddress, err := p.HDWallets[wallet.Monero].GetAddress()
+	if err != nil {
+		return "", fmt.Errorf("failed to get XMR address: %w", err)
+	}
+	return xmrAddress, nil
+}
+
+func (p *Paywall) addressMap() (map[wallet.WalletType]string, error) {
+	btcAddress, err := p.btcWalletAddress()
+	if err != nil {
+		return nil, err
+	}
+	xmrAddress, err := p.xmrWalletAddress()
+	if err != nil {
+		return nil, err
+	}
+	addresses := make(map[wallet.WalletType]string)
+	addresses[wallet.Bitcoin] = btcAddress
+	if xmrAddress != "" {
+		addresses[wallet.Monero] = xmrAddress
+	}
+	return addresses, nil
 }
 
 // CreatePayment generates a new payment request
@@ -108,15 +170,15 @@ func NewPaywall(config Config) (*Paywall, error) {
 // The payment starts in StatusPending state and expires after paymentTimeout
 // Related types: Payment, PaymentStatus
 func (p *Paywall) CreatePayment() (*Payment, error) {
-	address, err := p.HDWallet.GetAddress()
+	addresses, err := p.addressMap()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get address: %w", err)
+		return nil, err
 	}
 
 	payment := &Payment{
 		ID:        generatePaymentID(),
-		Address:   address,
-		AmountBTC: p.priceInBTC,
+		Addresses: addresses,
+		Amounts:   p.prices,
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(p.paymentTimeout),
 		Status:    StatusPending,

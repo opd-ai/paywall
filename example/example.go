@@ -45,12 +45,12 @@ func main() {
 	// Attempt to load wallet from disk, if it fails store the new one
 	if HDWallet, err := wallet.LoadFromFile(config); err != nil {
 		// Save newly generated wallet
-		if err := pw.HDWallet.SaveToFile(config); err != nil {
+		if err := pw.HDWallets[wallet.Bitcoin].(*wallet.BTCHDWallet).SaveToFile(config); err != nil {
 			log.Fatal(err)
 		}
 	} else {
 		// Load stored wallet from disk
-		pw.HDWallet = HDWallet
+		pw.HDWallets[wallet.Bitcoin] = HDWallet
 	}
 
 	// Protected content handler

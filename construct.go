@@ -37,7 +37,8 @@ func ConstructPaywall() (*Paywall, error) {
 
 	// Initialize paywall with minimal config
 	pw, err := NewPaywall(Config{
-		PriceInBTC:       0.0001,    // 0.0001 BTC
+		PriceInBTC:       0.0001, // 0.0001 BTC
+		PriceInXMR:       .005,
 		TestNet:          false,     // Use testnet
 		Store:            fileStore, // Required for payment tracking
 		PaymentTimeout:   time.Hour * 2,
@@ -49,12 +50,12 @@ func ConstructPaywall() (*Paywall, error) {
 	// Attempt to load wallet from disk, if it fails store the new one
 	if HDWallet, err := wallet.LoadFromFile(storageConfig); err != nil {
 		// Save newly generated wallet
-		if err := pw.HDWallet.SaveToFile(storageConfig); err != nil {
+		if err := pw.HDWallets[wallet.Bitcoin].(*wallet.BTCHDWallet).SaveToFile(storageConfig); err != nil {
 			return nil, err
 		}
 	} else {
 		// Load stored wallet from disk
-		pw.HDWallet = HDWallet
+		pw.HDWallets[wallet.Bitcoin] = HDWallet
 	}
 	return pw, nil
 }

@@ -72,32 +72,13 @@ func (w *MoneroHDWallet) DeriveNextAddress() (string, error) {
 	return result.Address, nil
 }
 
-// GetAddress implements HDWallet interface by returning the last derived address
+// GetAddress implements HDWallet interface by returning the next derived address, as the BTC wallet does
 func (w *MoneroHDWallet) GetAddress() (string, error) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.nextIndex == 0 {
-		return w.DeriveNextAddress()
-	}
-
-	// Get existing subaddress
-	resp, err := w.rpcCall("get_address", map[string]interface{}{
-		"account_index": 0,
-		"address_index": w.nextIndex - 1,
-	})
+	address, err := w.DeriveNextAddress()
 	if err != nil {
-		return "", fmt.Errorf("get address failed: %w", err)
+		return "", fmt.Errorf("failed to derive address: %w", err)
 	}
-
-	var result struct {
-		Address string `json:"address"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return "", fmt.Errorf("parse response failed: %w", err)
-	}
-
-	return result.Address, nil
+	return address, nil
 }
 
 // rpcCall is a helper function for making Monero RPC calls

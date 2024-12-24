@@ -20,10 +20,16 @@
 </head>
 <body>
     <div class="payment-details">
-        <h1>Payment Required</h1>
+        <h1>Payment Option(Choose only one) - Bitcoin</h1>
         <p>Please send exactly {{.AmountBTC}} BTC to:</p>
-        <div class="address">{{.Address}}</div>
-        <div id="qrcode"></div>
+        <div class="address">{{.BTCAddress}}</div>
+        <div id="qrcode-btc"></div>
+        {{if .XMRAddress}}
+        <h1>Payment Option(Choose only one) - Monero</h1>
+        <p>Please send exactly {{.AmountXMR}} XMR to:</p>
+        <div class="address">{{.XMRAddress}}</div>
+        <div id="qrcode-xmr"></div>
+        {{end}}
         
         <p>Payment will expire at: {{.ExpiresAt}}</p>
         <p>Payment ID: {{.PaymentID}}</p>
@@ -36,11 +42,17 @@
     <script id="qr">{{.QrcodeJs}}</script>
     <script id="btcqr">
         // Generate QR code
-        var qr = qrcode(0, 'M');
-        var qrData = 'bitcoin:{{.Address}}?amount={{.AmountBTC}}';
-        qr.addData(qrData);
-        qr.make();
-        document.getElementById('qrcode').innerHTML = qr.createImgTag(4);
+        var bqr = qrcode(0, 'M');
+        var bqrData = 'bitcoin:{{.BTCAddress}}?amount={{.AmountBTC}}';
+        bqr.addData(bqrData);
+        bqr.make();
+        document.getElementById('qrcode-btc').innerHTML = bqr.createImgTag(4);
+
+        var xqr = qrcode(0, 'M');
+        var xqrData = 'monero:{{.XMRAddress}}?amount={{.AmountXMR}}';
+        xqr.addData(xqrData);
+        xqr.make();
+        document.getElementById('qrcode-xmr').innerHTML = xqr.createImgTag(4);
 
         // Add countdown
         var expiresAt = new Date('{{.ExpiresAt}}');

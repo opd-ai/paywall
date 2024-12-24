@@ -4,19 +4,21 @@ package paywall
 import (
 	"context"
 	"time"
+
+	"github.com/opd-ai/paywall/wallet"
 )
 
 // BlockchainMonitor manages periodic verification of Bitcoin payments
 // It polls the blockchain for payment confirmations and updates payment status
 // Related types: Paywall, BitcoinClient, Payment
-type BlockchainMonitor struct {
+type CryptoChainMonitor struct {
 	paywall *Paywall
-	client  BitcoinClient
+	client  map[wallet.WalletType]CryptoClient
 }
 
 // BitcoinClient defines the interface for interacting with the Bitcoin network
 // Implementations should handle both mainnet and testnet appropriately
-type BitcoinClient interface {
+type CryptoClient interface {
 	// GetAddressBalance retrieves the current balance for a Bitcoin address
 	// Parameters:
 	//   - address: Bitcoin address to check (string)
@@ -41,7 +43,7 @@ type BitcoinClient interface {
 //
 // The monitor will run until the context is cancelled
 // Related methods: checkPendingPayments
-func (m *BlockchainMonitor) Start(ctx context.Context) {
+func (m *CryptoChainMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	go func() {
 		for {
@@ -67,7 +69,7 @@ func (m *BlockchainMonitor) Start(ctx context.Context) {
 //   - Invalid transactions are left in pending state
 //
 // Related types: Payment, PaymentStore
-func (m *BlockchainMonitor) checkPendingPayments() {
+func (m *CryptoChainMonitor) checkPendingPayments() {
 	payments, err := m.paywall.store.ListPendingPayments()
 	if err != nil {
 		// Handle error
@@ -75,13 +77,30 @@ func (m *BlockchainMonitor) checkPendingPayments() {
 	}
 
 	for _, payment := range payments {
-		balance, err := m.client.GetAddressBalance(payment.Address)
+		btcBalance, err := m.client[wallet.Bitcoin].GetAddressBalance(payment.Addresses[wallet.Monero])
 		if err != nil {
 			continue
 		}
 
-		if balance >= payment.AmountBTC {
-			confirmations, err := m.client.GetTransactionConfirmations(payment.TransactionID)
+		if btcBalance >= payment.Amounts[wallet.Bitcoin] {
+			confirmations, err := m.client[wallet.Bitcoin].GetTransactionConfirmations(payment.TransactionID)
+			if err != nil {
+				continue
+			}
+
+			if confirmations >= m.paywall.minConfirmations {
+				payment.Status = StatusConfirmed
+				payment.Confirmations = confirmations
+				m.paywall.store.UpdatePayment(payment)
+			}
+		}
+		xmrBalance, err := m.client[wallet.Monero].GetAddressBalance(payment.Addresses[wallet.Monero])
+		if err != nil {
+			continue
+		}
+
+		if xmrBalance >= payment.Amounts[wallet.Monero] {
+			confirmations, err := m.client[wallet.Monero].GetTransactionConfirmations(payment.TransactionID)
 			if err != nil {
 				continue
 			}

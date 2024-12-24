@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/opd-ai/paywall/wallet"
 )
 
 // renderPaymentPage generates and serves the HTML payment page for a given payment
@@ -34,11 +36,13 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 	qrCodeJsString := template.JS(qrCodeJsBytes)
 	// Prepare template data
 	data := PaymentPageData{
-		Address:   payment.Address,
-		AmountBTC: payment.AmountBTC,
-		ExpiresAt: payment.ExpiresAt.Format(time.RFC3339),
-		PaymentID: payment.ID,
-		QrcodeJs:  qrCodeJsString,
+		BTCAddress: payment.Addresses[wallet.Bitcoin],
+		AmountBTC:  payment.Amounts[wallet.Bitcoin],
+		XMRAddress: payment.Addresses[wallet.Monero],
+		AmountXMR:  payment.Amounts[wallet.Monero],
+		ExpiresAt:  payment.ExpiresAt.Format(time.RFC3339),
+		PaymentID:  payment.ID,
+		QrcodeJs:   qrCodeJsString,
 	}
 
 	if err := p.template.Execute(w, data); err != nil {

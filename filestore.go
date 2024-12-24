@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/opd-ai/paywall/wallet"
 )
 
 // FileStore implements the Store interface for filesystem-based payment tracking.
@@ -197,7 +199,10 @@ func (m *FileStore) GetPaymentByAddress(addr string) (*Payment, error) {
 			continue
 		}
 
-		if payment.Address == addr {
+		if payment.Addresses[wallet.Bitcoin] == addr {
+			return &payment, nil
+		}
+		if payment.Addresses[wallet.Monero] == addr {
 			return &payment, nil
 		}
 	}
