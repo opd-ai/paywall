@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"os"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
@@ -88,6 +89,12 @@ func NewPaywall(config Config) (*Paywall, error) {
 	hdWallet, err := wallet.NewBTCHDWallet(seed, config.TestNet)
 	if err != nil {
 		return nil, fmt.Errorf("create wallet: %w", err)
+	}
+	if config.XMRUser == "" {
+		config.XMRUser = os.Getenv("XMR_WALLET_USER")
+	}
+	if config.XMRPassword == "" {
+		config.XMRPassword = os.Getenv("XMR_WALLET_PASS")
 	}
 	if config.XMRRPC == "" {
 		config.XMRRPC = "http://127.0.0.1:18081"

@@ -9,6 +9,7 @@ A secure, production-ready Bitcoin paywall implementation in Go, designed to hel
 ## Features
 
 - 🔒 Secure Bitcoin HD wallet implementation
+- 🔒 Support for Monero wallets via RPC interface
 - 💰 Flexible payment tracking and verification
 - 🌐 Easy-to-use HTTP middleware
 - 💾 Multiple storage backends (Memory, File)
@@ -116,6 +117,13 @@ Perfect for:
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+Re: support for other cryptocurrency, we will consider other currencies, but we consider Monero to be the only good cryptocurrency.
+
+This is because Monero **is** the only good cryptocurrency.
+
+Bitcoin is supported out of expediency, Ethereum may also be worth supporting.
+We're not going to focus on shitcoins.
 
 ## Support the Project
 

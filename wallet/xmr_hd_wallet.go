@@ -1,20 +1,17 @@
 package wallet
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"sync"
+
+	monero "github.com/monero-ecosystem/go-monero-rpc-client/wallet"
 )
 
 // MoneroHDWallet implements the HDWallet interface for Monero using RPC
 type MoneroHDWallet struct {
-	rpcURL      string
-	rpcUser     string
-	rpcPassword string
-	mu          sync.Mutex
-	nextIndex   uint32
+	client    monero.Client
+	mu        sync.Mutex
+	nextIndex uint32
 }
 
 // MoneroConfig holds Monero wallet RPC connection details
@@ -26,15 +23,18 @@ type MoneroConfig struct {
 
 // NewMoneroWallet creates a new Monero wallet instance
 func NewMoneroWallet(config MoneroConfig) (*MoneroHDWallet, error) {
+	client := monero.New(monero.Config{
+		Address: config.RPCURL,
+	})
+
 	w := &MoneroHDWallet{
-		rpcURL:      config.RPCURL,
-		rpcUser:     config.RPCUser,
-		rpcPassword: config.RPCPassword,
-		nextIndex:   0,
+		client:    client,
+		nextIndex: 0,
 	}
 
-	// Test RPC connection
-	if err := w.testConnection(); err != nil {
+	// Test connection by getting balance
+	_, err := client.GetBalance(&monero.RequestGetBalance{AccountIndex: 0})
+	if err != nil {
 		return nil, fmt.Errorf("monero RPC connection failed: %w", err)
 	}
 
@@ -51,87 +51,25 @@ func (w *MoneroHDWallet) DeriveNextAddress() (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// Create new subaddress using RPC
-	resp, err := w.rpcCall("create_address", map[string]interface{}{
-		"account_index": 0,
-		"label":         fmt.Sprintf("payment-%d", w.nextIndex),
-	})
+	req := &monero.RequestCreateAddress{
+		AccountIndex: 0,
+		Label:        fmt.Sprintf("payment-%d", w.nextIndex),
+	}
+
+	resp, err := w.client.CreateAddress(req)
 	if err != nil {
 		return "", fmt.Errorf("create address failed: %w", err)
 	}
 
-	var result struct {
-		Address    string `json:"address"`
-		AddressIdx uint32 `json:"address_index"`
-	}
-	if err := json.Unmarshal(resp, &result); err != nil {
-		return "", fmt.Errorf("parse response failed: %w", err)
-	}
-
 	w.nextIndex++
-	return result.Address, nil
+	return resp.Address, nil
 }
 
-// GetAddress implements HDWallet interface by returning the next derived address, as the BTC wallet does
+// GetAddress implements HDWallet interface by deriving next address
 func (w *MoneroHDWallet) GetAddress() (string, error) {
 	address, err := w.DeriveNextAddress()
 	if err != nil {
 		return "", fmt.Errorf("failed to derive address: %w", err)
 	}
 	return address, nil
-}
-
-// rpcCall is a helper function for making Monero RPC calls
-func (w *MoneroHDWallet) rpcCall(method string, params interface{}) (json.RawMessage, error) {
-	payload, err := json.Marshal(map[string]interface{}{
-		"jsonrpc": "2.0",
-		"id":      "1",
-		"method":  method,
-		"params":  params,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("marshal request failed: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", w.rpcURL, bytes.NewBuffer(payload))
-	if err != nil {
-		return nil, fmt.Errorf("create request failed: %w", err)
-	}
-
-	req.SetBasicAuth(w.rpcUser, w.rpcPassword)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("rpc request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode response failed: %w", err)
-	}
-
-	if result.Error != nil {
-		return nil, fmt.Errorf("rpc error %d: %s", result.Error.Code, result.Error.Message)
-	}
-
-	return result.Result, nil
-}
-
-// testConnection verifies the RPC connection is working
-func (w *MoneroHDWallet) testConnection() error {
-	_, err := w.rpcCall("get_version", nil)
-	if err != nil {
-		return fmt.Errorf("connection test failed: %w", err)
-	}
-	return nil
 }
