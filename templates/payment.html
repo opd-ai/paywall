@@ -46,7 +46,8 @@
         var bqrData = 'bitcoin:{{.BTCAddress}}?amount={{.AmountBTC}}';
         bqr.addData(bqrData);
         bqr.make();
-        document.getElementById('qrcode-btc').innerHTML = bqr.createImgTag(4);
+        if (document.getElementById('qrcode-btc'))
+            document.getElementById('qrcode-btc').innerHTML = bqr.createImgTag(4);
 
         var xqr = qrcode(0, 'M');
         var xqrData = 'monero:{{.XMRAddress}}?amount={{.AmountXMR}}';
