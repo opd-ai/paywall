@@ -52,7 +52,8 @@
         var xqrData = 'monero:{{.XMRAddress}}?amount={{.AmountXMR}}';
         xqr.addData(xqrData);
         xqr.make();
-        document.getElementById('qrcode-xmr').innerHTML = xqr.createImgTag(4);
+        if (document.getElementById('qrcode-xmr'))
+            document.getElementById('qrcode-xmr').innerHTML = xqr.createImgTag(4);
 
         // Add countdown
         var expiresAt = new Date('{{.ExpiresAt}}');
