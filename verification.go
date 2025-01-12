@@ -70,7 +70,7 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 //
 // Related types: Payment, PaymentStore
 func (m *CryptoChainMonitor) checkPendingPayments() {
-	payments, err := m.paywall.store.ListPendingPayments()
+	payments, err := m.paywall.Store.ListPendingPayments()
 	if err != nil {
 		// Handle error
 		return
@@ -91,7 +91,7 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 			if confirmations >= m.paywall.minConfirmations {
 				payment.Status = StatusConfirmed
 				payment.Confirmations = confirmations
-				m.paywall.store.UpdatePayment(payment)
+				m.paywall.Store.UpdatePayment(payment)
 			}
 		}
 		xmrBalance, err := m.client[wallet.Monero].GetAddressBalance(payment.Addresses[wallet.Monero])
@@ -108,7 +108,7 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 			if confirmations >= m.paywall.minConfirmations {
 				payment.Status = StatusConfirmed
 				payment.Confirmations = confirmations
-				m.paywall.store.UpdatePayment(payment)
+				m.paywall.Store.UpdatePayment(payment)
 			}
 		}
 	}

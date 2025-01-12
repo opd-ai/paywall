@@ -53,8 +53,8 @@ type Config struct {
 type Paywall struct {
 	// HDWallets generates unique Bitcoin or XMR addresses for payments
 	HDWallets map[wallet.WalletType]wallet.HDWallet
-	// store persists payment information
-	store PaymentStore
+	// Store persists payment information
+	Store PaymentStore
 	// prices is the required payment amount in crypto per wallet
 	prices map[wallet.WalletType]float64
 	// paymentTimeout is how long payments can remain pending
@@ -127,7 +127,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 	return &Paywall{
 		HDWallets:        hdWallets,
-		store:            config.Store,
+		Store:            config.Store,
 		prices:           prices,
 		paymentTimeout:   config.PaymentTimeout,
 		minConfirmations: config.MinConfirmations,
@@ -191,7 +191,7 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 		Status:    StatusPending,
 	}
 
-	if err := p.store.CreatePayment(payment); err != nil {
+	if err := p.Store.CreatePayment(payment); err != nil {
 		return nil, fmt.Errorf("failed to store payment: %w", err)
 	}
 

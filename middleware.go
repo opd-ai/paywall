@@ -41,7 +41,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 		cookie, err := r.Cookie("payment_id")
 		if err == nil {
 			// Cookie exists, verify payment
-			payment, err := p.store.GetPayment(cookie.Value)
+			payment, err := p.Store.GetPayment(cookie.Value)
 			if err == nil && payment != nil {
 				if payment.Status == StatusConfirmed && time.Now().Before(payment.ExpiresAt) {
 					// Payment confirmed and not expired, allow access
