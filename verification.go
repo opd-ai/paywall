@@ -77,7 +77,7 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 	}
 
 	for _, payment := range payments {
-		btcBalance, err := m.client[wallet.Bitcoin].GetAddressBalance(payment.Addresses[wallet.Monero])
+		btcBalance, err := m.client[wallet.Bitcoin].GetAddressBalance(payment.Addresses[wallet.Bitcoin])
 		if err != nil {
 			continue
 		}
