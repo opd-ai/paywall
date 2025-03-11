@@ -6,6 +6,11 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 )
 
+// Address represents a Bitcoin address and wraps a `string` to implement the btcutil.Address interface.
+// It provides methods to encode the address, retrieve the raw bytes of the address, and check if the address
+// is valid for a specific Bitcoin network (mainnet or testnet).
+type Address string
+
 /*
 
 Copied from btcutil, we need to implement the btcutil.Address interface in order to use the btcutil functions
@@ -36,20 +41,26 @@ type Address interface {
 }
 */
 
-// Address wraps a `string` in order to implement the btcutil.Address interface
-type Address string
-
-// String returns the string encoding of the transaction output destination.
+// String returns the string encoding of the transaction output
+// destination.
+// Please note that String differs subtly from EncodeAddress: String
+// will return the value as a string without any conversion, while
+// EncodeAddress may convert destination types (for example,
+// converting pubkeys to P2PKH addresses) before encoding as a
+// payment address string.
 func (a Address) String() string {
 	return string(a)
 }
 
-// EncodeAddress returns the string encoding of the payment address associated with the Address value.
+// EncodeAddress returns the string encoding of the payment address
+// associated with the Address value.  See the comment on String
+// for how this method differs from String.
 func (a Address) EncodeAddress() string {
 	return string(a)
 }
 
-// ScriptAddress returns the raw bytes of the address to be used when inserting the address into a txout's script.
+// ScriptAddress returns the raw bytes of the address to be used
+// when inserting the address into a txout's script.
 func (a Address) ScriptAddress() []byte {
 	return []byte(a)
 }
