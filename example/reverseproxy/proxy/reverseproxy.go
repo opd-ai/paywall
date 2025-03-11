@@ -74,7 +74,7 @@ func (rp *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(response.StatusCode)
-	//write the response body to the client
+	// write the response body to the client
 	_, err = io.Copy(w, response.Body)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to write response: %v", err), http.StatusInternalServerError)

@@ -44,7 +44,7 @@ type CryptoClient interface {
 // The monitor will run until the context is cancelled
 // Related methods: checkPendingPayments
 func (m *CryptoChainMonitor) Start(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
 	go func() {
 		for {
 			select {

@@ -27,20 +27,22 @@ import (
 // flags: -letsencrypt false
 // flags: -email ""
 // flags: -cert-dir ./
-var target = flag.String("target", "http://localhost:3000", "target server URL")
-var protectedPath = flag.String("protected-path", "/protected", "protected path requiring payment")
-var priceInBTC = flag.Float64("price-in-btc", 0.0001, "price in BTC for access")
-var priceInXMR = flag.Float64("price-in-xmr", 0.01, "price in XMR for access")
-var paymentTimeout = flag.Duration("payment-timeout", 10*time.Minute, "payment timeout duration")
-var minConfirmations = flag.Int("min-confirmations", 1, "minimum blockchain confirmations required")
-var testnet = flag.Bool("testnet", false, "use Bitcoin testnet")
-var hostname = flag.String("hostname", "localhost", "hostname for the server")
-var port = flag.String("port", "8080", "port for the server")
-var letsencrypt = flag.Bool("letsencrypt", false, "use Let's Encrypt for HTTPS")
-var email = flag.String("email", "", "email for Let's Encrypt certificate")
-var certDir = flag.String("cert-dir", wd(), "directory for Let's Encrypt certificates")
-var tokens = flag.Uint64("tokens", 15, "number of tokens allowed per interval")
-var interval = flag.Duration("interval", 1*time.Minute, "interval until tokens reset")
+var (
+	target           = flag.String("target", "http://localhost:3000", "target server URL")
+	protectedPath    = flag.String("protected-path", "/protected", "protected path requiring payment")
+	priceInBTC       = flag.Float64("price-in-btc", 0.0001, "price in BTC for access")
+	priceInXMR       = flag.Float64("price-in-xmr", 0.01, "price in XMR for access")
+	paymentTimeout   = flag.Duration("payment-timeout", 10*time.Minute, "payment timeout duration")
+	minConfirmations = flag.Int("min-confirmations", 1, "minimum blockchain confirmations required")
+	testnet          = flag.Bool("testnet", false, "use Bitcoin testnet")
+	hostname         = flag.String("hostname", "localhost", "hostname for the server")
+	port             = flag.String("port", "8080", "port for the server")
+	letsencrypt      = flag.Bool("letsencrypt", false, "use Let's Encrypt for HTTPS")
+	email            = flag.String("email", "", "email for Let's Encrypt certificate")
+	certDir          = flag.String("cert-dir", wd(), "directory for Let's Encrypt certificates")
+	tokens           = flag.Uint64("tokens", 15, "number of tokens allowed per interval")
+	interval         = flag.Duration("interval", 1*time.Minute, "interval until tokens reset")
+)
 
 func wd() string {
 	wd, err := os.Getwd()
@@ -106,5 +108,4 @@ func main() {
 	if err := http.Serve(listener, limiter.Handle(proxy)); err != nil {
 		log.Fatal(err)
 	}
-
 }
