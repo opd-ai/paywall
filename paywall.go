@@ -2,6 +2,7 @@
 package paywall
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -63,6 +64,12 @@ type Paywall struct {
 	minConfirmations int
 	// template is the parsed payment page HTML template
 	template *template.Template
+	// monitor is the blockchain monitoring service
+	monitor *CryptoChainMonitor
+	// ctx is the context for monitoring goroutine
+	ctx context.Context
+	// cancel is the context cancellation function
+	cancel context.CancelFunc
 }
 
 // NewPaywall creates and initializes a new Paywall instance
@@ -125,14 +132,30 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if xmrHdWallet != nil {
 		prices[wallet.WalletType(xmrHdWallet.Currency())] = config.PriceInXMR
 	}
-	return &Paywall{
+	// Create context with cancellation
+	pctx, pcancel := context.WithCancel(context.Background())
+	p := &Paywall{
 		HDWallets:        hdWallets,
 		Store:            config.Store,
 		prices:           prices,
 		paymentTimeout:   config.PaymentTimeout,
 		minConfirmations: config.MinConfirmations,
 		template:         tmpl,
-	}, nil
+		ctx:              pctx,
+		cancel:           pcancel,
+	}
+	// Initialize monitor
+	monitor := &CryptoChainMonitor{
+		paywall: p,
+		client:  make(map[wallet.WalletType]CryptoClient),
+	}
+	monitor.client[wallet.Bitcoin] = hdWallets[wallet.Bitcoin]
+	if xmrHdWallet != nil {
+		monitor.client[wallet.Monero] = hdWallets[wallet.Monero]
+	}
+	p.monitor = monitor
+	p.monitor.Start(pctx)
+	return p, nil
 }
 
 func (p *Paywall) btcWalletAddress() (string, error) {

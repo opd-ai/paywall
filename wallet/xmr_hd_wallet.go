@@ -73,3 +73,34 @@ func (w *MoneroHDWallet) GetAddress() (string, error) {
 	}
 	return address, nil
 }
+
+// GetAddressBalance implements paywall.CryptoClient by getting balance for specific address
+func (w *MoneroHDWallet) GetAddressBalance(address string) (float64, error) {
+	resp, err := w.client.GetBalance(&monero.RequestGetBalance{AccountIndex: 0})
+	if err != nil {
+		return 0, fmt.Errorf("get balance failed: %w", err)
+	}
+
+	// Convert atomic units to XMR (1 XMR = 1e12 atomic units)
+	balance := float64(resp.Balance) / 1e12
+	return balance, nil
+}
+
+// GetTransactionConfirmations implements paywall.CryptoClient.
+func (w *MoneroHDWallet) GetTransactionConfirmations(txID string) (int, error) {
+	resp, err := w.client.GetTransfers(&monero.RequestGetTransfers{
+		In:           true,
+		AccountIndex: 0,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("get transfers failed: %w", err)
+	}
+
+	for _, tx := range resp.In {
+		if tx.TxID == txID {
+			return int(tx.Confirmations), nil
+		}
+	}
+
+	return 0, fmt.Errorf("transaction %s not found", txID)
+}

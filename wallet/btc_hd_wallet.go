@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/rpcclient"
 	"golang.org/x/crypto/ripemd160"
 )
 
@@ -28,10 +29,11 @@ const (
 // BTCHDWallet represents a hierarchical deterministic Bitcoin wallet
 // implementing BIP32 and BIP44 standards.
 type BTCHDWallet struct {
-	masterKey []byte           // Master private key
-	chainCode []byte           // Master chain code for key derivation
-	network   *chaincfg.Params // Network parameters (mainnet/testnet)
-	nextIndex uint32           // Next address index to derive
+	masterKey []byte            // Master private key
+	chainCode []byte            // Master chain code for key derivation
+	network   *chaincfg.Params  // Network parameters (mainnet/testnet)
+	nextIndex uint32            // Next address index to derive
+	client    *rpcclient.Client // RPC client for blockchain queries
 }
 
 // NewHDWallet creates a new HD wallet from a seed.
@@ -67,11 +69,44 @@ func NewBTCHDWallet(seed []byte, testnet bool) (*BTCHDWallet, error) {
 		network = &chaincfg.TestNet3Params
 	}
 
+	// Try local node first
+	port := "8332"
+	if testnet {
+		port = "18332"
+	}
+
+	localConfig := &rpcclient.ConnConfig{
+		Host:         "localhost:" + port,
+		HTTPPostMode: true,
+		DisableTLS:   true,
+	}
+
+	client, err := rpcclient.New(localConfig, nil)
+	if err != nil {
+		// Fall back to public node if local fails
+		publicHost := "api.blockcypher.com/v1/btc/main"
+		if testnet {
+			publicHost = "api.blockcypher.com/v1/btc/test3"
+		}
+
+		publicConfig := &rpcclient.ConnConfig{
+			Host:         publicHost,
+			HTTPPostMode: true,
+			DisableTLS:   false,
+		}
+
+		client, err = rpcclient.New(publicConfig, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to both local and public nodes: %v", err)
+		}
+	}
+
 	return &BTCHDWallet{
 		masterKey: masterKey,
 		chainCode: chainCode,
 		network:   network,
 		nextIndex: 0,
+		client:    client,
 	}, nil
 }
 
@@ -252,4 +287,49 @@ var _ HDWallet = (*BTCHDWallet)(nil)
 // Currency implements HDWallet interface
 func (w *BTCHDWallet) Currency() string {
 	return string(Bitcoin)
+}
+
+// GetAddressBalance implements paywall.CryptoClient
+// Returns the balance for a specific Bitcoin address.
+//
+// Parameters:
+//   - address: Bitcoin address to check
+//
+// Returns:
+//   - float64: Current balance in BTC
+//   - error: If address is invalid or query fails
+//
+// Related: GetTransactionConfirmations
+func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
+	// Validate address format
+	_, err := Base58Decode(address)
+	if err != nil {
+		return 0, fmt.Errorf("invalid bitcoin address: %w", err)
+	}
+
+	// Use RPC client to get address balance
+	balance, err := w.client.GetReceivedByAddress(Address(address))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get address balance: %w", err)
+	}
+
+	// Convert from satoshis to BTC
+	btcBalance := float64(balance) / 1e8
+
+	return btcBalance, nil
+}
+
+// GetTransactionConfirmations implements paywall.CryptoClient.
+// Returns the number of confirmations for a specific transaction.
+//
+// Parameters:
+//   - txID: Bitcoin transaction ID
+//
+// Returns:
+//   - int: Number of confirmations
+//   - error: If transaction is not found or query fails
+//
+// Related: GetAddressBalance
+func (h *BTCHDWallet) GetTransactionConfirmations(txID string) (int, error) {
+	return 0, fmt.Errorf("GetTransactionConfirmations not implemented")
 }
