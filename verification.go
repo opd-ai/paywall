@@ -3,10 +3,9 @@ package paywall
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
-
-	"log"
 
 	"github.com/opd-ai/paywall/wallet"
 )
