@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
+	"github.com/opentracing/opentracing-go/log"
 )
 
 // BlockchainMonitor manages periodic verification of Bitcoin payments
@@ -72,8 +73,6 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 //
 // Related types: Payment, PaymentStore
 func (m *CryptoChainMonitor) checkPendingPayments() {
-	m.mux.Lock()
-	defer m.mux.Unlock()
 	payments, err := m.paywall.Store.ListPendingPayments()
 	if err != nil {
 		// Handle error
@@ -81,39 +80,59 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 	}
 
 	for _, payment := range payments {
-		btcBalance, err := m.client[wallet.Bitcoin].GetAddressBalance(payment.Addresses[wallet.Bitcoin])
-		if err != nil {
-			continue
+		if err := m.CheckBTCPayments(payment); err != nil {
+			// log error
+			log.Error(err)
 		}
-
-		if btcBalance >= payment.Amounts[wallet.Bitcoin] {
-			confirmations, err := m.client[wallet.Bitcoin].GetTransactionConfirmations(payment.TransactionID)
-			if err != nil {
-				continue
-			}
-
-			if confirmations >= m.paywall.minConfirmations {
-				payment.Status = StatusConfirmed
-				payment.Confirmations = confirmations
-				m.paywall.Store.UpdatePayment(payment)
-			}
-		}
-		xmrBalance, err := m.client[wallet.Monero].GetAddressBalance(payment.Addresses[wallet.Monero])
-		if err != nil {
-			continue
-		}
-
-		if xmrBalance >= payment.Amounts[wallet.Monero] {
-			confirmations, err := m.client[wallet.Monero].GetTransactionConfirmations(payment.TransactionID)
-			if err != nil {
-				continue
-			}
-
-			if confirmations >= m.paywall.minConfirmations {
-				payment.Status = StatusConfirmed
-				payment.Confirmations = confirmations
-				m.paywall.Store.UpdatePayment(payment)
-			}
+		if err := m.CheckXMRPayments(payment); err != nil {
+			// log error
+			log.Error(err)
 		}
 	}
+}
+
+func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	xmrBalance, err := m.client[wallet.Monero].GetAddressBalance(payment.Addresses[wallet.Monero])
+	if err != nil {
+		return err
+	}
+
+	if xmrBalance >= payment.Amounts[wallet.Monero] {
+		confirmations, err := m.client[wallet.Monero].GetTransactionConfirmations(payment.TransactionID)
+		if err != nil {
+			return err
+		}
+
+		if confirmations >= m.paywall.minConfirmations {
+			payment.Status = StatusConfirmed
+			payment.Confirmations = confirmations
+			m.paywall.Store.UpdatePayment(payment)
+		}
+	}
+	return nil
+}
+
+func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	btcBalance, err := m.client[wallet.Bitcoin].GetAddressBalance(payment.Addresses[wallet.Bitcoin])
+	if err != nil {
+		return err
+	}
+
+	if btcBalance >= payment.Amounts[wallet.Bitcoin] {
+		confirmations, err := m.client[wallet.Bitcoin].GetTransactionConfirmations(payment.TransactionID)
+		if err != nil {
+			return err
+		}
+
+		if confirmations >= m.paywall.minConfirmations {
+			payment.Status = StatusConfirmed
+			payment.Confirmations = confirmations
+			m.paywall.Store.UpdatePayment(payment)
+		}
+	}
+	return nil
 }
