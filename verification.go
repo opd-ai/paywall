@@ -17,7 +17,7 @@ import (
 type CryptoChainMonitor struct {
 	paywall *Paywall
 	client  map[wallet.WalletType]CryptoClient
-	mux     *sync.Mutex
+	mux     sync.RWMutex
 }
 
 // BitcoinClient defines the interface for interacting with the Bitcoin network
@@ -50,6 +50,7 @@ type CryptoClient interface {
 func (m *CryptoChainMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	go func() {
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ctx.Done():

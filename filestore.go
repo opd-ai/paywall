@@ -3,6 +3,7 @@ package paywall
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -145,11 +146,13 @@ func (m *FileStore) ListPendingPayments() ([]*Payment, error) {
 
 		data, err := os.ReadFile(filepath.Join(m.baseDir, file.Name()))
 		if err != nil {
+			log.Printf("Error reading file %s: %v", file.Name(), err)
 			continue
 		}
 
 		var payment Payment
 		if err := json.Unmarshal(data, &payment); err != nil {
+			log.Printf("Error parsing file %s: %v", file.Name(), err)
 			continue
 		}
 

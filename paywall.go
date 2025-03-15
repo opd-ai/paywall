@@ -100,12 +100,25 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.XMRUser == "" {
 		config.XMRUser = os.Getenv("XMR_WALLET_USER")
 	}
+	// Use secure environment variable handling
 	if config.XMRPassword == "" {
-		config.XMRPassword = os.Getenv("XMR_WALLET_PASS")
+		pass, exists := os.LookupEnv("XMR_WALLET_PASS")
+		if !exists {
+			return nil, fmt.Errorf("XMR wallet password not provided")
+		}
+		config.XMRPassword = pass
 	}
 	if config.XMRRPC == "" {
 		config.XMRRPC = "http://127.0.0.1:18081"
 	}
+	// Add credential validation
+	if config.XMRUser != "" && len(config.XMRUser) < 3 {
+		return nil, fmt.Errorf("XMR RPC username must be at least 3 characters")
+	}
+	if config.XMRPassword != "" && len(config.XMRPassword) < 8 {
+		return nil, fmt.Errorf("XMR RPC password must be at least 8 characters")
+	}
+
 	xmrHdWallet, err := wallet.NewMoneroWallet(wallet.MoneroConfig{
 		RPCUser:     config.XMRUser,
 		RPCURL:      config.XMRRPC,
