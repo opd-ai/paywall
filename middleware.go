@@ -42,7 +42,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 		if err == nil {
 			// Cookie exists, verify payment
 			// update expiration +15 minutes
-			cookie.Expires = time.Now().Add(15 * time.Minute)
+			cookie.Expires = time.Now().Add(1 * time.Hour)
 			http.SetCookie(w, cookie)
 			payment, err := p.Store.GetPayment(cookie.Value)
 			if err == nil && payment != nil {
@@ -65,7 +65,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "Failed to create payment", http.StatusInternalServerError)
 			return
 		}
-		cookieExpiration := time.Now().Add(15 * time.Minute)
+		cookieExpiration := time.Now().Add(1 * time.Hour)
 
 		// Set cookie for new payment
 		http.SetCookie(w, &http.Cookie{
