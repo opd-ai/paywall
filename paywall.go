@@ -247,6 +247,7 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 // generatePaymentID creates a random 16-byte hex-encoded payment identifier
 // Returns:
 //   - string: A 32-character hexadecimal string
+//   - error: If random generation fails
 //
 // This is an internal helper function that uses crypto/rand for secure randomness
 func generatePaymentID() (string, error) {
