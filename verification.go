@@ -95,8 +95,12 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 
 func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 	m.mux.Lock()
-	defer m.mux.Unlock()
-	xmrBalance, err := m.client[wallet.Monero].GetAddressBalance(payment.Addresses[wallet.Monero])
+	client, exists := m.client[wallet.Monero]
+	m.mux.Unlock()
+	if !exists {
+		return fmt.Errorf("monero client not found")
+	}
+	xmrBalance, err := client.GetAddressBalance(payment.Addresses[wallet.Monero])
 	if err != nil {
 		return err
 	}
@@ -118,8 +122,12 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 
 func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 	m.mux.Lock()
-	defer m.mux.Unlock()
-	btcBalance, err := m.client[wallet.Bitcoin].GetAddressBalance(payment.Addresses[wallet.Bitcoin])
+	client, exists := m.client[wallet.Bitcoin]
+	m.mux.Unlock()
+	if !exists {
+		return fmt.Errorf("bitcoin client not found")
+	}
+	btcBalance, err := client.GetAddressBalance(payment.Addresses[wallet.Bitcoin])
 	if err != nil {
 		return err
 	}

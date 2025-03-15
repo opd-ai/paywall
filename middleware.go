@@ -62,15 +62,17 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "Failed to create payment", http.StatusInternalServerError)
 			return
 		}
+		cookieExpiration := time.Now().Add(15 * time.Minute)
 
 		// Set cookie for new payment
 		http.SetCookie(w, &http.Cookie{
 			Name:     "payment_id",
 			Value:    payment.ID,
-			Expires:  payment.ExpiresAt,
+			Expires:  cookieExpiration,
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteStrictMode,
+			Path:     "/",
 		})
 
 		// Show payment page

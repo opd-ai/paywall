@@ -96,6 +96,34 @@ err = pw.HDWallet.SaveToFile(config)
 wallet, err := wallet.LoadFromFile(config)
 ```
 
+### Storage Backends
+
+#### Available Storage Options
+
+#### Memory Store
+- Volatile in-memory storage
+- Suitable for testing and development
+- Data is lost on service restart
+
+#### File Store
+- Persistent filesystem storage
+- Default location: ./paywallet
+- AES-256 encrypted storage
+- Suitable for production use
+
+### Configuration Example
+
+```go
+// Memory Store
+store := paywall.NewMemoryStore()
+
+// File Store
+store := paywall.NewFileStore(paywall.FileStoreConfig{
+    DataDir: "/var/lib/paywall/data",
+    EncryptionKey: key,
+})
+```
+
 ## Security Features
 
 - Secure cookie handling with SameSite=Strict
