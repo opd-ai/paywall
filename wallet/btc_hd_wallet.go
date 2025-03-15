@@ -466,6 +466,38 @@ func (w *BTCHDWallet) RecoverNextIndex() error {
 		}
 		// Derive address and check if it has been used
 		// If used, update highestIndex
+		key := w.masterKey
+		chainCode := w.chainCode
+
+		// Derive address at index i
+		for _, segment := range path {
+			var err error
+			key, chainCode, err = w.deriveKey(key, chainCode, segment)
+			if err != nil {
+				return fmt.Errorf("key derivation failed: %w", err)
+			}
+		}
+
+		// Generate public key and address
+		privKey, _ := btcec.PrivKeyFromBytes(key)
+		pubKey := privKey.PubKey()
+		pubKeyBytes := pubKey.SerializeCompressed()
+
+		address, err := w.pubKeyToAddress(pubKeyBytes)
+		if err != nil {
+			return fmt.Errorf("address generation failed: %w", err)
+		}
+
+		// Check if address has been used by querying balance
+		balance, err := w.GetAddressBalance(address)
+		if err != nil {
+			return fmt.Errorf("failed to check address balance: %w", err)
+		}
+
+		// If balance > 0 or transactions exist, update highestIndex
+		if balance > 0 {
+			highestIndex = i
+		}
 	}
 
 	w.nextIndex = highestIndex + 1
