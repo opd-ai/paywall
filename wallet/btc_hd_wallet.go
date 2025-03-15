@@ -10,6 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"math/rand"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -25,6 +29,116 @@ const (
 	accountDefault   = 0          // Default account index
 	changeExternal   = 0          // External chain for receiving addresses
 )
+
+var testnetAPIEndpoints = []string{
+	// BlockCypher endpoints
+	"api.blockcypher.com/v1/btc/test3",
+	"tbtc.blockdozer.com",
+
+	// Bitcoin Core compatible endpoints
+	"testnet.bitcoin.criptolayer.net",
+	"testnet3.blockchain.info",
+	"testnet-btc.cointools.io",
+	"btc-testnet.greyh.at",
+	"testnet.bitcoinrpc.io",
+	"testnet.blockchain.info",
+	"testnet-api.smartbit.com.au/v1/blockchain",
+	"tchain.api.btc.com/v3",
+	"test-insight.bitpay.com/api",
+	"testnet.blockexplorer.com/api",
+	"tbtc1.trezor.io",
+	"tbtc2.trezor.io",
+	"bitcoin-testnet-api.blockcypher.com",
+	"testnet-api.blockchain.info",
+	"testnet.blockstream.info/api",
+	"testnet.bitcoinexplorer.org",
+	"testnet.bitaps.com",
+	"testnet-api.smartbit.com.au",
+	"testnet.chain.so/api/v2",
+	"testnet.blockchair.com/bitcoin/testnet",
+}
+
+var mainnetAPIEndpoints = []string{
+	// BlockCypher endpoints
+	"api.blockcypher.com/v1/btc/main",
+
+	// Bitcoin Core compatible endpoints
+	"mainnet.bitcoin.criptolayer.net",
+	"blockchain.info",
+	"btc.cointools.io",
+	"main.btc.greyh.at",
+	"bitcoin.bitcoinrpc.io",
+	"api.blockchain.info",
+	"api.smartbit.com.au/v1/blockchain",
+	"chain.api.btc.com/v3",
+	"insight.bitpay.com/api",
+	"blockexplorer.com/api",
+	"btc1.trezor.io",
+	"btc2.trezor.io",
+	"bitcoin-mainnet-api.blockcypher.com",
+	"api.blockchain.info",
+	"blockstream.info/api",
+	"bitcoinexplorer.org",
+	"api.bitaps.com",
+	"api.smartbit.com.au",
+	"chain.so/api/v2",
+	"api.blockchair.com/bitcoin",
+	"mempool.space/api",
+	"blockbook.bitcoin.org",
+}
+
+// Usage considerations:
+// 1. Many of these endpoints may implement rate limiting
+// 2. Some endpoints might require HTTPS
+// 3. Consider implementing fallback logic between endpoints
+// 4. Monitor endpoint health in production
+// 5. Some endpoints might have slightly different API structures
+
+// Example helper function to validate endpoints
+func validateEndpoint(endpoint string) bool {
+	client := &http.Client{
+		Timeout: time.Second * 10,
+	}
+
+	// Add https:// if not present
+	if !strings.HasPrefix(endpoint, "http") {
+		endpoint = "https://" + endpoint
+	}
+
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode == http.StatusOK
+}
+
+func randomInt(min, max int) int {
+	return min + rand.Intn(max-min)
+}
+
+func randomElement(list []string) string {
+	min := 0
+	max := len(list)
+	index := randomInt(min, max)
+	return list[index]
+}
+
+func randomEndpoint(testnet bool) string {
+	if testnet {
+		endpoint := randomElement(testnetAPIEndpoints)
+		for !validateEndpoint(endpoint) {
+			endpoint = randomElement(testnetAPIEndpoints)
+		}
+		return endpoint
+	}
+	endpoint := randomElement(mainnetAPIEndpoints)
+	for !validateEndpoint(endpoint) {
+		endpoint = randomElement(mainnetAPIEndpoints)
+	}
+	return endpoint
+}
 
 // BTCHDWallet represents a hierarchical deterministic Bitcoin wallet
 // implementing BIP32 and BIP44 standards.
@@ -84,10 +198,7 @@ func NewBTCHDWallet(seed []byte, testnet bool) (*BTCHDWallet, error) {
 	client, err := rpcclient.New(localConfig, nil)
 	if err != nil {
 		// Fall back to public node if local fails
-		publicHost := "api.blockcypher.com/v1/btc/main"
-		if testnet {
-			publicHost = "api.blockcypher.com/v1/btc/test3"
-		}
+		publicHost := randomEndpoint(testnet)
 
 		publicConfig := &rpcclient.ConnConfig{
 			Host:         publicHost,
