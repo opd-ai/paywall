@@ -3,6 +3,7 @@ package paywall
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
@@ -14,6 +15,7 @@ import (
 type CryptoChainMonitor struct {
 	paywall *Paywall
 	client  map[wallet.WalletType]CryptoClient
+	mux     *sync.Mutex
 }
 
 // BitcoinClient defines the interface for interacting with the Bitcoin network
@@ -70,6 +72,8 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 //
 // Related types: Payment, PaymentStore
 func (m *CryptoChainMonitor) checkPendingPayments() {
+	m.mux.Lock()
+	defer m.mux.Unlock()
 	payments, err := m.paywall.Store.ListPendingPayments()
 	if err != nil {
 		// Handle error
