@@ -223,8 +223,13 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 		return nil, err
 	}
 
+	paymentID, err := generatePaymentID()
+	if err != nil {
+		return nil, err
+	}
+
 	payment := &Payment{
-		ID:        generatePaymentID(),
+		ID:        paymentID,
 		Addresses: addresses,
 		Amounts:   p.prices,
 		CreatedAt: time.Now(),
@@ -244,8 +249,10 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 //   - string: A 32-character hexadecimal string
 //
 // This is an internal helper function that uses crypto/rand for secure randomness
-func generatePaymentID() string {
+func generatePaymentID() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate secure random payment ID: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }

@@ -27,6 +27,17 @@ import (
 //
 // Related types: Payment, PaymentPageData, template.Template
 func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
+	if payment == nil {
+		http.Error(w, "Invalid payment", http.StatusBadRequest)
+		return
+	}
+
+	// Validate payment amounts
+	if payment.Amounts[wallet.Bitcoin] <= 0 || payment.Amounts[wallet.Monero] <= 0 {
+		http.Error(w, "Invalid payment amount", http.StatusInternalServerError)
+		return
+	}
+
 	if p.prices[wallet.Bitcoin] <= 0 || p.prices[wallet.Monero] <= 0 {
 		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
 		return
