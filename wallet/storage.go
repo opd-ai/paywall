@@ -43,6 +43,8 @@ type StorageConfig struct {
 //
 // Related: LoadFromFile
 func (w *BTCHDWallet) SaveToFile(config StorageConfig) error {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
 	if len(config.EncryptionKey) != 32 {
 		return errors.New("encryption key must be 32 bytes")
 	}

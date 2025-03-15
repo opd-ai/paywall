@@ -13,6 +13,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -148,6 +149,7 @@ type BTCHDWallet struct {
 	network   *chaincfg.Params  // Network parameters (mainnet/testnet)
 	nextIndex uint32            // Next address index to derive
 	client    *rpcclient.Client // RPC client for blockchain queries
+	mu        sync.RWMutex      // Mutex for thread safety
 }
 
 // NewHDWallet creates a new HD wallet from a seed.
@@ -236,6 +238,8 @@ func NewBTCHDWallet(seed []byte, testnet bool) (*BTCHDWallet, error) {
 //
 // Related: GetAddress, pubKeyToAddress
 func (w *BTCHDWallet) DeriveNextAddress() (string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	// Derive BIP44 path: m/44'/0'/0'/0/index
 	path := []uint32{
 		purposeBIP44 | hardenedKeyStart,
@@ -443,4 +447,27 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 // Related: GetAddressBalance
 func (h *BTCHDWallet) GetTransactionConfirmations(txID string) (int, error) {
 	return 0, fmt.Errorf("GetTransactionConfirmations not implemented")
+}
+
+func (w *BTCHDWallet) RecoverNextIndex() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Query the blockchain for the highest used index
+	// This is a placeholder implementation
+	highestIndex := uint32(0)
+	for i := uint32(0); i < 1000; i++ {
+		path := []uint32{
+			purposeBIP44 | hardenedKeyStart,
+			coinTypeBTC | hardenedKeyStart,
+			accountDefault | hardenedKeyStart,
+			changeExternal,
+			i,
+		}
+		// Derive address and check if it has been used
+		// If used, update highestIndex
+	}
+
+	w.nextIndex = highestIndex + 1
+	return nil
 }
