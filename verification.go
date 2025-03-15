@@ -3,6 +3,7 @@ package paywall
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -123,6 +124,9 @@ func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 	}
 
 	if btcBalance >= payment.Amounts[wallet.Bitcoin] {
+		if payment.TransactionID == "" {
+			return fmt.Errorf("missing transaction ID for payment %s", payment.ID)
+		}
 		confirmations, err := m.client[wallet.Bitcoin].GetTransactionConfirmations(payment.TransactionID)
 		if err != nil {
 			return err
@@ -135,4 +139,12 @@ func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 		}
 	}
 	return nil
+}
+
+// Close stops the blockchain monitor
+// It cancels the context and waits for the monitor goroutine to exit
+func (m *CryptoChainMonitor) Close() {
+	m.mux.Lock()
+	defer m.mux.Unlock()
+	m.paywall.cancel()
 }

@@ -60,7 +60,7 @@ func (m *FileStore) CreatePayment(p *Payment) error {
 	}
 
 	filename := filepath.Join(m.baseDir, p.ID+".json")
-	return os.WriteFile(filename, data, 0o644)
+	return os.WriteFile(filename, data, 0o600)
 }
 
 // GetPayment retrieves a payment record by ID from its JSON file.
@@ -114,7 +114,7 @@ func (m *FileStore) UpdatePayment(p *Payment) error {
 	}
 
 	filename := filepath.Join(m.baseDir, p.ID+".json")
-	return os.WriteFile(filename, data, 0o644)
+	return os.WriteFile(filename, data, 0o600)
 }
 
 // ListPendingPayments returns all payment records with more than 1 confirmation.

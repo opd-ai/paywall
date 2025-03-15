@@ -158,6 +158,11 @@ func NewPaywall(config Config) (*Paywall, error) {
 	return p, nil
 }
 
+func (p *Paywall) Close() {
+	p.cancel()
+	p.monitor.Close()
+}
+
 func (p *Paywall) btcWalletAddress() (string, error) {
 	return p.HDWallets[wallet.Bitcoin].GetAddress()
 }
