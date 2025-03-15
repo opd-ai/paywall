@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"log"
+
 	"github.com/opd-ai/paywall/wallet"
-	"github.com/opentracing/opentracing-go/log"
 )
 
 // BlockchainMonitor manages periodic verification of Bitcoin payments
@@ -82,11 +83,11 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 	for _, payment := range payments {
 		if err := m.CheckBTCPayments(payment); err != nil {
 			// log error
-			log.Error(err)
+			log.Println("CheckBTCPayments", err)
 		}
 		if err := m.CheckXMRPayments(payment); err != nil {
 			// log error
-			log.Error(err)
+			log.Println("CheckXMRPayments", err)
 		}
 	}
 }
