@@ -27,24 +27,7 @@ import (
 //
 // Related types: Payment, PaymentPageData, template.Template
 func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
-	if payment == nil {
-		http.Error(w, "Invalid payment", http.StatusBadRequest)
-		return
-	}
-
-	if payment.Amounts == nil || payment.Addresses == nil {
-		http.Error(w, "Invalid payment data", http.StatusBadRequest)
-		return
-	}
-
-	// Validate payment amounts
-	if payment.Amounts[wallet.Bitcoin] <= p.prices[wallet.Bitcoin] || payment.Amounts[wallet.Monero] <= p.prices[wallet.Monero] {
-		http.Error(w, "Invalid payment amount", http.StatusInternalServerError)
-		return
-	}
-
-	if p.prices[wallet.Bitcoin] <= 0 || p.prices[wallet.Monero] <= 0 {
-		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
+	if invalidPayment := p.validatePaymentData(payment, w); invalidPayment {
 		return
 	}
 	qrCodeJsBytes, err := QrcodeJs.ReadFile("static/qrcode.min.js")
@@ -70,5 +53,48 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 
 	if err := p.template.Execute(w, data); err != nil {
 		http.Error(w, "Failed to render payment page", http.StatusInternalServerError)
+		return
 	}
+}
+
+// validatePaymentData checks if the payment data is valid before rendering the payment page
+// Parameters:
+//   - payment: Payment record to validate containing address and amount information
+//   - w: HTTP response writer for sending error responses
+//
+// Returns:
+//   - bool: true if payment data is invalid, false if valid
+//
+// Validation checks:
+//   - Payment object is not nil
+//   - Payment amounts and addresses maps are not nil
+//   - Payment amounts are greater than configured prices
+//   - Configured prices are greater than 0
+//
+// Error handling:
+//   - Returns 400 Bad Request for nil payment or invalid payment data
+//   - Returns 500 Internal Server Error for invalid amounts or prices
+
+func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) bool {
+	if payment == nil {
+		http.Error(w, "Invalid payment", http.StatusBadRequest)
+		return true
+	}
+
+	if payment.Amounts == nil || payment.Addresses == nil {
+		http.Error(w, "Invalid payment data", http.StatusBadRequest)
+		return true
+	}
+
+	// Validate payment amounts
+	if payment.Amounts[wallet.Bitcoin] <= p.prices[wallet.Bitcoin] || payment.Amounts[wallet.Monero] <= p.prices[wallet.Monero] {
+		http.Error(w, "Invalid payment amount", http.StatusInternalServerError)
+		return true
+	}
+
+	if p.prices[wallet.Bitcoin] <= 0 || p.prices[wallet.Monero] <= 0 {
+		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
+		return true
+	}
+	return false
 }
