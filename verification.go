@@ -94,9 +94,9 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 }
 
 func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
-	m.mux.RLock()
+	m.mux.Lock()
+	defer m.mux.Unlock()
 	client, exists := m.client[wallet.Monero]
-	m.mux.RUnlock()
 	if !exists {
 		return fmt.Errorf("monero client not found")
 	}
@@ -121,9 +121,10 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 }
 
 func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
-	m.mux.RLock()
+	m.mux.Lock()
+	defer m.mux.Unlock()
 	client, exists := m.client[wallet.Bitcoin]
-	m.mux.RUnlock()
+
 	if !exists {
 		return fmt.Errorf("bitcoin client not found")
 	}

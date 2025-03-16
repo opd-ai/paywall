@@ -32,8 +32,13 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 		return
 	}
 
+	if payment.Amounts == nil || payment.Addresses == nil {
+		http.Error(w, "Invalid payment data", http.StatusBadRequest)
+		return
+	}
+
 	// Validate payment amounts
-	if payment.Amounts[wallet.Bitcoin] <= 0 || payment.Amounts[wallet.Monero] <= 0 {
+	if payment.Amounts[wallet.Bitcoin] <= p.prices[wallet.Bitcoin] || payment.Amounts[wallet.Monero] <= p.prices[wallet.Monero] {
 		http.Error(w, "Invalid payment amount", http.StatusInternalServerError)
 		return
 	}
@@ -45,7 +50,10 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 	qrCodeJsBytes, err := QrcodeJs.ReadFile("static/qrcode.min.js")
 	if err != nil {
 		log.Println("QR Code error", err)
+		http.Error(w, "QR Code Error", http.StatusInternalServerError)
 		qrCodeJsBytes = []byte("")
+		// don't return here, let people manually type in the address
+		// !return
 	}
 	// Properly format the Javascript bytes for inclusion in the HTML template as a <script>
 	qrCodeJsString := template.JS(qrCodeJsBytes)
