@@ -87,6 +87,10 @@ type Paywall struct {
 //
 // Related types: Config, Paywall
 func NewPaywall(config Config) (*Paywall, error) {
+	// validate payment timeout
+	if config.PaymentTimeout <= 0 {
+		return nil, fmt.Errorf("payment timeout must be positive")
+	}
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {

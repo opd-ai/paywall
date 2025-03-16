@@ -74,8 +74,9 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 // Error handling:
 //   - Returns 400 Bad Request for nil payment or invalid payment data
 //   - Returns 500 Internal Server Error for invalid amounts or prices
-
 func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) bool {
+	const minBTC = 0.00001 // Dust limit
+	const minXMR = 0.0001
 	if payment == nil {
 		http.Error(w, "Invalid payment", http.StatusBadRequest)
 		return true
@@ -92,7 +93,7 @@ func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) b
 		return true
 	}
 
-	if p.prices[wallet.Bitcoin] <= 0 || p.prices[wallet.Monero] <= 0 {
+	if p.prices[wallet.Bitcoin] <= minBTC || p.prices[wallet.Monero] <= minXMR {
 		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
 		return true
 	}
