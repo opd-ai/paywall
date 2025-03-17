@@ -75,6 +75,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteStrictMode,
+			Domain:   r.Host,
 			Path:     "/",
 		})
 

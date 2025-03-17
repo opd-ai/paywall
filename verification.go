@@ -17,7 +17,8 @@ import (
 type CryptoChainMonitor struct {
 	paywall *Paywall
 	client  map[wallet.WalletType]CryptoClient
-	mux     sync.RWMutex
+	mux     sync.Mutex
+	gmux    sync.Mutex
 }
 
 // BitcoinClient defines the interface for interacting with the Bitcoin network
@@ -75,9 +76,9 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 //
 // Related types: Payment, PaymentStore
 func (m *CryptoChainMonitor) checkPendingPayments() {
-	m.mux.Lock()
+	m.gmux.Lock()
 	payments, err := m.paywall.Store.ListPendingPayments()
-	m.mux.Unlock()
+	defer m.gmux.Unlock()
 	if err != nil {
 		log.Println("Payment list error:", err)
 		return
