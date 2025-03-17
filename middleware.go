@@ -69,14 +69,14 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 
 		// Set cookie for new payment
 		http.SetCookie(w, &http.Cookie{
-			Name:     "payment_id",
+			Name:     "__Host-payment_id",
 			Value:    payment.ID,
-			Expires:  cookieExpiration,
-			HttpOnly: true,
-			Secure:   true,
-			SameSite: http.SameSiteStrictMode,
-			Domain:   r.Host,
 			Path:     "/",
+			Secure:   true,
+			HttpOnly: true,
+			SameSite: http.SameSiteStrictMode,
+			Domain:   "",
+			Expires:  cookieExpiration,
 		})
 
 		// Show payment page

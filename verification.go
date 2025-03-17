@@ -17,7 +17,8 @@ import (
 type CryptoChainMonitor struct {
 	paywall *Paywall
 	client  map[wallet.WalletType]CryptoClient
-	mux     sync.Mutex
+	btcMux  sync.Mutex
+	xmrMux  sync.Mutex
 	gmux    sync.Mutex
 }
 
@@ -97,8 +98,8 @@ func (m *CryptoChainMonitor) checkPendingPayments() {
 }
 
 func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.xmrMux.Lock()
+	defer m.xmrMux.Unlock()
 	client, exists := m.client[wallet.Monero]
 	if !exists {
 		return fmt.Errorf("monero client not found")
@@ -124,8 +125,8 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 }
 
 func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.btcMux.Lock()
+	defer m.btcMux.Unlock()
 	client, exists := m.client[wallet.Bitcoin]
 
 	if !exists {
@@ -157,7 +158,7 @@ func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 // Close stops the blockchain monitor
 // It cancels the context and waits for the monitor goroutine to exit
 func (m *CryptoChainMonitor) Close() {
-	m.mux.Lock()
-	defer m.mux.Unlock()
+	m.btcMux.Lock()
+	defer m.btcMux.Unlock()
 	m.paywall.cancel()
 }

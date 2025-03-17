@@ -52,6 +52,7 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 	}
 
 	if err := p.template.Execute(w, data); err != nil {
+		log.Println("Failed to render payment page:", err)
 		http.Error(w, "Failed to render payment page", http.StatusInternalServerError)
 		return
 	}
