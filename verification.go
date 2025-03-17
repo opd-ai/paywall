@@ -75,20 +75,22 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 //
 // Related types: Payment, PaymentStore
 func (m *CryptoChainMonitor) checkPendingPayments() {
+	m.mux.Lock()
 	payments, err := m.paywall.Store.ListPendingPayments()
+	m.mux.Unlock()
 	if err != nil {
-		// Handle error
+		log.Println("Payment list error:", err)
 		return
 	}
 
 	for _, payment := range payments {
 		if err := m.CheckBTCPayments(payment); err != nil {
 			// log error
-			log.Println("CheckBTCPayments", err)
+			log.Println("CheckBTCPayments error:", err)
 		}
 		if err := m.CheckXMRPayments(payment); err != nil {
 			// log error
-			log.Println("CheckXMRPayments", err)
+			log.Println("CheckXMRPayments error:", err)
 		}
 	}
 }
