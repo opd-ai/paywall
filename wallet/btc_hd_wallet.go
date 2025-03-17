@@ -421,6 +421,9 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid bitcoin address: %w", err)
 	}
+	if w.client == nil {
+		return 0, fmt.Errorf("RPC client not initialized")
+	}
 
 	// Use RPC client to get address balance
 	balance, err := w.client.GetReceivedByAddress(Address(address))
