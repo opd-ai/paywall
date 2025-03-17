@@ -88,13 +88,7 @@ func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) b
 		return true
 	}
 
-	// Validate payment amounts
-	if payment.Amounts[wallet.Bitcoin] <= p.prices[wallet.Bitcoin] || payment.Amounts[wallet.Monero] <= p.prices[wallet.Monero] {
-		http.Error(w, "Invalid payment amount", http.StatusInternalServerError)
-		return true
-	}
-
-	if p.prices[wallet.Bitcoin] <= minBTC || p.prices[wallet.Monero] <= minXMR {
+	if p.prices[wallet.Bitcoin] >= minBTC || p.prices[wallet.Monero] >= minXMR {
 		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
 		return true
 	}

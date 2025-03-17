@@ -34,9 +34,12 @@ type FileStore struct {
 // Error handling:
 //   - Creates payments directory with 0755 permissions
 //   - Silently continues if directory already exists
-func NewFileStore() *FileStore {
+func NewFileStore(base string) *FileStore {
 	// Create payments directory if it doesn't exist
-	baseDir := "./payments"
+	baseDir := base
+	if baseDir == "" {
+		baseDir = "./payments"
+	}
 	os.MkdirAll(baseDir, 0o755)
 	return &FileStore{baseDir: baseDir}
 }

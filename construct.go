@@ -22,24 +22,27 @@ import (
 //   - If template parsing fails
 //
 // Related types: Config, Paywall
-func ConstructPaywall() (*Paywall, error) {
+func ConstructPaywall(base string) (*Paywall, error) {
 	key, err := wallet.GenerateEncryptionKey()
 	if err != nil {
 		return nil, err
 	}
+	if base == "" {
+		base = "./paywallet"
+	}
 
 	storageConfig := wallet.StorageConfig{
-		DataDir:       "./paywallet",
+		DataDir:       base,
 		EncryptionKey: key,
 	}
 
-	fileStore := NewFileStore()
+	fileStore := NewFileStore(storageConfig.DataDir)
 
 	// Initialize paywall with minimal config
 	pw, err := NewPaywall(Config{
 		PriceInBTC:       0.0001, // 0.0001 BTC
-		PriceInXMR:       .005,
-		TestNet:          false,     // Use testnet
+		PriceInXMR:       .001,
+		TestNet:          false,     // don't use testnet
 		Store:            fileStore, // Required for payment tracking
 		PaymentTimeout:   time.Hour * 2,
 		MinConfirmations: 1,
@@ -47,15 +50,28 @@ func ConstructPaywall() (*Paywall, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Attempt to load wallet from disk, if it fails store the new one
-	if HDWallet, err := wallet.LoadFromFile(storageConfig); err != nil {
-		// Save newly generated wallet
-		if err := pw.HDWallets[wallet.Bitcoin].(*wallet.BTCHDWallet).SaveToFile(storageConfig); err != nil {
+
+	// Initialize wallet map
+	pw.HDWallets = make(map[wallet.WalletType]wallet.HDWallet)
+
+	// Try to load existing wallet or create new one
+	var btcWallet wallet.HDWallet
+	if loadedWallet, err := wallet.LoadFromFile(storageConfig); err != nil {
+		// Create new wallet if loading fails
+		btcWallet, err = wallet.NewBTCHDWallet(nil, false)
+		if err != nil {
+			return nil, err
+		}
+		// Save the newly generated wallet
+		if err := btcWallet.(*wallet.BTCHDWallet).SaveToFile(storageConfig); err != nil {
 			return nil, err
 		}
 	} else {
-		// Load stored wallet from disk
-		pw.HDWallets[wallet.Bitcoin] = HDWallet
+		btcWallet = loadedWallet
 	}
+
+	// Assign wallet to paywall
+	pw.HDWallets[wallet.Bitcoin] = btcWallet
+
 	return pw, nil
 }

@@ -37,11 +37,18 @@ func main() {
 
 	// Initialize paywall with minimal config
 	pw, err := paywall.NewPaywall(paywall.Config{
-		PriceInBTC:     0.000001,                 // 0.000001 BTC
-		TestNet:        true,                     // Use testnet
-		Store:          paywall.NewMemoryStore(), // Required for payment tracking
-		PaymentTimeout: time.Hour * 24,
+		PriceInBTC:       0.0001,                               // 0.0001 BTC
+		TestNet:          true,                                 // Use testnet
+		Store:            paywall.NewFileStore(config.DataDir), // Required for payment tracking
+		PaymentTimeout:   time.Hour * 24,
+		MinConfirmations: 1,
+		XMRUser:          "user",
+		XMRPassword:      "password",
+		XMRRPC:           "http://localhost:18081/",
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 	// Attempt to load wallet from disk, if it fails store the new one
 	if HDWallet, err := wallet.LoadFromFile(config); err != nil {
 		// Save newly generated wallet
