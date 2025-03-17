@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // ReverseProxy represents a reverse proxy that forwards requests to a target server
@@ -30,9 +31,14 @@ func NewReverseProxy(target string) (*ReverseProxy, error) {
 	if url.Scheme == "" || url.Host == "" {
 		return nil, fmt.Errorf("target URL must include scheme and host")
 	}
+	customTransport := &http.Transport{
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 10 * time.Second,
+		IdleConnTimeout:       90 * time.Second,
+	}
 	return &ReverseProxy{
 		Target:    url,
-		Transport: http.DefaultTransport,
+		Transport: customTransport,
 	}, nil
 }
 
@@ -51,7 +57,12 @@ func (rp *ReverseProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// create a proxy request to send to the target server
 	proxyRequest := http.Request{
 		Method: r.Method,
-		URL:    rp.Target,
+		URL: &url.URL{
+			Scheme:   rp.Target.Scheme,
+			Host:     rp.Target.Host,
+			Path:     r.URL.Path,
+			RawQuery: r.URL.RawQuery,
+		},
 		Proto:  r.Proto,
 		Header: r.Header,
 		Body:   r.Body,
