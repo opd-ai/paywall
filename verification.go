@@ -158,7 +158,5 @@ func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 // Close stops the blockchain monitor
 // It cancels the context and waits for the monitor goroutine to exit
 func (m *CryptoChainMonitor) Close() {
-	m.btcMux.Lock()
-	defer m.btcMux.Unlock()
 	m.paywall.cancel()
 }
