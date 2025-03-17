@@ -18,6 +18,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -448,8 +449,23 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 //   - error: If transaction is not found or query fails
 //
 // Related: GetAddressBalance
-func (h *BTCHDWallet) GetTransactionConfirmations(txID string) (int, error) {
-	return 0, fmt.Errorf("GetTransactionConfirmations not implemented")
+func (w *BTCHDWallet) GetTransactionConfirmations(txID string) (int, error) {
+	if w.client == nil {
+		return 0, fmt.Errorf("RPC client not initialized")
+	}
+
+	// Get transaction details using RPC client
+	hash, err := chainhash.NewHashFromStr(txID)
+	if err != nil {
+		return 0, fmt.Errorf("invalid transaction ID: %w", err)
+	}
+
+	tx, err := w.client.GetTransaction(hash)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get transaction: %w", err)
+	}
+
+	return int(tx.Confirmations), nil
 }
 
 func (w *BTCHDWallet) RecoverNextIndex() error {
