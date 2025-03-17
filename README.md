@@ -45,8 +45,8 @@ func main() {
         Store:          paywall.NewMemoryStore(), // In-memory storage
         PaymentTimeout: time.Hour * 24,           // 24-hour payment window
     })
-    
-    // Call close when your program shuts down to block the check routine
+
+    // Call close when your program shuts down to terminate the payment check routine
     defer pw.Close()
     if err != nil {
         log.Fatal(err)
