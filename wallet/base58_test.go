@@ -167,12 +167,12 @@ func TestBase58Decode_MultipleLeadingOnes(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error for input with leading ones, got %v", err)
 	}
-	
+
 	// Should preserve leading zeros
 	if len(result) < 3 || result[0] != 0 || result[1] != 0 || result[2] != 0 {
 		t.Errorf("Expected result to start with three zero bytes, got %v", result)
 	}
-	
+
 	// Rest should decode to "hello world"
 	expected := append([]byte{0, 0, 0}, []byte("hello world")...)
 	if !bytes.Equal(result, expected) {
@@ -202,12 +202,12 @@ func TestBase58EncodeDecodeRoundTrip(t *testing.T) {
 			// Encode then decode
 			encoded := Base58Encode(tt.input)
 			decoded, err := Base58Decode(encoded)
-			
+
 			if err != nil {
 				t.Errorf("Round trip failed with error: %v", err)
 				return
 			}
-			
+
 			if !bytes.Equal(decoded, tt.input) {
 				t.Errorf("Round trip failed: input=%v, encoded=%q, decoded=%v", tt.input, encoded, decoded)
 			}
@@ -218,7 +218,7 @@ func TestBase58EncodeDecodeRoundTrip(t *testing.T) {
 // TestBase58AlphabetCoverage tests that all alphabet characters are handled correctly
 func TestBase58AlphabetCoverage(t *testing.T) {
 	alphabet := "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-	
+
 	// Test each character individually
 	for _, char := range alphabet {
 		t.Run(string(char), func(t *testing.T) {
@@ -228,7 +228,7 @@ func TestBase58AlphabetCoverage(t *testing.T) {
 				t.Errorf("Valid alphabet character %q failed to decode: %v", char, err)
 				return
 			}
-			
+
 			// Re-encode and verify we get the same character
 			encoded := Base58Encode(decoded)
 			if encoded != input {
@@ -245,15 +245,15 @@ func TestBase58LargeNumbers(t *testing.T) {
 	for i := range largeBytes {
 		largeBytes[i] = byte(i + 1) // Avoid zero to test large number handling
 	}
-	
+
 	encoded := Base58Encode(largeBytes)
 	decoded, err := Base58Decode(encoded)
-	
+
 	if err != nil {
 		t.Errorf("Large number decode failed: %v", err)
 		return
 	}
-	
+
 	if !bytes.Equal(decoded, largeBytes) {
 		t.Errorf("Large number round trip failed")
 	}

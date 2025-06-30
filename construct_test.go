@@ -145,10 +145,10 @@ func TestConstructPaywall_TableDriven_CurrentBehavior(t *testing.T) {
 	tempDir := t.TempDir()
 
 	testCases := []struct {
-		name         string
-		basePath     string
-		wantErr      bool
-		expectedErr  string
+		name        string
+		basePath    string
+		wantErr     bool
+		expectedErr string
 	}{
 		{
 			name:        "Custom path - demonstrates nil seed bug",

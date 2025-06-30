@@ -4,13 +4,14 @@ package wallet
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
-	"math/rand"
+	mathRand "math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -116,8 +117,22 @@ func validateEndpoint(endpoint string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+func Intn(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	if n == 1 {
+		return 0
+	}
+	// use crypto/rand for better randomness
+	r, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return mathRand.Intn(n) // fallback to math/rand on error, this is probably OK
+	}
+	return int(r.Int64())
+}
 func randomInt(min, max int) int {
-	return min + rand.Intn(max-min)
+	return min + Intn(max-min)
 }
 
 func randomElement(list []string) string {
@@ -128,16 +143,26 @@ func randomElement(list []string) string {
 }
 
 func randomEndpoint(testnet bool) string {
+	retries := 10
+	count := 0
 	if testnet {
 		endpoint := randomElement(testnetAPIEndpoints)
 		for !validateEndpoint(endpoint) {
 			endpoint = randomElement(testnetAPIEndpoints)
+			count++
+			if count == retries {
+				return ""
+			}
 		}
 		return endpoint
 	}
 	endpoint := randomElement(mainnetAPIEndpoints)
 	for !validateEndpoint(endpoint) {
 		endpoint = randomElement(mainnetAPIEndpoints)
+		count++
+		if count == retries {
+			return ""
+		}
 	}
 	return endpoint
 }

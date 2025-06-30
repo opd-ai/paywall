@@ -1,6 +1,7 @@
 package paywall
 
 import (
+	"crypto/rand"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
@@ -58,7 +59,12 @@ func ConstructPaywall(base string) (*Paywall, error) {
 	var btcWallet wallet.HDWallet
 	if loadedWallet, err := wallet.LoadFromFile(storageConfig); err != nil {
 		// Create new wallet if loading fails
-		btcWallet, err = wallet.NewBTCHDWallet(nil, false)
+		// securely generate a random 64-byte seed using crypto/rand
+		seed, err := secureRandomSeed()
+		if err != nil {
+			return nil, err
+		}
+		btcWallet, err = wallet.NewBTCHDWallet(seed, false)
 		if err != nil {
 			return nil, err
 		}
@@ -74,4 +80,13 @@ func ConstructPaywall(base string) (*Paywall, error) {
 	pw.HDWallets[wallet.Bitcoin] = btcWallet
 
 	return pw, nil
+}
+
+func secureRandomSeed() ([]byte, error) {
+	seed := make([]byte, 64) // 64 bytes for a secure seed
+	_, err := rand.Read(seed)
+	if err != nil {
+		return nil, err
+	}
+	return seed, nil
 }

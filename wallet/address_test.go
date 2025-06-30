@@ -199,10 +199,10 @@ func TestAddress_IsForNet(t *testing.T) {
 
 func TestIsBitcoinAddress(t *testing.T) {
 	tests := []struct {
-		name         string
-		address      string
-		wantValid    bool
-		wantNetwork  string
+		name        string
+		address     string
+		wantValid   bool
+		wantNetwork string
 	}{
 		// Mainnet P2PKH addresses (start with 1)
 		{
@@ -367,10 +367,10 @@ func TestIsBitcoinAddress(t *testing.T) {
 func TestIsBitcoinAddress_EdgeCases(t *testing.T) {
 	// Test edge cases separately for better organization
 	edgeCases := []struct {
-		name         string
-		address      string
-		wantValid    bool
-		wantNetwork  string
+		name        string
+		address     string
+		wantValid   bool
+		wantNetwork string
 	}{
 		{
 			name:        "minimum valid mainnet length (26 chars total)",

@@ -46,12 +46,12 @@ func TestPaymentStatusConstants(t *testing.T) {
 func TestPaymentStruct_Creation_ValidData(t *testing.T) {
 	createdAt := time.Now()
 	expiresAt := createdAt.Add(time.Hour)
-	
+
 	addresses := map[wallet.WalletType]string{
 		wallet.Bitcoin: "bc1qtest123",
 		wallet.Monero:  "43H3Uqnc9test123",
 	}
-	
+
 	amounts := map[wallet.WalletType]float64{
 		wallet.Bitcoin: 0.001,
 		wallet.Monero:  0.01,
@@ -72,35 +72,35 @@ func TestPaymentStruct_Creation_ValidData(t *testing.T) {
 	if payment.ID != "test-payment-id" {
 		t.Errorf("Expected ID 'test-payment-id', got '%s'", payment.ID)
 	}
-	
+
 	if payment.Addresses[wallet.Bitcoin] != "bc1qtest123" {
 		t.Errorf("Expected BTC address 'bc1qtest123', got '%s'", payment.Addresses[wallet.Bitcoin])
 	}
-	
+
 	if payment.Addresses[wallet.Monero] != "43H3Uqnc9test123" {
 		t.Errorf("Expected XMR address '43H3Uqnc9test123', got '%s'", payment.Addresses[wallet.Monero])
 	}
-	
+
 	if payment.Amounts[wallet.Bitcoin] != 0.001 {
 		t.Errorf("Expected BTC amount 0.001, got %f", payment.Amounts[wallet.Bitcoin])
 	}
-	
+
 	if payment.Amounts[wallet.Monero] != 0.01 {
 		t.Errorf("Expected XMR amount 0.01, got %f", payment.Amounts[wallet.Monero])
 	}
-	
+
 	if payment.Status != StatusPending {
 		t.Errorf("Expected status %s, got %s", StatusPending, payment.Status)
 	}
-	
+
 	if payment.Confirmations != 0 {
 		t.Errorf("Expected confirmations 0, got %d", payment.Confirmations)
 	}
-	
+
 	if !payment.CreatedAt.Equal(createdAt) {
 		t.Errorf("Expected CreatedAt %v, got %v", createdAt, payment.CreatedAt)
 	}
-	
+
 	if !payment.ExpiresAt.Equal(expiresAt) {
 		t.Errorf("Expected ExpiresAt %v, got %v", expiresAt, payment.ExpiresAt)
 	}
@@ -142,25 +142,25 @@ func TestPaymentStruct_JSONSerialization_SuccessfulRoundTrip(t *testing.T) {
 	if deserialized.ID != original.ID {
 		t.Errorf("ID mismatch: expected %s, got %s", original.ID, deserialized.ID)
 	}
-	
+
 	if deserialized.Addresses[wallet.Bitcoin] != original.Addresses[wallet.Bitcoin] {
-		t.Errorf("BTC address mismatch: expected %s, got %s", 
+		t.Errorf("BTC address mismatch: expected %s, got %s",
 			original.Addresses[wallet.Bitcoin], deserialized.Addresses[wallet.Bitcoin])
 	}
-	
+
 	if deserialized.Amounts[wallet.Bitcoin] != original.Amounts[wallet.Bitcoin] {
-		t.Errorf("BTC amount mismatch: expected %f, got %f", 
+		t.Errorf("BTC amount mismatch: expected %f, got %f",
 			original.Amounts[wallet.Bitcoin], deserialized.Amounts[wallet.Bitcoin])
 	}
-	
+
 	if deserialized.Status != original.Status {
 		t.Errorf("Status mismatch: expected %s, got %s", original.Status, deserialized.Status)
 	}
-	
+
 	if deserialized.Confirmations != original.Confirmations {
 		t.Errorf("Confirmations mismatch: expected %d, got %d", original.Confirmations, deserialized.Confirmations)
 	}
-	
+
 	if deserialized.TransactionID != original.TransactionID {
 		t.Errorf("TransactionID mismatch: expected %s, got %s", original.TransactionID, deserialized.TransactionID)
 	}
@@ -174,27 +174,27 @@ func TestPaymentStruct_EmptyValues_HandlesGracefully(t *testing.T) {
 	if payment.ID != "" {
 		t.Errorf("Expected empty ID, got '%s'", payment.ID)
 	}
-	
+
 	if payment.Addresses != nil {
 		t.Errorf("Expected nil Addresses, got %v", payment.Addresses)
 	}
-	
+
 	if payment.Amounts != nil {
 		t.Errorf("Expected nil Amounts, got %v", payment.Amounts)
 	}
-	
+
 	if !payment.CreatedAt.IsZero() {
 		t.Errorf("Expected zero CreatedAt, got %v", payment.CreatedAt)
 	}
-	
+
 	if !payment.ExpiresAt.IsZero() {
 		t.Errorf("Expected zero ExpiresAt, got %v", payment.ExpiresAt)
 	}
-	
+
 	if payment.Status != "" {
 		t.Errorf("Expected empty Status, got '%s'", payment.Status)
 	}
-	
+
 	if payment.Confirmations != 0 {
 		t.Errorf("Expected zero Confirmations, got %d", payment.Confirmations)
 	}
@@ -203,7 +203,7 @@ func TestPaymentStruct_EmptyValues_HandlesGracefully(t *testing.T) {
 // TestPaymentPageDataStruct_Creation verifies PaymentPageData struct creation and field assignment
 func TestPaymentPageDataStruct_Creation_ValidData(t *testing.T) {
 	jsCode := template.JS("console.log('test')")
-	
+
 	data := PaymentPageData{
 		BTCAddress: "bc1qpagetest123",
 		AmountBTC:  0.005,
@@ -218,27 +218,27 @@ func TestPaymentPageDataStruct_Creation_ValidData(t *testing.T) {
 	if data.BTCAddress != "bc1qpagetest123" {
 		t.Errorf("Expected BTCAddress 'bc1qpagetest123', got '%s'", data.BTCAddress)
 	}
-	
+
 	if data.AmountBTC != 0.005 {
 		t.Errorf("Expected AmountBTC 0.005, got %f", data.AmountBTC)
 	}
-	
+
 	if data.XMRAddress != "43H3Uqnc9pagetest" {
 		t.Errorf("Expected XMRAddress '43H3Uqnc9pagetest', got '%s'", data.XMRAddress)
 	}
-	
+
 	if data.AmountXMR != 0.05 {
 		t.Errorf("Expected AmountXMR 0.05, got %f", data.AmountXMR)
 	}
-	
+
 	if data.ExpiresAt != "2024-01-15T10:30:00Z" {
 		t.Errorf("Expected ExpiresAt '2024-01-15T10:30:00Z', got '%s'", data.ExpiresAt)
 	}
-	
+
 	if data.PaymentID != "page-test-id" {
 		t.Errorf("Expected PaymentID 'page-test-id', got '%s'", data.PaymentID)
 	}
-	
+
 	if string(data.QrcodeJs) != "console.log('test')" {
 		t.Errorf("Expected QrcodeJs 'console.log('test')', got '%s'", string(data.QrcodeJs))
 	}
@@ -269,12 +269,12 @@ func TestPaymentPageDataStruct_JSONSerialization_SuccessfulMarshaling(t *testing
 	}
 
 	if unmarshaled.BTCAddress != data.BTCAddress {
-		t.Errorf("BTCAddress mismatch after JSON round trip: expected %s, got %s", 
+		t.Errorf("BTCAddress mismatch after JSON round trip: expected %s, got %s",
 			data.BTCAddress, unmarshaled.BTCAddress)
 	}
-	
+
 	if unmarshaled.PaymentID != data.PaymentID {
-		t.Errorf("PaymentID mismatch after JSON round trip: expected %s, got %s", 
+		t.Errorf("PaymentID mismatch after JSON round trip: expected %s, got %s",
 			data.PaymentID, unmarshaled.PaymentID)
 	}
 }

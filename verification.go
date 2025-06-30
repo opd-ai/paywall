@@ -110,6 +110,9 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 	}
 
 	if xmrBalance >= payment.Amounts[wallet.Monero] {
+		if payment.TransactionID == "" {
+			return fmt.Errorf("missing transaction ID for payment %s", payment.ID)
+		}
 		confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
 		if err != nil {
 			return err
