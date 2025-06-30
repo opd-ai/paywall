@@ -6,7 +6,7 @@
 
 A secure, production-ready Bitcoin paywall implementation in Go, designed to help creative workers join the Bitcoin economy by controlling their own content distribution platforms with minimal barriers to entry.
 
-## Features
+## Features=[]
 
 - 🔒 Secure Bitcoin HD wallet implementation
 - 🔒 Support for Monero wallets via RPC interface
