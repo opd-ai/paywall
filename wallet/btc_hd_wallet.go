@@ -453,6 +453,11 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 	}
 
 	// Use RPC client to get address balance
+	// GetReceivedByAddressMinConf returns the total amount received by the address,
+	// but only when the minimum confirmations are reached.
+	// This simplifies balance checking by avoiding the need to parse transactions.
+	// It returns the total amount received by the address, which is what we want.
+	// Note: This does not include unconfirmed transactions.
 	balance, err := w.rpcClient.GetReceivedByAddressMinConf(Address(address), w.minConf)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get address balance: %w", err)
