@@ -552,7 +552,7 @@ func TestValidateEndpoint(t *testing.T) {
 		{
 			name:     "Endpoint without protocol",
 			endpoint: "httpbin.org/status/200",
-			expected: true,
+			expected: false,
 		},
 		{
 			name:     "Invalid endpoint",
