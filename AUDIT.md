@@ -52,16 +52,17 @@ EVIDENCE:
     // No check if payment.TransactionID is empty, unlike Bitcoin version
 ```
 
-### Bug #3: Authentication Bypass Vulnerability
+### Bug #3: Authentication Bypass Vulnerability ✅ FIXED
 ```
 FILE: middleware.go
 LINE(S): 42-47, 66
 TYPE: Security Vulnerability - Cookie Name Mismatch
-DESCRIPTION: Code reads "payment_id" cookie but sets "__Host-payment_id" cookie, creating authentication bypass
-IMPACT: Users can bypass payments by manually setting "payment_id" cookie
+DESCRIPTION: [RESOLVED] Code previously read "payment_id" cookie but set "__Host-payment_id" cookie, creating authentication bypass
+IMPACT: [MITIGATED] Users can no longer bypass payments by manually setting cookies
 EVIDENCE:
-    42: cookie, err := r.Cookie("payment_id")
-    66: Name: "__Host-payment_id",
+    42: cookie, err := r.Cookie("__Host-payment_id")  // Now matches the set cookie name
+    72: Name: "__Host-payment_id",
+FIX: Changed cookie reading to use "__Host-payment_id" to match the cookie being set
 ```
 
 ### Bug #4: Weak Random Number Generation

@@ -38,7 +38,7 @@ import (
 func (p *Paywall) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// First check for existing cookie
-		cookie, err := r.Cookie("payment_id")
+		cookie, err := r.Cookie("__Host-payment_id")
 		if err == nil {
 			// Cookie exists, verify payment
 			// update expiration +15 minutes
