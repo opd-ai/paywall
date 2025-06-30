@@ -163,7 +163,7 @@ func (m *EncryptedFileStore) UpdatePayment(p *Payment) error {
 	return os.WriteFile(filename, encrypted, 0o600)
 }
 
-// ListPendingPayments returns all encrypted payment records with more than 1 confirmation
+// ListPendingPayments returns all encrypted payment records with less than 1 confirmation
 func (m *EncryptedFileStore) ListPendingPayments() ([]*Payment, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

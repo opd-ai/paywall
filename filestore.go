@@ -121,7 +121,7 @@ func (m *FileStore) UpdatePayment(p *Payment) error {
 	return os.WriteFile(filename, data, 0o600)
 }
 
-// ListPendingPayments returns all payment records with more than 1 confirmation.
+// ListPendingPayments returns all payment records with less than 1 confirmation.
 // Scans all JSON files in the storage directory.
 //
 // Returns:
