@@ -205,10 +205,10 @@ func (m *FileStore) GetPaymentByAddress(addr string) (*Payment, error) {
 			continue
 		}
 
-		if payment.Addresses[wallet.Bitcoin] == addr {
+		if addr != "" && payment.Addresses[wallet.Bitcoin] == addr {
 			return &payment, nil
 		}
-		if payment.Addresses[wallet.Monero] == addr {
+		if addr != "" && payment.Addresses[wallet.Monero] == addr {
 			return &payment, nil
 		}
 	}

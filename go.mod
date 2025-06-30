@@ -5,6 +5,7 @@ go 1.23.2
 require (
 	github.com/btcsuite/btcd v0.24.2
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/monero-ecosystem/go-monero-rpc-client v0.0.0-20241222121722-7ac8c0dc29cf
 	github.com/opd-ai/wileedot v0.0.0-20241217172720-521d4175e624
 	github.com/sethvargo/go-limiter v1.0.0
@@ -13,7 +14,6 @@ require (
 
 require (
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
