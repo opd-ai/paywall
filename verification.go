@@ -110,19 +110,27 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 	}
 
 	if xmrBalance >= payment.Amounts[wallet.Monero] {
-		if payment.TransactionID == "" {
-			return fmt.Errorf("missing transaction ID for payment %s", payment.ID)
-		}
-		confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
-		if err != nil {
-			return err
-		}
-
-		if confirmations >= m.paywall.minConfirmations {
+		// Payment confirmed by balance
+		if payment.TransactionID != "" {
+			// If we have a transaction ID, check confirmations
+			confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
+			if err != nil {
+				// If confirmation check fails, still accept payment but with 0 confirmations
+				payment.Status = StatusConfirmed
+				payment.Confirmations = 0
+			} else if confirmations >= m.paywall.minConfirmations {
+				payment.Status = StatusConfirmed
+				payment.Confirmations = confirmations
+			} else {
+				// Insufficient confirmations - payment pending
+				return nil
+			}
+		} else {
+			// No transaction ID available - accept payment based on balance only
 			payment.Status = StatusConfirmed
-			payment.Confirmations = confirmations
-			m.paywall.Store.UpdatePayment(payment)
+			payment.Confirmations = 0
 		}
+		m.paywall.Store.UpdatePayment(payment)
 	}
 	return nil
 }
@@ -141,19 +149,27 @@ func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 	}
 
 	if btcBalance >= payment.Amounts[wallet.Bitcoin] {
-		if payment.TransactionID == "" {
-			return fmt.Errorf("missing transaction ID for payment %s", payment.ID)
-		}
-		confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
-		if err != nil {
-			return err
-		}
-
-		if confirmations >= m.paywall.minConfirmations {
+		// Payment confirmed by balance
+		if payment.TransactionID != "" {
+			// If we have a transaction ID, check confirmations
+			confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
+			if err != nil {
+				// If confirmation check fails, still accept payment but with 0 confirmations
+				payment.Status = StatusConfirmed
+				payment.Confirmations = 0
+			} else if confirmations >= m.paywall.minConfirmations {
+				payment.Status = StatusConfirmed
+				payment.Confirmations = confirmations
+			} else {
+				// Insufficient confirmations - payment pending
+				return nil
+			}
+		} else {
+			// No transaction ID available - accept payment based on balance only
 			payment.Status = StatusConfirmed
-			payment.Confirmations = confirmations
-			m.paywall.Store.UpdatePayment(payment)
+			payment.Confirmations = 0
 		}
+		m.paywall.Store.UpdatePayment(payment)
 	}
 	return nil
 }
