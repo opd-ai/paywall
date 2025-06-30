@@ -194,7 +194,7 @@ func (m *EncryptedFileStore) ListPendingPayments() ([]*Payment, error) {
 			continue
 		}
 
-		if payment.Confirmations > 1 {
+		if payment.Confirmations < 1 {
 			payments = append(payments, &payment)
 		}
 	}
