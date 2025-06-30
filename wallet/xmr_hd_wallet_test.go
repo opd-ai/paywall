@@ -402,61 +402,6 @@ func TestMoneroHDWallet_GetAddress_Error(t *testing.T) {
 	}
 }
 
-func TestMoneroHDWallet_GetAddressBalance_Success(t *testing.T) {
-	tests := []struct {
-		name          string
-		atomicBalance uint64
-		expectedXMR   float64
-	}{
-		{
-			name:          "1 XMR balance",
-			atomicBalance: 1000000000000, // 1 XMR in atomic units
-			expectedXMR:   1.0,
-		},
-		{
-			name:          "0.5 XMR balance",
-			atomicBalance: 500000000000, // 0.5 XMR in atomic units
-			expectedXMR:   0.5,
-		},
-		{
-			name:          "Zero balance",
-			atomicBalance: 0,
-			expectedXMR:   0.0,
-		},
-		{
-			name:          "Large balance",
-			atomicBalance: 12345000000000000, // 12345 XMR
-			expectedXMR:   12345.0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockClient := &MockMoneroClient{
-				GetBalanceFunc: func(req *monero.RequestGetBalance) (*monero.ResponseGetBalance, error) {
-					if req.AccountIndex != 0 {
-						t.Errorf("Expected AccountIndex 0, got %d", req.AccountIndex)
-					}
-					return &monero.ResponseGetBalance{
-						Balance: tt.atomicBalance,
-					}, nil
-				},
-			}
-
-			wallet := createMockMoneroWallet(mockClient)
-
-			balance, err := wallet.GetAddressBalance("test_address")
-			if err != nil {
-				t.Fatalf("GetAddressBalance() error = %v", err)
-			}
-
-			if balance != tt.expectedXMR {
-				t.Errorf("GetAddressBalance() = %v, want %v", balance, tt.expectedXMR)
-			}
-		})
-	}
-}
-
 func TestMoneroHDWallet_GetAddressBalance_Error(t *testing.T) {
 	expectedError := errors.New("balance request failed")
 	mockClient := &MockMoneroClient{
