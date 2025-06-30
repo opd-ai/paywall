@@ -80,7 +80,7 @@ func (m *MemoryStore) ListPendingPayments() ([]*Payment, error) {
 
 	var payments []*Payment
 	for _, p := range m.payments {
-		if p.Confirmations < 1 {
+		if p.Confirmations > 1 {
 			payments = append(payments, p)
 		}
 	}
