@@ -270,11 +270,6 @@ func TestHDWallet_InterfaceSignature(t *testing.T) {
 		t.Errorf("GetAddressBalance() = (%v, %v), want (0.0, nil)", balance, err)
 	}
 
-	// Test GetTransactionConfirmations signature
-	confirmations, err := wallet.GetTransactionConfirmations("test-tx")
-	if confirmations != 0 || err != nil {
-		t.Errorf("GetTransactionConfirmations() = (%v, %v), want (0, nil)", confirmations, err)
-	}
 }
 
 // mockHDWallet is a simple mock implementation for testing interface compliance

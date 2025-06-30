@@ -45,7 +45,7 @@ func TestNewBTCHDWallet_Success(t *testing.T) {
 			}
 
 			// Note: This will fail due to RPC connection, but we can test the basic validation
-			wallet, err := NewBTCHDWallet(tt.seed, tt.testnet)
+			wallet, err := NewBTCHDWallet(tt.seed, tt.testnet, 1)
 
 			// We expect RPC connection to fail in test environment
 			if err != nil && !strings.Contains(err.Error(), "failed to connect") {
@@ -96,7 +96,7 @@ func TestNewBTCHDWallet_InvalidSeed(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			wallet, err := NewBTCHDWallet(tt.seed, false)
+			wallet, err := NewBTCHDWallet(tt.seed, false, 1)
 
 			if err == nil {
 				t.Error("Expected error for invalid seed")
@@ -361,7 +361,7 @@ func TestBTCHDWallet_GetAddressBalance(t *testing.T) {
 				masterKey: make([]byte, 32),
 				chainCode: make([]byte, 32),
 				network:   &chaincfg.MainNetParams,
-				client:    nil,
+				rpcClient: nil,
 			},
 			address:     "invalid-address",
 			expectError: true,
@@ -373,7 +373,7 @@ func TestBTCHDWallet_GetAddressBalance(t *testing.T) {
 				masterKey: make([]byte, 32),
 				chainCode: make([]byte, 32),
 				network:   &chaincfg.MainNetParams,
-				client:    nil,
+				rpcClient: nil,
 			},
 			address:     "",
 			expectError: true,
@@ -385,7 +385,7 @@ func TestBTCHDWallet_GetAddressBalance(t *testing.T) {
 				masterKey: make([]byte, 32),
 				chainCode: make([]byte, 32),
 				network:   &chaincfg.MainNetParams,
-				client:    nil,
+				rpcClient: nil,
 			},
 			address:     "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
 			expectError: true,
@@ -406,64 +406,6 @@ func TestBTCHDWallet_GetAddressBalance(t *testing.T) {
 				}
 				if balance != 0 {
 					t.Errorf("Expected zero balance on error, got %f", balance)
-				}
-			} else {
-				if err != nil {
-					t.Errorf("Unexpected error: %v", err)
-				}
-			}
-		})
-	}
-}
-
-// TestBTCHDWallet_GetTransactionConfirmations tests transaction confirmation retrieval
-func TestBTCHDWallet_GetTransactionConfirmations(t *testing.T) {
-	tests := []struct {
-		name        string
-		wallet      *BTCHDWallet
-		txID        string
-		expectError bool
-		errorMsg    string
-	}{
-		{
-			name: "No RPC client",
-			wallet: &BTCHDWallet{
-				masterKey: make([]byte, 32),
-				chainCode: make([]byte, 32),
-				network:   &chaincfg.MainNetParams,
-				client:    nil,
-			},
-			txID:        "abcd1234567890abcd1234567890abcd1234567890abcd1234567890abcd1234",
-			expectError: true,
-			errorMsg:    "RPC client not initialized",
-		},
-		{
-			name: "Empty transaction ID",
-			wallet: &BTCHDWallet{
-				masterKey: make([]byte, 32),
-				chainCode: make([]byte, 32),
-				network:   &chaincfg.MainNetParams,
-				client:    nil,
-			},
-			txID:        "",
-			expectError: true,
-			errorMsg:    "RPC client not initialized",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			confirmations, err := tt.wallet.GetTransactionConfirmations(tt.txID)
-
-			if tt.expectError {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				if !strings.Contains(err.Error(), tt.errorMsg) {
-					t.Errorf("Expected error containing %q, got %q", tt.errorMsg, err.Error())
-				}
-				if confirmations != 0 {
-					t.Errorf("Expected zero confirmations on error, got %d", confirmations)
 				}
 			} else {
 				if err != nil {
@@ -588,11 +530,6 @@ func TestBTCHDWallet_HDWalletInterface(t *testing.T) {
 		t.Error("Expected error for invalid address")
 	}
 
-	// Test confirmations method (will fail without RPC)
-	_, err = wallet.GetTransactionConfirmations("invalid")
-	if err == nil {
-		t.Error("Expected error for invalid transaction ID")
-	}
 }
 
 // TestUtilityFunctions tests the utility functions

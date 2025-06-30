@@ -18,7 +18,7 @@ func createTestWallet(dataDir string, encryptionKey []byte) error {
 	}
 
 	// Create the wallet
-	testWallet, err := wallet.NewBTCHDWallet(seed, false)
+	testWallet, err := wallet.NewBTCHDWallet(seed, false, 1)
 	if err != nil {
 		return err
 	}

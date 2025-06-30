@@ -36,7 +36,6 @@ func createTestPayment(id string) *Payment {
 		ExpiresAt:     time.Now().Add(2 * time.Hour),
 		Status:        StatusPending,
 		Confirmations: 0,
-		TransactionID: "",
 	}
 }
 
@@ -265,7 +264,6 @@ func TestFileStore_UpdatePayment(t *testing.T) {
 				updated := createTestPayment("test-payment-update")
 				updated.Status = StatusConfirmed
 				updated.Confirmations = 6
-				updated.TransactionID = "abc123def456"
 				return updated
 			},
 			wantErr: false,
@@ -275,9 +273,6 @@ func TestFileStore_UpdatePayment(t *testing.T) {
 				}
 				if p.Confirmations != 6 {
 					t.Errorf("Updated payment confirmations = %v, want %v", p.Confirmations, 6)
-				}
-				if p.TransactionID != "abc123def456" {
-					t.Errorf("Updated payment transaction ID = %v, want %v", p.TransactionID, "abc123def456")
 				}
 			},
 		},

@@ -97,7 +97,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, fmt.Errorf("generate seed: %w", err)
 	}
 
-	hdWallet, err := wallet.NewBTCHDWallet(seed, config.TestNet)
+	hdWallet, err := wallet.NewBTCHDWallet(seed, config.TestNet, config.MinConfirmations)
 	if err != nil {
 		return nil, fmt.Errorf("create wallet: %w", err)
 	}
@@ -127,7 +127,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 		RPCUser:     config.XMRUser,
 		RPCURL:      config.XMRRPC,
 		RPCPassword: config.XMRPassword,
-	})
+	}, config.MinConfirmations)
 	if err != nil {
 		log.Printf("error creating XMR wallet %s,\n\tXMR will be disabled", err)
 	}

@@ -37,8 +37,6 @@ type Payment struct {
 	Status PaymentStatus `json:"status"`
 	// Confirmations is the number of blockchain confirmations received
 	Confirmations int `json:"confirmations"`
-	// TransactionID is the Bitcoin transaction ID once payment is made
-	TransactionID string `json:"transaction_id,omitempty"`
 }
 
 // PaymentStore defines the interface for payment persistence operations

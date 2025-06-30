@@ -65,7 +65,6 @@ func TestPaymentStruct_Creation_ValidData(t *testing.T) {
 		ExpiresAt:     expiresAt,
 		Status:        StatusPending,
 		Confirmations: 0,
-		TransactionID: "",
 	}
 
 	// Verify all fields are set correctly
@@ -122,7 +121,6 @@ func TestPaymentStruct_JSONSerialization_SuccessfulRoundTrip(t *testing.T) {
 		ExpiresAt:     time.Unix(1640998800, 0).UTC(), // Fixed time for consistent testing
 		Status:        StatusConfirmed,
 		Confirmations: 3,
-		TransactionID: "tx123abc",
 	}
 
 	// Serialize to JSON
@@ -159,10 +157,6 @@ func TestPaymentStruct_JSONSerialization_SuccessfulRoundTrip(t *testing.T) {
 
 	if deserialized.Confirmations != original.Confirmations {
 		t.Errorf("Confirmations mismatch: expected %d, got %d", original.Confirmations, deserialized.Confirmations)
-	}
-
-	if deserialized.TransactionID != original.TransactionID {
-		t.Errorf("TransactionID mismatch: expected %s, got %s", original.TransactionID, deserialized.TransactionID)
 	}
 }
 

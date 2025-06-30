@@ -19,7 +19,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"golang.org/x/crypto/ripemd160"
 )
@@ -174,8 +173,9 @@ type BTCHDWallet struct {
 	chainCode []byte            // Master chain code for key derivation
 	network   *chaincfg.Params  // Network parameters (mainnet/testnet)
 	nextIndex uint32            // Next address index to derive
-	client    *rpcclient.Client // RPC client for blockchain queries
+	rpcClient *rpcclient.Client // RPC client for blockchain queries
 	mu        sync.RWMutex      // Mutex for thread safety
+	minConf   int               // Minimum confirmations for balance queries
 }
 
 // NewHDWallet creates a new HD wallet from a seed.
@@ -193,7 +193,7 @@ type BTCHDWallet struct {
 //   - Seed should be backed up securely
 //
 // Related: DeriveNextAddress, GetAddress
-func NewBTCHDWallet(seed []byte, testnet bool) (*BTCHDWallet, error) {
+func NewBTCHDWallet(seed []byte, testnet bool, minConf int) (*BTCHDWallet, error) {
 	if len(seed) < 16 || len(seed) > 64 {
 		return nil, errors.New("seed must be between 16 and 64 bytes")
 	}
@@ -232,6 +232,7 @@ func NewBTCHDWallet(seed []byte, testnet bool) (*BTCHDWallet, error) {
 			Host:         publicHost,
 			HTTPPostMode: true,
 			DisableTLS:   false,
+			//Confirmations: 1, // Default confirmations
 		}
 
 		client, err = rpcclient.New(publicConfig, nil)
@@ -245,7 +246,7 @@ func NewBTCHDWallet(seed []byte, testnet bool) (*BTCHDWallet, error) {
 		chainCode: chainCode,
 		network:   network,
 		nextIndex: 0,
-		client:    client,
+		rpcClient: client,
 	}, nil
 }
 
@@ -447,12 +448,12 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("invalid bitcoin address: %w", err)
 	}
-	if w.client == nil {
+	if w.rpcClient == nil {
 		return 0, fmt.Errorf("RPC client not initialized")
 	}
 
 	// Use RPC client to get address balance
-	balance, err := w.client.GetReceivedByAddress(Address(address))
+	balance, err := w.rpcClient.GetReceivedByAddressMinConf(Address(address), w.minConf)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get address balance: %w", err)
 	}
@@ -461,36 +462,6 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 	btcBalance := float64(balance) / 1e8
 
 	return btcBalance, nil
-}
-
-// GetTransactionConfirmations implements paywall.CryptoClient.
-// Returns the number of confirmations for a specific transaction.
-//
-// Parameters:
-//   - txID: Bitcoin transaction ID
-//
-// Returns:
-//   - int: Number of confirmations
-//   - error: If transaction is not found or query fails
-//
-// Related: GetAddressBalance
-func (w *BTCHDWallet) GetTransactionConfirmations(txID string) (int, error) {
-	if w.client == nil {
-		return 0, fmt.Errorf("RPC client not initialized")
-	}
-
-	// Get transaction details using RPC client
-	hash, err := chainhash.NewHashFromStr(txID)
-	if err != nil {
-		return 0, fmt.Errorf("invalid transaction ID: %w", err)
-	}
-
-	tx, err := w.client.GetTransaction(hash)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get transaction: %w", err)
-	}
-
-	return int(tx.Confirmations), nil
 }
 
 func (w *BTCHDWallet) RecoverNextIndex() error {

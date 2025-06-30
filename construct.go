@@ -64,7 +64,7 @@ func ConstructPaywall(base string) (*Paywall, error) {
 		if err != nil {
 			return nil, err
 		}
-		btcWallet, err = wallet.NewBTCHDWallet(seed, false)
+		btcWallet, err = wallet.NewBTCHDWallet(seed, false, pw.minConfirmations)
 		if err != nil {
 			return nil, err
 		}

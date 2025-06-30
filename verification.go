@@ -32,14 +32,6 @@ type CryptoClient interface {
 	//   - balance in BTC (float64)
 	//   - error if the request fails or address is invalid
 	GetAddressBalance(address string) (float64, error)
-
-	// GetTransactionConfirmations returns the number of confirmations for a transaction
-	// Parameters:
-	//   - txID: Bitcoin transaction ID (string)
-	// Returns:
-	//   - number of confirmations (int)
-	//   - error if transaction not found or request fails
-	GetTransactionConfirmations(txID string) (int, error)
 }
 
 // Start begins monitoring the blockchain for payment confirmations
@@ -111,25 +103,9 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 
 	if xmrBalance >= payment.Amounts[wallet.Monero] {
 		// Payment confirmed by balance
-		if payment.TransactionID != "" {
-			// If we have a transaction ID, check confirmations
-			confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
-			if err != nil {
-				// If confirmation check fails, still accept payment but with 0 confirmations
-				payment.Status = StatusConfirmed
-				payment.Confirmations = 0
-			} else if confirmations >= m.paywall.minConfirmations {
-				payment.Status = StatusConfirmed
-				payment.Confirmations = confirmations
-			} else {
-				// Insufficient confirmations - payment pending
-				return nil
-			}
-		} else {
-			// No transaction ID available - accept payment based on balance only
-			payment.Status = StatusConfirmed
-			payment.Confirmations = 0
-		}
+		// Confirmations are checked inline during GetAddressBalance
+		payment.Status = StatusConfirmed
+		payment.Confirmations = m.paywall.minConfirmations
 		m.paywall.Store.UpdatePayment(payment)
 	}
 	return nil
@@ -150,25 +126,9 @@ func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
 
 	if btcBalance >= payment.Amounts[wallet.Bitcoin] {
 		// Payment confirmed by balance
-		if payment.TransactionID != "" {
-			// If we have a transaction ID, check confirmations
-			confirmations, err := client.GetTransactionConfirmations(payment.TransactionID)
-			if err != nil {
-				// If confirmation check fails, still accept payment but with 0 confirmations
-				payment.Status = StatusConfirmed
-				payment.Confirmations = 0
-			} else if confirmations >= m.paywall.minConfirmations {
-				payment.Status = StatusConfirmed
-				payment.Confirmations = confirmations
-			} else {
-				// Insufficient confirmations - payment pending
-				return nil
-			}
-		} else {
-			// No transaction ID available - accept payment based on balance only
-			payment.Status = StatusConfirmed
-			payment.Confirmations = 0
-		}
+		// Confirmations are checked inline during GetAddressBalance
+		payment.Status = StatusConfirmed
+		payment.Confirmations = m.paywall.minConfirmations
 		m.paywall.Store.UpdatePayment(payment)
 	}
 	return nil

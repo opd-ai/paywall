@@ -180,7 +180,6 @@ func TestMemoryStore_UpdatePayment(t *testing.T) {
 		ID:            "test-payment-update",
 		Status:        StatusPending,
 		Confirmations: 0,
-		TransactionID: "",
 	}
 	store.CreatePayment(initialPayment)
 
@@ -189,7 +188,6 @@ func TestMemoryStore_UpdatePayment(t *testing.T) {
 		ID:            "test-payment-update",
 		Status:        StatusConfirmed,
 		Confirmations: 3,
-		TransactionID: "abcd1234",
 	}
 
 	err := store.UpdatePayment(updatedPayment)
@@ -212,9 +210,6 @@ func TestMemoryStore_UpdatePayment(t *testing.T) {
 		t.Errorf("Confirmations not updated: got %v, want %v", retrieved.Confirmations, 3)
 	}
 
-	if retrieved.TransactionID != "abcd1234" {
-		t.Errorf("TransactionID not updated: got %v, want %v", retrieved.TransactionID, "abcd1234")
-	}
 }
 
 func TestMemoryStore_ListPendingPayments(t *testing.T) {
