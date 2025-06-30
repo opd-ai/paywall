@@ -375,13 +375,13 @@ func TestFileStore_ListPendingPayments(t *testing.T) {
 		name                string
 		wantErr             bool
 		expectedCount       int
-		expectedMinConfirms int
+		expectedMaxConfirms int
 	}{
 		{
-			name:                "list pending payments with more than 1 confirmation",
+			name:                "list pending payments with 1 or fewer confirmations",
 			wantErr:             false,
-			expectedCount:       2, // payments with 3 and 6 confirmations
-			expectedMinConfirms: 2,
+			expectedCount:       2, // payments with 0 and 1 confirmations
+			expectedMaxConfirms: 1,
 		},
 	}
 
@@ -398,10 +398,10 @@ func TestFileStore_ListPendingPayments(t *testing.T) {
 					t.Errorf("FileStore.ListPendingPayments() count = %v, want %v", len(pendingPayments), tt.expectedCount)
 				}
 
-				// Verify all returned payments have more than 1 confirmation
+				// Verify all returned payments have 1 or fewer confirmations
 				for _, payment := range pendingPayments {
-					if payment.Confirmations <= 1 {
-						t.Errorf("FileStore.ListPendingPayments() returned payment with %v confirmations, want > 1", payment.Confirmations)
+					if payment.Confirmations > 1 {
+						t.Errorf("FileStore.ListPendingPayments() returned payment with %v confirmations, want <= 1", payment.Confirmations)
 					}
 				}
 			}
@@ -443,7 +443,7 @@ func TestFileStore_ListPendingPayments_NonJSONFiles(t *testing.T) {
 
 	// Create one valid payment
 	testPayment := createTestPayment("valid-payment")
-	testPayment.Confirmations = 5
+	testPayment.Confirmations = 0
 	err := store.CreatePayment(testPayment)
 	if err != nil {
 		t.Fatalf("Failed to create test payment: %v", err)
@@ -673,7 +673,7 @@ func TestFileStore_CorruptedJSONHandling(t *testing.T) {
 
 	// Create a valid payment file
 	validPayment := createTestPayment("valid-payment")
-	validPayment.Confirmations = 5
+	validPayment.Confirmations = 0
 	err = store.CreatePayment(validPayment)
 	if err != nil {
 		t.Fatalf("Failed to create valid payment: %v", err)
