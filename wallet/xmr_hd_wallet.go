@@ -95,10 +95,10 @@ func (w *MoneroHDWallet) GetAddressBalance(address string) (float64, error) {
 	// Get the confirmations for the TxID
 	conf, err := w.GetTransactionConfirmations(txId)
 	if err != nil {
-		return 0, fmt.Errorf("Get confirmations failed: %w", err)
+		return 0, fmt.Errorf("get confirmations failed: %w", err)
 	}
 	if conf < w.minConfirmations {
-		return 0, fmt.Errorf("Unconfirmed, balance considered 0(this is temporary): %w", err)
+		return 0, fmt.Errorf("unconfirmed, balance considered 0(this is temporary): %w", err)
 	}
 	// Convert atomic units to XMR (1 XMR = 1e12 atomic units)
 	return balance, nil
