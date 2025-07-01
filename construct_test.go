@@ -123,19 +123,23 @@ func TestConstructPaywall_Error_EmptyBasePath(t *testing.T) {
 	os.Chdir(tempDir)
 
 	// Test construction with empty base path (should use default "./paywallet")
-	// This will fail due to the construct.go bug with nil seed
+	// ConstructPaywall should succeed with valid configuration
 	pw, err := ConstructPaywall("")
 
-	// Expect the seed error due to the bug in construct.go
-	if err == nil {
-		t.Error("ConstructPaywall(\"\") expected error due to nil seed bug, but got nil")
-		if pw != nil {
-			pw.Close()
-		}
+	// Should succeed with proper seed generation
+	if err != nil {
+		t.Errorf("ConstructPaywall(\"\") unexpected error: %v", err)
 	} else {
-		expectedError := "seed must be between 16 and 64 bytes"
-		if err.Error() != expectedError {
-			t.Errorf("ConstructPaywall(\"\") error = %v, want %v", err, expectedError)
+		if pw == nil {
+			t.Error("ConstructPaywall(\"\") returned nil paywall")
+		} else {
+			// Verify Bitcoin wallet was created
+			if btcWallet, exists := pw.HDWallets[wallet.Bitcoin]; !exists {
+				t.Error("Bitcoin wallet not found in HDWallets")
+			} else if btcWallet == nil {
+				t.Error("Bitcoin wallet is nil")
+			}
+			pw.Close()
 		}
 	}
 }
@@ -152,28 +156,24 @@ func TestConstructPaywall_TableDriven_CurrentBehavior(t *testing.T) {
 	tempDir := t.TempDir()
 
 	testCases := []struct {
-		name        string
-		basePath    string
-		wantErr     bool
-		expectedErr string
+		name     string
+		basePath string
+		wantErr  bool
 	}{
 		{
-			name:        "Custom path - demonstrates nil seed bug",
-			basePath:    filepath.Join(tempDir, "custom"),
-			wantErr:     true,
-			expectedErr: "seed must be between 16 and 64 bytes",
+			name:     "Custom path - should succeed with valid configuration",
+			basePath: filepath.Join(tempDir, "custom"),
+			wantErr:  false,
 		},
 		{
-			name:        "Empty path - demonstrates nil seed bug with default path",
-			basePath:    "",
-			wantErr:     true,
-			expectedErr: "seed must be between 16 and 64 bytes",
+			name:     "Empty path - should succeed with default path",
+			basePath: "",
+			wantErr:  false,
 		},
 		{
-			name:        "Nested path - demonstrates nil seed bug",
-			basePath:    filepath.Join(tempDir, "nested", "deep", "path"),
-			wantErr:     true,
-			expectedErr: "seed must be between 16 and 64 bytes",
+			name:     "Nested path - should succeed and create directories",
+			basePath: filepath.Join(tempDir, "nested", "deep", "path"),
+			wantErr:  false,
 		},
 	}
 
@@ -195,9 +195,17 @@ func TestConstructPaywall_TableDriven_CurrentBehavior(t *testing.T) {
 				return
 			}
 
-			if tc.wantErr && err != nil {
-				if err.Error() != tc.expectedErr {
-					t.Errorf("ConstructPaywall() error = %v, want %v", err, tc.expectedErr)
+			if !tc.wantErr && err == nil {
+				// Verify successful construction
+				if pw == nil {
+					t.Error("ConstructPaywall() returned nil paywall")
+				} else {
+					// Verify Bitcoin wallet was created
+					if btcWallet, exists := pw.HDWallets[wallet.Bitcoin]; !exists {
+						t.Error("Bitcoin wallet not found in HDWallets")
+					} else if btcWallet == nil {
+						t.Error("Bitcoin wallet is nil")
+					}
 				}
 			}
 
