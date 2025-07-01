@@ -261,17 +261,15 @@ func TestConstructPaywall_DefaultBasePath_Behavior(t *testing.T) {
 	}()
 	os.Chdir(tempDir)
 
-	// Test with empty string - should use default path but fail due to nil seed
+	// Test with empty string - should use default path and succeed
 	pw, err := ConstructPaywall("")
-	if err == nil {
-		if pw != nil {
-			pw.Close()
-		}
-		t.Error("Expected error due to nil seed bug, but got nil")
+	if err != nil {
+		t.Errorf("ConstructPaywall(\"\") failed: %v", err)
 	} else {
-		expectedError := "seed must be between 16 and 64 bytes"
-		if err.Error() != expectedError {
-			t.Errorf("ConstructPaywall(\"\") error = %v, want %v", err, expectedError)
+		if pw == nil {
+			t.Error("Expected valid paywall instance, got nil")
+		} else {
+			pw.Close()
 		}
 	}
 }
