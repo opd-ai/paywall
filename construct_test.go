@@ -67,7 +67,7 @@ func TestConstructPaywall_Success_NewFilestore(t *testing.T) {
 	}
 }
 
-func TestConstructPaywall_Error_NewWalletCreation(t *testing.T) {
+func TestConstructPaywall_Success_NewWalletCreation(t *testing.T) {
 	// Set up environment variables for XMR (avoid XMR errors)
 	os.Setenv("XMR_WALLET_USER", "testuser")
 	os.Setenv("XMR_WALLET_PASS", "testpass123")
@@ -80,20 +80,27 @@ func TestConstructPaywall_Error_NewWalletCreation(t *testing.T) {
 	tempDir := t.TempDir()
 	basePath := filepath.Join(tempDir, "new_wallet_test")
 
-	// Test construction without existing wallet (this triggers the bug)
+	// Test construction without existing wallet - should succeed with new wallet creation
 	pw, err := ConstructPaywall(basePath)
 
-	// This should fail due to the nil seed bug in construct.go
-	if err == nil {
-		t.Error("ConstructPaywall() expected error for new wallet creation, but got nil")
-		if pw != nil {
-			pw.Close()
-		}
+	// This should succeed as the implementation correctly generates a secure random seed
+	if err != nil {
+		t.Errorf("ConstructPaywall() unexpected error for new wallet creation: %v", err)
 	} else {
-		// Verify it's the expected error about seed
-		expectedError := "seed must be between 16 and 64 bytes"
-		if err.Error() != expectedError {
-			t.Errorf("ConstructPaywall() error = %v, want error containing %v", err, expectedError)
+		// Verify paywall was created successfully
+		if pw == nil {
+			t.Error("ConstructPaywall() returned nil paywall but no error")
+		} else {
+			defer pw.Close()
+
+			// Verify Bitcoin wallet was initialized
+			if pw.HDWallets == nil {
+				t.Error("HDWallets map not initialized")
+			} else if btcWallet, exists := pw.HDWallets[wallet.Bitcoin]; !exists {
+				t.Error("Bitcoin wallet not found in HDWallets")
+			} else if btcWallet == nil {
+				t.Error("Bitcoin wallet is nil")
+			}
 		}
 	}
 }
