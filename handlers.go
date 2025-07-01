@@ -89,7 +89,9 @@ func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) b
 	}
 
 	// Check if prices are below minimum thresholds (dust limits)
-	if p.prices[wallet.Bitcoin] < minBTC || p.prices[wallet.Monero] < minXMR {
+	// Zero prices indicate disabled wallet types and should be allowed
+	if (p.prices[wallet.Bitcoin] > 0 && p.prices[wallet.Bitcoin] <= minBTC) ||
+		(p.prices[wallet.Monero] > 0 && p.prices[wallet.Monero] <= minXMR) {
 		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
 		return true
 	}

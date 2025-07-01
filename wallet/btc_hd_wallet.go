@@ -444,6 +444,9 @@ func (w *BTCHDWallet) Currency() string {
 // Related: GetTransactionConfirmations
 func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 	// Validate address format
+	if address == "" {
+		return 0, fmt.Errorf("invalid bitcoin address: address is empty")
+	}
 	_, err := Base58Decode(address)
 	if err != nil {
 		return 0, fmt.Errorf("invalid bitcoin address: %w", err)
