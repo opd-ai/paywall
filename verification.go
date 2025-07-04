@@ -43,6 +43,9 @@ type CryptoClient interface {
 // Related methods: checkPendingPayments
 func (m *CryptoChainMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
+	consecutiveFailures := 0
+	maxBackoffInterval := 5 * time.Minute
+	
 	go func() {
 		defer ticker.Stop()
 		for {
@@ -51,7 +54,23 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 				ticker.Stop()
 				return
 			case <-ticker.C:
-				m.checkPendingPayments()
+				if err := m.checkPendingPayments(); err != nil {
+					consecutiveFailures++
+					// Exponential backoff: 10s, 20s, 40s, 80s, 160s, max 300s
+					backoffDelay := time.Duration(consecutiveFailures*consecutiveFailures) * 10 * time.Second
+					if backoffDelay > maxBackoffInterval {
+						backoffDelay = maxBackoffInterval
+					}
+					ticker.Reset(backoffDelay)
+					log.Printf("Payment monitoring failed (attempt %d), backing off for %v: %v", consecutiveFailures, backoffDelay, err)
+				} else {
+					// Reset on success
+					if consecutiveFailures > 0 {
+						consecutiveFailures = 0
+						ticker.Reset(10 * time.Second)
+						log.Println("Payment monitoring recovered, returning to normal interval")
+					}
+				}
 			}
 		}
 	}()
@@ -63,30 +82,37 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 // 2. Verifies the number of confirmations meets the minimum requirement
 // 3. Updates payment status to confirmed when requirements are met
 // Error cases:
-//   - Failed database queries are skipped
-//   - Failed blockchain queries for individual payments are skipped
+//   - Failed database queries are returned as errors
+//   - Failed blockchain queries for individual payments are logged but don't fail the batch
 //   - Invalid transactions are left in pending state
 //
 // Related types: Payment, PaymentStore
-func (m *CryptoChainMonitor) checkPendingPayments() {
+func (m *CryptoChainMonitor) checkPendingPayments() error {
 	m.gmux.Lock()
 	payments, err := m.paywall.Store.ListPendingPayments()
 	defer m.gmux.Unlock()
 	if err != nil {
-		log.Println("Payment list error:", err)
-		return
+		return fmt.Errorf("failed to list pending payments: %w", err)
 	}
 
+	hasErrors := false
 	for _, payment := range payments {
 		if err := m.CheckBTCPayments(payment); err != nil {
-			// log error
-			log.Println("CheckBTCPayments error:", err)
+			// log error but continue processing other payments
+			log.Printf("CheckBTCPayments error for payment %s: %v", payment.ID, err)
+			hasErrors = true
 		}
 		if err := m.CheckXMRPayments(payment); err != nil {
-			// log error
-			log.Println("CheckXMRPayments error:", err)
+			// log error but continue processing other payments
+			log.Printf("CheckXMRPayments error for payment %s: %v", payment.ID, err)
+			hasErrors = true
 		}
 	}
+	
+	if hasErrors {
+		return fmt.Errorf("some payment checks failed")
+	}
+	return nil
 }
 
 func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {

@@ -95,7 +95,11 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.PriceInBTC <= 0 {
 		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
 	}
-	// XMR price validation will be done later if XMR wallet is created
+	
+	// Validate XMR price if XMR configuration is provided
+	if (config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "") && config.PriceInXMR <= 0 {
+		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
+	}
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {
@@ -148,9 +152,6 @@ func NewPaywall(config Config) (*Paywall, error) {
 	// Validate payment amounts are positive
 	if config.PriceInBTC <= 0 {
 		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
-	}
-	if xmrHdWallet != nil && config.PriceInXMR <= 0 {
-		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
 	}
 
 	hdWallets := make(map[wallet.WalletType]wallet.HDWallet)
