@@ -72,7 +72,7 @@ func (m *MemoryStore) UpdatePayment(p *Payment) error {
 // ListPendingPayments returns all pending payment records.
 //
 // Returns:
-//   - []*Payment: Slice of payments with less than 1 confirmation
+//   - []*Payment: Slice of payments with 1 or fewer confirmations
 //   - error: Always nil in this implementation
 func (m *MemoryStore) ListPendingPayments() ([]*Payment, error) {
 	m.mu.RLock()
@@ -80,7 +80,7 @@ func (m *MemoryStore) ListPendingPayments() ([]*Payment, error) {
 
 	var payments []*Payment
 	for _, p := range m.payments {
-		if p.Confirmations > 1 {
+		if p.Confirmations <= 1 {
 			payments = append(payments, p)
 		}
 	}

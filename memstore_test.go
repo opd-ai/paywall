@@ -244,23 +244,23 @@ func TestMemoryStore_ListPendingPayments(t *testing.T) {
 		store.CreatePayment(payment)
 	}
 
-	// Get pending payments (should only return those with >1 confirmation)
+	// Get pending payments (should only return those with <=1 confirmation)
 	pendingPayments, err := store.ListPendingPayments()
 	if err != nil {
 		t.Errorf("ListPendingPayments() unexpected error = %v", err)
 		return
 	}
 
-	// Should return 2 payments (2 and 5 confirmations)
+	// Should return 2 payments (0 and 1 confirmations)
 	expectedCount := 2
 	if len(pendingPayments) != expectedCount {
 		t.Errorf("ListPendingPayments() returned %v payments, want %v", len(pendingPayments), expectedCount)
 	}
 
-	// Verify the returned payments have >1 confirmation
+	// Verify the returned payments have <=1 confirmation
 	for _, payment := range pendingPayments {
-		if payment.Confirmations <= 1 {
-			t.Errorf("ListPendingPayments() returned payment with %v confirmations, should be > 1", payment.Confirmations)
+		if payment.Confirmations > 1 {
+			t.Errorf("ListPendingPayments() returned payment with %v confirmations, should be <= 1", payment.Confirmations)
 		}
 	}
 
