@@ -94,9 +94,12 @@ config := wallet.StorageConfig{
     EncryptionKey: key,
 }
 
-// Save/load wallet
-err = pw.HDWallet.SaveToFile(config)
-wallet, err := wallet.LoadFromFile(config)
+// Save Bitcoin wallet (type assertion required)
+btcWallet := pw.HDWallets[wallet.Bitcoin].(*wallet.BTCHDWallet)
+err = btcWallet.SaveToFile(config)
+
+// Load wallet from file
+loadedWallet, err := wallet.LoadFromFile(config)
 ```
 
 ### Storage Backends

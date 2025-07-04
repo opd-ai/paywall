@@ -4,7 +4,9 @@ import (
 	"crypto/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/opd-ai/paywall/wallet"
 )
@@ -305,4 +307,67 @@ func TestConstructPaywall_FilestoreCreation(t *testing.T) {
 			t.Errorf("ConstructPaywall() error = %v, want %v", err, expectedError)
 		}
 	}
+}
+
+// TestNewPaywall_PriceValidation tests that NewPaywall validates payment amounts
+func TestNewPaywall_PriceValidation(t *testing.T) {
+	baseConfig := Config{
+		PriceInBTC:       0.001,
+		PriceInXMR:       0.01,
+		TestNet:          true,
+		Store:            NewMemoryStore(),
+		PaymentTimeout:   time.Hour,
+		MinConfirmations: 1,
+		XMRUser:          "testuser",
+		XMRPassword:      "testpass123",
+		XMRRPC:           "http://localhost:18081",
+	}
+
+	t.Run("NegativeBTCPrice", func(t *testing.T) {
+		config := baseConfig
+		config.PriceInBTC = -0.001
+		_, err := NewPaywall(config)
+		if err == nil {
+			t.Fatal("NewPaywall should fail with negative BTC price")
+		}
+		if !strings.Contains(err.Error(), "PriceInBTC must be positive") {
+			t.Fatalf("Expected PriceInBTC validation error, got: %v", err)
+		}
+	})
+
+	t.Run("ZeroBTCPrice", func(t *testing.T) {
+		config := baseConfig
+		config.PriceInBTC = 0
+		_, err := NewPaywall(config)
+		if err == nil {
+			t.Fatal("NewPaywall should fail with zero BTC price")
+		}
+		if !strings.Contains(err.Error(), "PriceInBTC must be positive") {
+			t.Fatalf("Expected PriceInBTC validation error, got: %v", err)
+		}
+	})
+
+	t.Run("NegativeXMRPrice", func(t *testing.T) {
+		config := baseConfig
+		config.PriceInXMR = -0.01
+		_, err := NewPaywall(config)
+		if err == nil {
+			t.Fatal("NewPaywall should fail with negative XMR price")
+		}
+		if !strings.Contains(err.Error(), "PriceInXMR must be positive") {
+			t.Fatalf("Expected PriceInXMR validation error, got: %v", err)
+		}
+	})
+
+	t.Run("ZeroXMRPrice", func(t *testing.T) {
+		config := baseConfig
+		config.PriceInXMR = 0
+		_, err := NewPaywall(config)
+		if err == nil {
+			t.Fatal("NewPaywall should fail with zero XMR price")
+		}
+		if !strings.Contains(err.Error(), "PriceInXMR must be positive") {
+			t.Fatalf("Expected PriceInXMR validation error, got: %v", err)
+		}
+	})
 }

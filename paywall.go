@@ -91,6 +91,13 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.PaymentTimeout <= 0 {
 		return nil, fmt.Errorf("payment timeout must be positive")
 	}
+	// validate payment amounts
+	if config.PriceInBTC <= 0 {
+		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
+	}
+	if config.PriceInXMR <= 0 {
+		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
+	}
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {
@@ -129,7 +136,8 @@ func NewPaywall(config Config) (*Paywall, error) {
 		RPCPassword: config.XMRPassword,
 	}, config.MinConfirmations)
 	if err != nil {
-		log.Printf("error creating XMR wallet %s,\n\tXMR will be disabled", err)
+		log.Printf("WARNING: XMR wallet configuration was provided but wallet creation failed: %v", err)
+		log.Printf("Continuing with Bitcoin-only support. Please check your Monero RPC configuration.")
 	}
 
 	tmpl, err := template.ParseFS(TemplateFS, "templates/payment.html")
