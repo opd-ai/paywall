@@ -147,6 +147,14 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.MinConfirmations < 1 {
 		config.MinConfirmations = 1
 	}
+	// Validate payment amounts are positive
+	if config.PriceInBTC <= 0 {
+		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
+	}
+	if xmrHdWallet != nil && config.PriceInXMR <= 0 {
+		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
+	}
+
 	hdWallets := make(map[wallet.WalletType]wallet.HDWallet)
 	hdWallets[wallet.WalletType(hdWallet.Currency())] = hdWallet
 	if xmrHdWallet != nil {
