@@ -2,6 +2,7 @@ package wallet
 
 import (
 	"fmt"
+	"log"
 	"sync"
 
 	monero "github.com/monero-ecosystem/go-monero-rpc-client/wallet"
@@ -98,7 +99,10 @@ func (w *MoneroHDWallet) GetAddressBalance(address string) (float64, error) {
 		return 0, fmt.Errorf("get confirmations failed: %w", err)
 	}
 	if conf < w.minConfirmations {
-		return 0, fmt.Errorf("unconfirmed, balance considered 0(this is temporary): %w", err)
+		// Return actual balance but log insufficient confirmations
+		// This allows payment detection while noting confirmation status
+		log.Printf("Monero payment received but insufficient confirmations: %d/%d for txid %s", conf, w.minConfirmations, txId)
+		return balance, nil
 	}
 	// Convert atomic units to XMR (1 XMR = 1e12 atomic units)
 	return balance, nil

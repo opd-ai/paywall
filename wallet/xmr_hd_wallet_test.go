@@ -518,6 +518,44 @@ func TestMoneroHDWallet_GetTransactionConfirmations_RPCError(t *testing.T) {
 	}
 }
 
+func TestMoneroHDWallet_GetAddressBalance_InsufficientConfirmations(t *testing.T) {
+	expectedBalance := uint64(5000000000000) // 5 XMR in atomic units
+	expectedConfirmations := 2                // Less than required minimum
+	testTxID := "test_transaction_id"
+
+	mockClient := &MockMoneroClient{
+		GetBalanceFunc: func(req *monero.RequestGetBalance) (*monero.ResponseGetBalance, error) {
+			return &monero.ResponseGetBalance{Balance: expectedBalance}, nil
+		},
+		GetTransfersFunc: func(req *monero.RequestGetTransfers) (*monero.ResponseGetTransfers, error) {
+			return &monero.ResponseGetTransfers{
+				In: []*monero.Transfer{
+					{
+						TxID:          testTxID,
+						Amount:        expectedBalance,
+						Confirmations: uint64(expectedConfirmations), // Insufficient confirmations
+					},
+				},
+			}, nil
+		},
+	}
+
+	wallet := createMockMoneroWallet(mockClient)
+	wallet.minConfirmations = 3 // Require 3 confirmations
+
+	balance, err := wallet.GetAddressBalance("test_address")
+
+	// Should return actual balance, not zero
+	if err != nil {
+		t.Fatalf("GetAddressBalance() should not error with insufficient confirmations, got: %v", err)
+	}
+
+	expectedBalanceXMR := float64(expectedBalance) / 1e12
+	if balance != expectedBalanceXMR {
+		t.Errorf("GetAddressBalance() = %v, want %v (should return actual balance despite insufficient confirmations)", balance, expectedBalanceXMR)
+	}
+}
+
 func TestMoneroConfig_Validation(t *testing.T) {
 	tests := []struct {
 		name   string
