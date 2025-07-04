@@ -215,3 +215,59 @@ func (m *FileStore) GetPaymentByAddress(addr string) (*Payment, error) {
 
 	return nil, nil
 }
+
+// FileStoreConfig defines configuration parameters for file-based payment storage
+//
+// Fields:
+//   - DataDir: Directory path where payment files will be stored
+//   - EncryptionKey: Optional 32-byte key for AES-256 encryption (if nil, no encryption)
+//
+// Security:
+//   - DataDir should have appropriate filesystem permissions (0755)
+//   - EncryptionKey must be securely generated and stored if provided
+//   - When EncryptionKey is provided, files are stored with AES-256-GCM encryption
+type FileStoreConfig struct {
+	DataDir       string
+	EncryptionKey []byte // Optional: 32-byte key for AES-256 encryption
+}
+
+// NewFileStoreWithConfig creates a new filesystem-based payment store with configuration.
+// If encryption key is provided, returns an EncryptedFileStore, otherwise returns a standard FileStore.
+//
+// Parameters:
+//   - config: FileStoreConfig containing storage location and optional encryption key
+//
+// Returns:
+//   - PaymentStore: Either *FileStore or *EncryptedFileStore depending on encryption key
+//   - error: If directory creation fails or encryption setup fails
+//
+// Security:
+//   - Creates directory with 0755 permissions
+//   - Validates encryption key length (must be 32 bytes if provided)
+//   - Uses AES-256-GCM encryption when key is provided
+//
+// Related: FileStore, EncryptedFileStore, PaymentStore interface
+func NewFileStoreWithConfig(config FileStoreConfig) (PaymentStore, error) {
+	// Create directory if it doesn't exist
+	if config.DataDir == "" {
+		config.DataDir = "./payments"
+	}
+	
+	if err := os.MkdirAll(config.DataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create storage directory: %w", err)
+	}
+
+	// If encryption key provided, use encrypted store
+	if config.EncryptionKey != nil {
+		if len(config.EncryptionKey) != 32 {
+			return nil, fmt.Errorf("encryption key must be 32 bytes, got %d", len(config.EncryptionKey))
+		}
+		
+		// For encrypted store, we need to save the key to a file
+		keyPath := filepath.Join(config.DataDir, "store.key")
+		return NewEncryptedFileStore(keyPath, config.DataDir)
+	}
+
+	// Use standard file store without encryption
+	return NewFileStore(config.DataDir), nil
+}

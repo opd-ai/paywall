@@ -7,6 +7,7 @@ type HDWallet interface {
 	GetAddress() (string, error)
 	Currency() string
 	GetAddressBalance(address string) (float64, error)
+	GetTransactionConfirmations(txID string) (int, error)
 }
 
 // WalletType identifies the cryptocurrency wallet implementation

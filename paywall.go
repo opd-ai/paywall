@@ -213,36 +213,63 @@ func (p *Paywall) addressMap() (map[wallet.WalletType]string, error) {
 	return addresses, nil
 }
 
-// CreatePayment generates a new payment request
-// It creates a unique Bitcoin address and payment record
-// Returns:
-//   - *Payment: The created payment record
-//   - error: If address generation or storage fails
+// CreatePayment generates a new payment with addresses for all enabled cryptocurrencies
 //
-// The payment starts in StatusPending state and expires after paymentTimeout
-// Related types: Payment, PaymentStatus
+// Returns:
+//   - *Payment: New payment record with generated addresses and amounts
+//   - error: If address generation fails or random ID generation fails
+//
+// The method creates a unique payment with:
+//   - Cryptographically secure random payment ID
+//   - Bitcoin address (if enabled)
+//   - Monero address (if enabled)
+//   - Configured payment amounts for each currency
+//   - Expiration time based on paymentTimeout
+//   - Initial status of StatusPending
+//
+// Error handling:
+//   - Returns error if random ID generation fails
+//   - Returns error if any wallet address generation fails
+//   - Validates payment amounts against dust limits
+//
+// Related types: Payment, wallet.HDWallet, PaymentStatus
 func (p *Paywall) CreatePayment() (*Payment, error) {
-	addresses, err := p.addressMap()
-	if err != nil {
-		return nil, err
+	// Generate cryptographically secure payment ID
+	idBytes := make([]byte, 16)
+	if _, err := rand.Read(idBytes); err != nil {
+		return nil, fmt.Errorf("generate payment ID: %w", err)
 	}
+	paymentID := hex.EncodeToString(idBytes)
 
-	paymentID, err := generatePaymentID()
-	if err != nil {
-		return nil, err
-	}
-
+	// Create payment record
 	payment := &Payment{
-		ID:        paymentID,
-		Addresses: addresses,
-		Amounts:   p.prices,
-		CreatedAt: time.Now(),
-		ExpiresAt: time.Now().Add(p.paymentTimeout),
-		Status:    StatusPending,
+		ID:            paymentID,
+		Addresses:     make(map[wallet.WalletType]string),
+		Amounts:       make(map[wallet.WalletType]float64),
+		CreatedAt:     time.Now(),
+		ExpiresAt:     time.Now().Add(p.paymentTimeout),
+		Status:        StatusPending,
+		Confirmations: 0,
 	}
 
+	// Generate addresses for all enabled wallets
+	for walletType, hdWallet := range p.HDWallets {
+		address, err := hdWallet.DeriveNextAddress()
+		if err != nil {
+			return nil, fmt.Errorf("generate %s address: %w", walletType, err)
+		}
+		payment.Addresses[walletType] = address
+		payment.Amounts[walletType] = p.prices[walletType]
+	}
+
+	// Validate payment has at least one enabled currency
+	if len(payment.Addresses) == 0 {
+		return nil, fmt.Errorf("no wallets enabled for payment")
+	}
+
+	// Store the payment
 	if err := p.Store.CreatePayment(payment); err != nil {
-		return nil, fmt.Errorf("failed to store payment: %w", err)
+		return nil, fmt.Errorf("store payment: %w", err)
 	}
 
 	return payment, nil

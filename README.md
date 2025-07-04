@@ -120,11 +120,22 @@ wallet, err := wallet.LoadFromFile(config)
 // Memory Store
 store := paywall.NewMemoryStore()
 
-// File Store
-store := paywall.NewFileStore(paywall.FileStoreConfig{
-    DataDir: "/var/lib/paywall/data",
-    EncryptionKey: key,
+// File Store (simple)
+store := paywall.NewFileStore("./payments")
+
+// File Store with encryption (recommended for production)
+encryptionKey, err := wallet.GenerateEncryptionKey()
+if err != nil {
+    log.Fatal(err)
+}
+
+store, err := paywall.NewFileStoreWithConfig(paywall.FileStoreConfig{
+    DataDir:       "/var/lib/paywall/data",
+    EncryptionKey: encryptionKey, // Optional: enables AES-256 encryption
 })
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
 ## Security Features
