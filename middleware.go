@@ -37,8 +37,22 @@ import (
 // Related types: Payment, PaymentStore, PaymentStatus
 func (p *Paywall) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// First check for existing cookie
-		cookie, err := r.Cookie("__Host-payment_id")
+		// Determine cookie name and security based on connection type
+		cookieName := "payment_id"
+		isSecure := false
+		
+		// Use __Host- prefix only for HTTPS connections
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			cookieName = "__Host-payment_id"
+			isSecure = true
+		}
+
+		// First check for existing cookie (try both names for compatibility)
+		cookie, err := r.Cookie(cookieName)
+		if err != nil && cookieName == "payment_id" {
+			// Fallback: try __Host- version for backward compatibility
+			cookie, err = r.Cookie("__Host-payment_id")
+		}
 		if err == nil {
 			// Cookie exists, verify payment
 			// update expiration +15 minutes
@@ -67,12 +81,12 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 		}
 		cookieExpiration := time.Now().Add(1 * time.Hour)
 
-		// Set cookie for new payment
+		// Set cookie for new payment with appropriate security settings
 		http.SetCookie(w, &http.Cookie{
-			Name:     "__Host-payment_id",
+			Name:     cookieName,
 			Value:    payment.ID,
 			Path:     "/",
-			Secure:   true,
+			Secure:   isSecure,
 			HttpOnly: true,
 			SameSite: http.SameSiteStrictMode,
 			Domain:   "",
