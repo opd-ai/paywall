@@ -13,46 +13,6 @@
 
 ## DETAILED FINDINGS
 
-### CRITICAL BUG: Incorrect Cookie Name in Middleware
-**File:** middleware.go:32
-**Severity:** High
-**Description:** The middleware attempts to read a cookie named "__Host-payment_id" but sets a cookie with the same name. However, the documented secure cookie implementation uses "__Host-" prefix which requires specific conditions that may not be met in all deployment scenarios.
-**Expected Behavior:** Should use consistent cookie naming and handle __Host- prefix requirements properly
-**Actual Behavior:** Sets __Host- prefixed cookie without ensuring HTTPS and proper domain requirements
-**Impact:** Cookie may not be set or read properly in non-HTTPS environments, breaking payment flow
-**Reproduction:** Deploy on HTTP-only server and attempt to make payment
-**Code Reference:**
-```go
-cookie, err := r.Cookie("__Host-payment_id")
-// Later:
-http.SetCookie(w, &http.Cookie{
-    Name:     "__Host-payment_id",
-    Value:    payment.ID,
-    Path:     "/",
-    Secure:   true,  // This breaks on HTTP
-    HttpOnly: true,
-    SameSite: http.SameSiteStrictMode,
-    Domain:   "",
-    Expires:  cookieExpiration,
-})
-```
-
-### CRITICAL BUG: Memory Store Returns Wrong Logic for Pending Payments 
-**File:** memstore.go:75-80
-**Severity:** High  
-**Description:** The ListPendingPayments method has inverted logic - it returns payments with MORE than 1 confirmation instead of pending payments with LESS than minimum confirmations
-**Expected Behavior:** Should return payments with status StatusPending OR confirmations < minConfirmations
-**Actual Behavior:** Returns payments with confirmations > 1, which are confirmed payments
-**Impact:** Payment monitoring system will never find pending payments to check, breaking automatic payment confirmation
-**Reproduction:** Create payments and call ListPendingPayments - will return empty list even for pending payments
-**Code Reference:**
-```go
-for _, p := range m.payments {
-    if p.Confirmations > 1 {  // BUG: Should be <= minConfirmations
-        payments = append(payments, p)
-    }
-}
-```
 
 ### CRITICAL BUG: File Store Has Same Logic Error for Pending Payments
 **File:** filestore.go:134-138
@@ -67,23 +27,6 @@ for _, p := range m.payments {
 if payment.Confirmations <= 1 {  // Should use configurable minConfirmations
     payments = append(payments, &payment)
 }
-```
-
-### FUNCTIONAL MISMATCH: Missing Monero Support Documentation Discrepancy
-**File:** README.md vs actual implementation
-**Severity:** Medium
-**Description:** README claims "Support for Monero wallets via RPC interface" but implementation has significant gaps and will fail in most configurations
-**Expected Behavior:** Monero should work as documented with basic RPC configuration
-**Actual Behavior:** Monero wallet creation fails silently and features are incomplete
-**Impact:** Users expecting Monero support will be disappointed and configurations will fail
-**Reproduction:** Try to use Monero with default configuration from README
-**Code Reference:**
-```go
-// From README: Claims Monero support, but:
-if err != nil {
-    log.Printf("error creating XMR wallet %s,\n\tXMR will be disabled", err)
-}
-// Silently disables XMR without user awareness
 ```
 
 ### FUNCTIONAL MISMATCH: Wallet Management API Mismatch
