@@ -527,6 +527,17 @@ func (w *BTCHDWallet) RecoverNextIndex() error {
 	return nil
 }
 
+// RollbackLastAddress decrements the next index counter
+// This is used for atomic payment operations - when payment storage fails
+// after address generation, we need to rollback the address index
+func (w *BTCHDWallet) RollbackLastAddress() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.nextIndex > 0 {
+		w.nextIndex--
+	}
+}
+
 // GetTransactionConfirmations implements HDWallet interface by checking transaction confirmations
 //
 // Parameters:
@@ -568,4 +579,11 @@ func (w *BTCHDWallet) GetTransactionConfirmations(txID string) (int, error) {
 	// Without RPC client, cannot verify transaction confirmations
 	// Return 0 to indicate unconfirmed
 	return 0, fmt.Errorf("no RPC client available for transaction confirmation")
+}
+
+// GetNextIndex returns the current next index value for testing purposes
+func (w *BTCHDWallet) GetNextIndex() uint32 {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.nextIndex
 }

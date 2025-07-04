@@ -148,3 +148,14 @@ func (w *MoneroHDWallet) GetTransactionIDByAmount(amount float64) (string, error
 
 	return "", fmt.Errorf("no transaction found with amount >= %f XMR", amount)
 }
+
+// RollbackLastAddress decrements the next index counter
+// This is used for atomic payment operations - when payment storage fails
+// after address generation, we need to rollback the address index
+func (w *MoneroHDWallet) RollbackLastAddress() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.nextIndex > 0 {
+		w.nextIndex--
+	}
+}

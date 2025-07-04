@@ -4,7 +4,7 @@
 
 **Total Issues Found: 17**
 - CRITICAL BUG: 0 (2 RESOLVED)
-- HIGH SEVERITY: 2
+- HIGH SEVERITY: 1 (1 RESOLVED)
 - MEDIUM SEVERITY: 8
 - LOW SEVERITY: 3
 - DOCUMENTATION ISSUE: 2
@@ -52,23 +52,33 @@ if conf < w.minConfirmations {
 }
 ```
 
-### HIGH: Race Condition in Payment Creation
+### HIGH: Race Condition in Payment Creation - **RESOLVED**
 **File:** paywall.go:258-267
 **Severity:** High (CVSS 6.5)
-**Description:** CreatePayment method generates addresses by calling DeriveNextAddress which increments wallet index, but if store.CreatePayment fails, the address index is already incremented
-**Expected Behavior:** Address derivation should be atomic with payment storage
-**Actual Behavior:** Failed payment creation can skip address indexes
-**Impact:** Address gaps in HD wallet derivation path, potential wallet recovery issues
-**Reproduction:** Make store.CreatePayment fail after address generation - address index will be incremented but payment not stored
+**Status:** FIXED - Added rollback mechanism for atomic payment creation
+**Description:** ~~CreatePayment method generates addresses by calling DeriveNextAddress which increments wallet index, but if store.CreatePayment fails, the address index is already incremented~~ Now implements proper rollback
+**Expected Behavior:** Address derivation should be atomic with payment storage ✓ IMPLEMENTED
+**Actual Behavior:** ~~Failed payment creation can skip address indexes~~ Address indexes are properly rolled back on failure
+**Impact:** ~~Address gaps in HD wallet derivation path, potential wallet recovery issues~~ MITIGATED
+**Fix Applied:** Added rollback mechanism that tracks generated wallets and decrements indexes on storage failure
 **Code Reference:**
 ```go
-address, err := hdWallet.DeriveNextAddress()  // Increments index
-if err != nil {
-    return nil, fmt.Errorf("generate %s address: %w", walletType, err)
+// Track which wallets had addresses generated for rollback on failure
+var generatedWallets []wallet.WalletType
+for walletType, hdWallet := range p.HDWallets {
+    address, err := hdWallet.DeriveNextAddress()
+    if err != nil {
+        // Rollback any previously generated addresses
+        p.rollbackAddressGeneration(generatedWallets)
+        return nil, fmt.Errorf("generate %s address: %w", walletType, err)
+    }
+    // ... 
+    generatedWallets = append(generatedWallets, walletType)
 }
-payment.Addresses[walletType] = address
-// Later:
-if err := p.Store.CreatePayment(payment); err != nil {  // If this fails, index already incremented
+// Store the payment
+if err := p.Store.CreatePayment(payment); err != nil {
+    // Rollback address generation on storage failure
+    p.rollbackAddressGeneration(generatedWallets)
     return nil, fmt.Errorf("store payment: %w", err)
 }
 ```

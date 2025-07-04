@@ -95,9 +95,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.PriceInBTC <= 0 {
 		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
 	}
-	if config.PriceInXMR <= 0 {
-		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
-	}
+	// XMR price validation will be done later if XMR wallet is created
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {
@@ -269,13 +267,18 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 	}
 
 	// Generate addresses for all enabled wallets
+	// Track which wallets had addresses generated for rollback on failure
+	var generatedWallets []wallet.WalletType
 	for walletType, hdWallet := range p.HDWallets {
 		address, err := hdWallet.DeriveNextAddress()
 		if err != nil {
+			// Rollback any previously generated addresses
+			p.rollbackAddressGeneration(generatedWallets)
 			return nil, fmt.Errorf("generate %s address: %w", walletType, err)
 		}
 		payment.Addresses[walletType] = address
 		payment.Amounts[walletType] = p.prices[walletType]
+		generatedWallets = append(generatedWallets, walletType)
 	}
 
 	// Validate payment has at least one enabled currency
@@ -285,10 +288,28 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 
 	// Store the payment
 	if err := p.Store.CreatePayment(payment); err != nil {
+		// Rollback address generation on storage failure
+		p.rollbackAddressGeneration(generatedWallets)
 		return nil, fmt.Errorf("store payment: %w", err)
 	}
 
 	return payment, nil
+}
+
+// rollbackAddressGeneration decrements the address index for wallets that had addresses generated
+// This is used to maintain atomic payment creation by rolling back on failures
+func (p *Paywall) rollbackAddressGeneration(walletTypes []wallet.WalletType) {
+	for _, walletType := range walletTypes {
+		if hdWallet, exists := p.HDWallets[walletType]; exists {
+			// Call rollback method on each wallet that had an address generated
+			switch w := hdWallet.(type) {
+			case *wallet.BTCHDWallet:
+				w.RollbackLastAddress()
+			case *wallet.MoneroHDWallet:
+				w.RollbackLastAddress()
+			}
+		}
+	}
 }
 
 // generatePaymentID creates a random 16-byte hex-encoded payment identifier

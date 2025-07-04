@@ -1,6 +1,7 @@
 package paywall
 
 import (
+	"fmt"
 	"testing"
 	"time"
 	
@@ -167,4 +168,66 @@ func TestPaywall_CreatePayment_ErrorCases(t *testing.T) {
 			t.Errorf("Error message = %q, expected %q", err.Error(), expectedErr)
 		}
 	})
+}
+
+// TestPaywall_CreatePayment_RaceConditionFix tests that address indexes are properly rolled back
+// when payment storage fails, preventing gaps in the HD wallet derivation path
+func TestPaywall_CreatePayment_RaceConditionFix(t *testing.T) {
+	// Create paywall with a failing store to test rollback
+	failingStore := &FailingStore{}
+	
+	pw, err := NewPaywall(Config{
+		PriceInBTC:       0.001,
+		TestNet:          true,
+		Store:            failingStore,
+		PaymentTimeout:   time.Hour,
+		MinConfirmations: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewPaywall() failed: %v", err)
+	}
+	defer pw.Close()
+
+	// Get the initial index for Bitcoin wallet
+	btcWallet := pw.HDWallets[wallet.Bitcoin].(*wallet.BTCHDWallet)
+	initialIndex := btcWallet.GetNextIndex()
+
+	// Attempt to create payment - should fail due to store failure
+	_, err = pw.CreatePayment()
+	if err == nil {
+		t.Fatal("Expected CreatePayment() to fail with FailingStore")
+	}
+
+	// Verify that the address index was rolled back
+	currentIndex := btcWallet.GetNextIndex()
+	if currentIndex != initialIndex {
+		t.Errorf("Address index not rolled back properly: initial=%d, current=%d", initialIndex, currentIndex)
+	}
+}
+
+// FailingStore is a test store that always fails CreatePayment to test rollback
+type FailingStore struct{}
+
+func (fs *FailingStore) CreatePayment(payment *Payment) error {
+	return fmt.Errorf("simulated storage failure")
+}
+
+func (fs *FailingStore) GetPayment(id string) (*Payment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (fs *FailingStore) GetPaymentByAddress(address string) (*Payment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (fs *FailingStore) UpdatePayment(payment *Payment) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (fs *FailingStore) ListPendingPayments() ([]*Payment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (fs *FailingStore) Close() error {
+	return nil
 }
