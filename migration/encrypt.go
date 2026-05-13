@@ -36,7 +36,11 @@ func EncryptExisting(keyPath, base string) error {
 		}
 
 		// Extract payment ID from filename
-		id := file.Name()[:len(file.Name())-5] // remove .json
+		fileName := file.Name()
+		if len(fileName) <= 5 {
+			continue
+		}
+		id := fileName[:len(fileName)-5] // remove .json
 
 		// Skip if encrypted version already exists
 		encPath := filepath.Join(base, id+".enc")
