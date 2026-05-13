@@ -48,6 +48,53 @@ type Payment struct {
 	RequiredSignatures map[wallet.WalletType]int `json:"required_signatures,omitempty"`
 	// Signatures contains collected partial signatures per wallet type
 	Signatures map[wallet.WalletType][]SignatureData `json:"signatures,omitempty"`
+
+	// Escrow fields (optional - only used when escrow is enabled)
+
+	// EscrowState indicates the current state of the escrow (if this is an escrow payment)
+	EscrowState EscrowState `json:"escrow_state,omitempty"`
+	// EscrowTimeout is when the escrow will automatically refund if not resolved
+	EscrowTimeout time.Time `json:"escrow_timeout,omitempty"`
+	// DisputeReason contains the reason provided when a dispute is requested
+	DisputeReason string `json:"dispute_reason,omitempty"`
+}
+
+// EscrowState represents the current state of an escrow transaction
+type EscrowState int
+
+const (
+	// EscrowNone indicates this payment is not using escrow
+	EscrowNone EscrowState = iota
+	// EscrowPending indicates escrow has been created but not yet funded
+	EscrowPending
+	// EscrowFunded indicates the buyer has funded the escrow
+	EscrowFunded
+	// EscrowCompleted indicates funds have been released to the seller
+	EscrowCompleted
+	// EscrowDisputed indicates a dispute has been raised
+	EscrowDisputed
+	// EscrowRefunded indicates funds have been returned to the buyer
+	EscrowRefunded
+)
+
+// String returns the string representation of the escrow state
+func (e EscrowState) String() string {
+	switch e {
+	case EscrowNone:
+		return "none"
+	case EscrowPending:
+		return "pending"
+	case EscrowFunded:
+		return "funded"
+	case EscrowCompleted:
+		return "completed"
+	case EscrowDisputed:
+		return "disputed"
+	case EscrowRefunded:
+		return "refunded"
+	default:
+		return "unknown"
+	}
 }
 
 // PaymentStore defines the interface for payment persistence operations

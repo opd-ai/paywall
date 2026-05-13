@@ -419,7 +419,7 @@ func (mt *MultisigPaymentTx) GetTxID() string {
 //   - error: If verification process fails
 //
 // Related: SignMultisigTx
-func (mt *MultisigPaymentTx) VerifySignature(inputIndex int, pubKey []byte, signature []byte) (bool, error) {
+func (mt *MultisigPaymentTx) VerifySignature(inputIndex int, pubKey, signature []byte) (bool, error) {
 	if inputIndex < 0 || inputIndex >= len(mt.Tx.TxIn) {
 		return false, fmt.Errorf("invalid input index: %d", inputIndex)
 	}
@@ -490,7 +490,7 @@ func (mt *MultisigPaymentTx) VerifySignature(inputIndex int, pubKey []byte, sign
 //   - error: If input index is invalid
 //
 // Related: SignMultisigTx
-func (mt *MultisigPaymentTx) GetRequiredSignatures(inputIndex int) (required int, collected int, err error) {
+func (mt *MultisigPaymentTx) GetRequiredSignatures(inputIndex int) (required, collected int, err error) {
 	if inputIndex < 0 || inputIndex >= len(mt.Tx.TxIn) {
 		return 0, 0, fmt.Errorf("invalid input index: %d", inputIndex)
 	}
@@ -730,7 +730,7 @@ func CreateTimelockRedeemScript(pubKeys [][]byte, requiredSigs int, lockTime uin
 //   - error: If script is invalid
 //
 // Related: CreateTimelockRedeemScript
-func ValidateTimelockRedeemScript(script []byte) (lockTime uint32, requiredSigs int, totalKeys int, err error) {
+func ValidateTimelockRedeemScript(script []byte) (lockTime uint32, requiredSigs, totalKeys int, err error) {
 	if len(script) < 10 {
 		return 0, 0, 0, errors.New("script too short for CLTV multisig")
 	}
