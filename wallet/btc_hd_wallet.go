@@ -172,13 +172,14 @@ func randomEndpoint(testnet bool) string {
 // BTCHDWallet represents a hierarchical deterministic Bitcoin wallet
 // implementing BIP32 and BIP44 standards.
 type BTCHDWallet struct {
-	masterKey []byte            // Master private key
-	chainCode []byte            // Master chain code for key derivation
-	network   *chaincfg.Params  // Network parameters (mainnet/testnet)
-	nextIndex uint32            // Next address index to derive
-	rpcClient *rpcclient.Client // RPC client for blockchain queries
-	mu        sync.RWMutex      // Mutex for thread safety
-	minConf   int               // Minimum confirmations for balance queries
+	masterKey      []byte            // Master private key
+	chainCode      []byte            // Master chain code for key derivation
+	network        *chaincfg.Params  // Network parameters (mainnet/testnet)
+	nextIndex      uint32            // Next address index to derive
+	rpcClient      *rpcclient.Client // RPC client for blockchain queries
+	mu             sync.RWMutex      // Mutex for thread safety
+	minConf        int               // Minimum confirmations for balance queries
+	multisigConfig *MultisigConfig   // Optional multisig configuration
 }
 
 // NewHDWallet creates a new HD wallet from a seed.
@@ -617,34 +618,119 @@ func (w *BTCHDWallet) GetNextIndex() uint32 {
 	return w.nextIndex
 }
 
-// Multisig operations (default implementations for backward compatibility)
+// Multisig operations
 
-// IsMultisigEnabled returns false as multisig is not yet implemented for Bitcoin wallets.
-// This default implementation maintains backward compatibility with existing code.
+// EnableMultisig configures the wallet for multisig operations
+// This must be called to enable multisig address generation
+func (w *BTCHDWallet) EnableMultisig(pubKeys [][]byte, requiredSigs int) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if len(pubKeys) == 0 {
+		return errors.New("at least one public key required for multisig")
+	}
+	if requiredSigs < 1 || requiredSigs > len(pubKeys) {
+		return fmt.Errorf("requiredSigs must be between 1 and %d", len(pubKeys))
+	}
+
+	// Build redeem script to validate keys
+	redeemScript, err := BuildRedeemScript(pubKeys, requiredSigs)
+	if err != nil {
+		return fmt.Errorf("failed to build redeem script: %w", err)
+	}
+
+	// Create script hash for verification
+	scriptHashBytes := sha256.Sum256(redeemScript)
+
+	w.multisigConfig = &MultisigConfig{
+		Enabled:      true,
+		RequiredSigs: requiredSigs,
+		TotalSigners: len(pubKeys),
+		PublicKeys:   pubKeys,
+		RedeemScript: redeemScript,
+		ScriptHash:   fmt.Sprintf("%x", scriptHashBytes),
+	}
+
+	return nil
+}
+
+// IsMultisigEnabled returns true if multisig has been configured for this wallet
 func (w *BTCHDWallet) IsMultisigEnabled() bool {
-	return false
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return w.multisigConfig != nil && w.multisigConfig.Enabled
 }
 
-// GetMultisigConfig returns ErrMultisigNotSupported as multisig is not yet implemented.
-// This default implementation maintains backward compatibility with existing code.
+// GetMultisigConfig returns the multisig configuration or error if not enabled
 func (w *BTCHDWallet) GetMultisigConfig() (*MultisigConfig, error) {
-	return nil, ErrMultisigNotSupported
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	if w.multisigConfig == nil {
+		return nil, ErrMultisigNotSupported
+	}
+	return w.multisigConfig, nil
 }
 
-// DeriveMultisigAddress returns ErrMultisigNotSupported as multisig is not yet implemented.
-// This default implementation maintains backward compatibility with existing code.
+// DeriveMultisigAddress generates a multisig address using the configured public keys
 //
-// Future implementation will support Bitcoin P2SH (Pay-to-Script-Hash) and P2WSH
-// (Pay-to-Witness-Script-Hash) multisig address generation per BIP16 and BIP141.
+// This method creates a P2WSH (Pay-to-Witness-Script-Hash) multisig address.
+// The wallet must have multisig enabled via EnableMultisig before calling this method.
+//
+// Parameters:
+//   - pubKeys: Public keys for this specific address (overrides wallet config if provided)
+//   - requiredSigs: Required signatures (overrides wallet config if non-zero)
+//
+// Returns:
+//   - address: The generated multisig address
+//   - metadata: Metadata about the multisig configuration
+//   - error: If multisig is not enabled or address generation fails
 func (w *BTCHDWallet) DeriveMultisigAddress(pubKeys [][]byte, requiredSigs int) (string, *MultisigMetadata, error) {
-	return "", nil, ErrMultisigNotSupported
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Use wallet config if parameters not provided
+	if len(pubKeys) == 0 && w.multisigConfig != nil {
+		pubKeys = w.multisigConfig.PublicKeys
+		requiredSigs = w.multisigConfig.RequiredSigs
+	}
+
+	if len(pubKeys) == 0 {
+		return "", nil, errors.New("multisig not enabled and no public keys provided")
+	}
+
+	// Create multisig address using P2WSH format
+	address, redeemScript, err := CreateMultisigAddress(pubKeys, requiredSigs, P2WSH, w.network)
+	if err != nil {
+		return "", nil, fmt.Errorf("multisig address generation failed: %w", err)
+	}
+
+	// Calculate script hash
+	scriptHashBytes := sha256.Sum256(redeemScript)
+
+	// Create metadata
+	metadata := &MultisigMetadata{
+		Address:      address,
+		RedeemScript: redeemScript,
+		ScriptHash:   fmt.Sprintf("%x", scriptHashBytes),
+		PublicKeys:   pubKeys,
+		RequiredSigs: requiredSigs,
+	}
+
+	return address, metadata, nil
 }
 
-// CreateRedeemScript returns ErrMultisigNotSupported as multisig is not yet implemented.
-// This default implementation maintains backward compatibility with existing code.
+// CreateRedeemScript generates a multisig redeem script from public keys
 //
-// Future implementation will generate Bitcoin redeem scripts for P2SH multisig addresses,
-// combining public keys with OP_CHECKMULTISIG opcode per BIP16 specification.
+// This wraps the BuildRedeemScript function for the HDWallet interface.
+//
+// Parameters:
+//   - pubKeys: Array of public keys in compressed format
+//   - requiredSigs: Number of signatures required (m in m-of-n)
+//
+// Returns:
+//   - []byte: The redeem script bytes
+//   - error: If script generation fails
 func (w *BTCHDWallet) CreateRedeemScript(pubKeys [][]byte, requiredSigs int) ([]byte, error) {
-	return nil, ErrMultisigNotSupported
+	return BuildRedeemScript(pubKeys, requiredSigs)
 }

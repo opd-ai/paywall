@@ -190,6 +190,15 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, fmt.Errorf("create wallet: %w", err)
 	}
 
+	// Enable multisig on Bitcoin wallet if configured
+	if config.MultisigEnabled {
+		if pubKeys, ok := config.ParticipantPubKeys[wallet.Bitcoin]; ok {
+			if err := hdWallet.EnableMultisig(pubKeys, config.MultisigRequired); err != nil {
+				return nil, fmt.Errorf("enable multisig on Bitcoin wallet: %w", err)
+			}
+		}
+	}
+
 	// Only process XMR if any XMR config is provided
 	if config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "" || config.PriceInXMR > 0 {
 		if config.XMRUser == "" {

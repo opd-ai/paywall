@@ -3,6 +3,7 @@ package paywall
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +11,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/opd-ai/paywall/wallet"
 )
+
+// generateTestPubKeys creates valid compressed public keys for multisig testing
+func generateTestPubKeys() [][]byte {
+	// Generate valid secp256k1 private keys and derive public keys
+	seed1 := sha256.Sum256([]byte("test-key-1"))
+	seed2 := sha256.Sum256([]byte("test-key-2"))
+	seed3 := sha256.Sum256([]byte("test-key-3"))
+
+	key1, _ := btcec.PrivKeyFromBytes(seed1[:])
+	key2, _ := btcec.PrivKeyFromBytes(seed2[:])
+	key3, _ := btcec.PrivKeyFromBytes(seed3[:])
+
+	return [][]byte{
+		key1.PubKey().SerializeCompressed(),
+		key2.PubKey().SerializeCompressed(),
+		key3.PubKey().SerializeCompressed(),
+	}
+}
 
 // mockAuthenticator implements MultisigAuthenticator for testing
 type mockAuthenticator struct {
@@ -62,11 +82,7 @@ func (m *mockNotifier) NotifyBroadcastComplete(paymentID string, txID string) er
 
 func TestMultisigCoordinator_HandleInitiate(t *testing.T) {
 	// Create test paywall with multisig enabled
-	pubKeys := [][]byte{
-		make([]byte, 33),
-		make([]byte, 33),
-		make([]byte, 33),
-	}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:       0.001,
 		TestNet:          true,
@@ -97,7 +113,7 @@ func TestMultisigCoordinator_HandleInitiate(t *testing.T) {
 			request: MultisigInitiateRequest{
 				WalletType:   wallet.Bitcoin,
 				RequiredSigs: 2,
-				PublicKeys:   [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)},
+				PublicKeys:   generateTestPubKeys(),
 				Role:         RoleBuyer,
 			},
 			wantStatus: http.StatusOK,
@@ -108,7 +124,7 @@ func TestMultisigCoordinator_HandleInitiate(t *testing.T) {
 			request: MultisigInitiateRequest{
 				WalletType:   "invalid",
 				RequiredSigs: 2,
-				PublicKeys:   [][]byte{make([]byte, 33), make([]byte, 33)},
+				PublicKeys:   generateTestPubKeys()[:2],
 				Role:         RoleBuyer,
 			},
 			wantStatus: http.StatusBadRequest,
@@ -119,7 +135,7 @@ func TestMultisigCoordinator_HandleInitiate(t *testing.T) {
 			request: MultisigInitiateRequest{
 				WalletType:   wallet.Bitcoin,
 				RequiredSigs: 3,
-				PublicKeys:   [][]byte{make([]byte, 33), make([]byte, 33)},
+				PublicKeys:   generateTestPubKeys()[:2],
 				Role:         RoleBuyer,
 			},
 			wantStatus: http.StatusBadRequest,
@@ -167,7 +183,7 @@ func TestMultisigCoordinator_HandleInitiate(t *testing.T) {
 }
 
 func TestMultisigCoordinator_HandleInitiate_Authentication(t *testing.T) {
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
@@ -189,7 +205,7 @@ func TestMultisigCoordinator_HandleInitiate_Authentication(t *testing.T) {
 	req := MultisigInitiateRequest{
 		WalletType:   wallet.Bitcoin,
 		RequiredSigs: 2,
-		PublicKeys:   [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)},
+		PublicKeys:   generateTestPubKeys(),
 		Role:         RoleBuyer,
 	}
 
@@ -206,7 +222,7 @@ func TestMultisigCoordinator_HandleInitiate_Authentication(t *testing.T) {
 
 func TestMultisigCoordinator_HandleSign(t *testing.T) {
 	// Create paywall and payment
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
@@ -314,7 +330,7 @@ func TestMultisigCoordinator_HandleSign(t *testing.T) {
 }
 
 func TestMultisigCoordinator_HandleSign_ReadyToBroadcast(t *testing.T) {
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
@@ -384,7 +400,7 @@ func TestMultisigCoordinator_HandleSign_ReadyToBroadcast(t *testing.T) {
 }
 
 func TestMultisigCoordinator_HandleStatus(t *testing.T) {
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
@@ -444,7 +460,7 @@ func TestMultisigCoordinator_HandleStatus(t *testing.T) {
 }
 
 func TestMultisigCoordinator_HandleBroadcast(t *testing.T) {
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
@@ -519,7 +535,7 @@ func TestMultisigCoordinator_HandleBroadcast(t *testing.T) {
 }
 
 func TestMultisigCoordinator_HandleBroadcast_InsufficientSignatures(t *testing.T) {
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
@@ -570,7 +586,7 @@ func TestMultisigCoordinator_HandleBroadcast_InsufficientSignatures(t *testing.T
 }
 
 func TestMultisigCoordinator_MethodNotAllowed(t *testing.T) {
-	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
+	pubKeys := generateTestPubKeys()
 	pw, err := NewPaywall(Config{
 		PriceInBTC:         0.001,
 		TestNet:            true,
