@@ -46,6 +46,35 @@ type Config struct {
 	XMRPassword string
 	// XMRRPC is the monero-rpc URL
 	XMRRPC string
+
+	// Multisig configuration (optional - defaults to single-signature mode)
+
+	// MultisigEnabled enables multisig address generation for payments.
+	// When false (default), standard single-signature addresses are used.
+	// When true, MultisigRequired, MultisigTotal, and ParticipantPubKeys must be provided.
+	MultisigEnabled bool
+
+	// MultisigRequired is the number of signatures required (m in m-of-n multisig).
+	// Must be >= 2 and <= MultisigTotal when MultisigEnabled is true.
+	// Ignored when MultisigEnabled is false.
+	MultisigRequired int
+
+	// MultisigTotal is the total number of signers (n in m-of-n multisig).
+	// Must be >= MultisigRequired when MultisigEnabled is true.
+	// Ignored when MultisigEnabled is false.
+	MultisigTotal int
+
+	// ParticipantPubKeys contains public keys for all multisig participants per wallet type.
+	// The map keys are wallet types (Bitcoin, Monero) and values are slices of public key bytes.
+	// Total number of keys per wallet type must equal MultisigTotal.
+	// Required when MultisigEnabled is true, ignored otherwise.
+	ParticipantPubKeys map[wallet.WalletType][][]byte
+
+	// MultisigRole identifies this instance's role in multisig transactions.
+	// Used for escrow and dispute resolution coordination.
+	// Common values: RoleBuyer, RoleSeller, RoleArbiter.
+	// Optional: only needed for escrow/dispute resolution workflows.
+	MultisigRole MultisigRole
 }
 
 // Paywall manages Bitcoin payment processing and verification
@@ -70,6 +99,19 @@ type Paywall struct {
 	ctx context.Context
 	// cancel is the context cancellation function
 	cancel context.CancelFunc
+
+	// Multisig configuration (optional - defaults to single-signature mode)
+
+	// multisigEnabled indicates whether multisig addresses should be used for payments
+	multisigEnabled bool
+	// multisigRequired is the number of signatures required (m in m-of-n multisig)
+	multisigRequired int
+	// multisigTotal is the total number of signers (n in m-of-n multisig)
+	multisigTotal int
+	// participantPubKeys contains public keys for all multisig participants per wallet type
+	participantPubKeys map[wallet.WalletType][][]byte
+	// multisigRole identifies this instance's role in multisig transactions (buyer/seller/arbiter)
+	multisigRole MultisigRole
 }
 
 // NewPaywall creates and initializes a new Paywall instance
@@ -111,6 +153,32 @@ func NewPaywall(config Config) (*Paywall, error) {
 	if config.PriceInXMR > 0 && config.PriceInXMR <= minXMRDustLimit {
 		return nil, fmt.Errorf("PriceInXMR %f is below dust limit (minimum: %f)", config.PriceInXMR, minXMRDustLimit)
 	}
+
+	// Validate multisig configuration if enabled
+	if config.MultisigEnabled {
+		if config.MultisigRequired < 2 {
+			return nil, fmt.Errorf("MultisigRequired must be at least 2, got: %d", config.MultisigRequired)
+		}
+		if config.MultisigTotal < config.MultisigRequired {
+			return nil, fmt.Errorf("MultisigTotal (%d) must be >= MultisigRequired (%d)", config.MultisigTotal, config.MultisigRequired)
+		}
+		if config.ParticipantPubKeys == nil {
+			return nil, fmt.Errorf("ParticipantPubKeys required when MultisigEnabled is true")
+		}
+		// Validate that each enabled wallet type has the correct number of public keys
+		for walletType, pubKeys := range config.ParticipantPubKeys {
+			if len(pubKeys) != config.MultisigTotal {
+				return nil, fmt.Errorf("ParticipantPubKeys for %s: expected %d keys, got %d", walletType, config.MultisigTotal, len(pubKeys))
+			}
+			// Validate that keys are not empty
+			for i, key := range pubKeys {
+				if len(key) == 0 {
+					return nil, fmt.Errorf("ParticipantPubKeys for %s: key at index %d is empty", walletType, i)
+				}
+			}
+		}
+	}
+
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)
 	if _, err := rand.Read(seed); err != nil {
@@ -182,14 +250,19 @@ func NewPaywall(config Config) (*Paywall, error) {
 	// Create context with cancellation
 	pctx, pcancel := context.WithCancel(context.Background())
 	p := &Paywall{
-		HDWallets:        hdWallets,
-		Store:            config.Store,
-		prices:           prices,
-		paymentTimeout:   config.PaymentTimeout,
-		minConfirmations: config.MinConfirmations,
-		template:         tmpl,
-		ctx:              pctx,
-		cancel:           pcancel,
+		HDWallets:          hdWallets,
+		Store:              config.Store,
+		prices:             prices,
+		paymentTimeout:     config.PaymentTimeout,
+		minConfirmations:   config.MinConfirmations,
+		template:           tmpl,
+		ctx:                pctx,
+		cancel:             pcancel,
+		multisigEnabled:    config.MultisigEnabled,
+		multisigRequired:   config.MultisigRequired,
+		multisigTotal:      config.MultisigTotal,
+		participantPubKeys: config.ParticipantPubKeys,
+		multisigRole:       config.MultisigRole,
 	}
 	// Initialize monitor
 	monitor := &CryptoChainMonitor{
@@ -280,6 +353,14 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 		ExpiresAt:     time.Now().Add(p.paymentTimeout),
 		Status:        StatusPending,
 		Confirmations: 0,
+	}
+
+	// Initialize multisig fields if multisig is enabled
+	if p.multisigEnabled {
+		payment.MultisigEnabled = true
+		payment.MultisigMetadata = make(map[wallet.WalletType]*wallet.MultisigMetadata)
+		payment.RequiredSignatures = make(map[wallet.WalletType]int)
+		payment.Signatures = make(map[wallet.WalletType][]SignatureData)
 	}
 
 	// Generate addresses for all enabled wallets

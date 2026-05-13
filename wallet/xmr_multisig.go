@@ -46,6 +46,10 @@ func (w *MoneroHDWallet) PrepareMultisig(threshold int) (string, error) {
 		return "", fmt.Errorf("threshold must be at least 2 for multisig")
 	}
 
+	if w.client == nil {
+		return "", fmt.Errorf("wallet client not initialized")
+	}
+
 	// Call Monero RPC prepare_multisig
 	resp, err := w.client.PrepareMultisig()
 	if err != nil {
@@ -96,6 +100,10 @@ func (w *MoneroHDWallet) MakeMultisig(participantInfos []string, threshold int) 
 		return "", "", fmt.Errorf("threshold (%d) cannot exceed total participants (%d)", threshold, total)
 	}
 
+	if w.client == nil {
+		return "", "", fmt.Errorf("wallet client not initialized")
+	}
+
 	// Call Monero RPC make_multisig
 	resp, err := w.client.MakeMultisig(&monero.RequestMakeMultisig{
 		MultisigInfo: participantInfos,
@@ -131,6 +139,10 @@ func (w *MoneroHDWallet) MakeMultisig(participantInfos []string, threshold int) 
 func (w *MoneroHDWallet) ExportMultisigInfo() (string, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if w.client == nil {
+		return "", fmt.Errorf("wallet client not initialized")
+	}
 
 	// Call Monero RPC export_multisig_info
 	resp, err := w.client.ExportMultisigInfo()
@@ -169,6 +181,10 @@ func (w *MoneroHDWallet) ImportMultisigInfo(participantInfos []string) (int, err
 
 	if len(participantInfos) == 0 {
 		return 0, fmt.Errorf("participant infos cannot be empty")
+	}
+
+	if w.client == nil {
+		return 0, fmt.Errorf("wallet client not initialized")
 	}
 
 	// Call Monero RPC import_multisig_info
@@ -212,6 +228,10 @@ func (w *MoneroHDWallet) FinalizeMultisig(participantInfos []string) (string, er
 		return "", fmt.Errorf("participant infos cannot be empty")
 	}
 
+	if w.client == nil {
+		return "", fmt.Errorf("wallet client not initialized")
+	}
+
 	// Call Monero RPC finalize_multisig
 	resp, err := w.client.FinalizeMultisig(&monero.RequestFinalizeMultisig{
 		MultisigInfo: participantInfos,
@@ -238,6 +258,10 @@ func (w *MoneroHDWallet) IsMultisigWallet() (bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	if w.client == nil {
+		return false, fmt.Errorf("wallet client not initialized")
+	}
+
 	resp, err := w.client.IsMultisig()
 	if err != nil {
 		return false, fmt.Errorf("is multisig check failed: %w", err)
@@ -260,6 +284,10 @@ func (w *MoneroHDWallet) IsMultisigWallet() (bool, error) {
 func (w *MoneroHDWallet) IsMultisigReady() (bool, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if w.client == nil {
+		return false, fmt.Errorf("wallet client not initialized")
+	}
 
 	resp, err := w.client.IsMultisig()
 	if err != nil {
@@ -286,6 +314,10 @@ func (w *MoneroHDWallet) IsMultisigReady() (bool, error) {
 func (w *MoneroHDWallet) GetMultisigState() (*MoneroMultisigState, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	if w.client == nil {
+		return nil, fmt.Errorf("wallet client not initialized")
+	}
 
 	resp, err := w.client.IsMultisig()
 	if err != nil {
@@ -330,6 +362,10 @@ func (w *MoneroHDWallet) SignMultisigTransaction(txSet string) (string, error) {
 		return "", fmt.Errorf("transaction set cannot be empty")
 	}
 
+	if w.client == nil {
+		return "", fmt.Errorf("wallet client not initialized")
+	}
+
 	// Call Monero RPC sign_multisig
 	resp, err := w.client.SignMultisig(&monero.RequestSignMultisig{
 		TxDataHex: txSet,
@@ -367,6 +403,10 @@ func (w *MoneroHDWallet) SubmitMultisig(txHex string) ([]string, error) {
 
 	if txHex == "" {
 		return nil, fmt.Errorf("transaction hex cannot be empty")
+	}
+
+	if w.client == nil {
+		return nil, fmt.Errorf("wallet client not initialized")
 	}
 
 	// Call Monero RPC submit_multisig

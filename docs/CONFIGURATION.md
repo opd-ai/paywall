@@ -542,6 +542,156 @@ pw, _ := paywall.NewPaywall(config)
 defer pw.Close()
 ```
 
+## Multisig Configuration (Optional)
+
+Multisig (multi-signature) support allows creating payment addresses that require multiple signatures to spend funds, enabling escrow and dispute resolution workflows.
+
+### When to Use Multisig
+
+**Use cases**:
+- **Escrow**: Buyer, seller, and arbiter each hold one key (2-of-3 multisig)
+- **Marketplace**: Platform holds one key, seller holds one, dispute resolution service holds third
+- **High-value**: Require approval from multiple parties before funds can be moved
+- **Business**: Require multiple executive signatures for withdrawals
+
+**Single-sig is simpler**: For most content paywalls, standard single-signature addresses are sufficient and simpler to implement.
+
+### Configuration Fields
+
+```go
+type Config struct {
+    // ... existing fields ...
+
+    // MultisigEnabled enables multisig address generation (default: false)
+    MultisigEnabled     bool
+
+    // MultisigRequired is m in m-of-n (number of signatures required)
+    // Must be >= 2 and <= MultisigTotal when MultisigEnabled=true
+    MultisigRequired    int
+
+    // MultisigTotal is n in m-of-n (total number of signers)
+    // Must be >= MultisigRequired when MultisigEnabled=true
+    MultisigTotal       int
+
+    // ParticipantPubKeys are public keys for all participants per wallet type
+    // Map keys: wallet.Bitcoin or wallet.Monero
+    // Each slice must contain MultisigTotal public keys
+    ParticipantPubKeys  map[wallet.WalletType][][]byte
+
+    // MultisigRole identifies this instance's role (optional)
+    // Values: wallet.RoleBuyer, wallet.RoleSeller, wallet.RoleArbiter
+    MultisigRole        MultisigRole
+}
+```
+
+### Example: 2-of-3 Escrow Configuration
+
+#### Step 1: Generate Keys for Each Participant
+
+Each participant generates their own wallet and exports public keys:
+
+```go
+// Buyer's setup
+buyerSeed := make([]byte, 32)
+rand.Read(buyerSeed)
+buyerWallet, _ := wallet.NewBTCHDWallet(buyerSeed, false, 6)
+buyerPubKey := buyerWallet.GetPublicKey() // Implement as needed
+
+// Seller's setup (similar process)
+sellerPubKey := ... // Seller exports their public key
+
+// Arbiter's setup (similar process)
+arbiterPubKey := ... // Arbiter exports their public key
+```
+
+#### Step 2: Configure Paywall with Multisig
+
+Each participant configures their paywall instance with all public keys:
+
+```go
+config := paywall.Config{
+    PriceInBTC:       0.01,
+    TestNet:          false,
+    Store:            paywall.NewFileStore("./payments"),
+    PaymentTimeout:   72 * time.Hour,  // Longer timeout for escrow
+    MinConfirmations: 6,
+
+    // Multisig configuration
+    MultisigEnabled:  true,
+    MultisigRequired: 2,  // Need 2 signatures to spend
+    MultisigTotal:    3,  // Out of 3 total signers
+
+    ParticipantPubKeys: map[wallet.WalletType][][]byte{
+        wallet.Bitcoin: {
+            buyerPubKey,
+            sellerPubKey,
+            arbiterPubKey,
+        },
+    },
+
+    MultisigRole: wallet.RoleBuyer,  // This instance is the buyer
+}
+
+pw, err := paywall.NewPaywall(config)
+if err != nil {
+    log.Fatal(err)
+}
+defer pw.Close()
+```
+
+### Validation Rules for Multisig
+
+When `MultisigEnabled: true`, additional validation applies:
+
+| Field | Rule | Error Example |
+|-------|------|---------------|
+| MultisigRequired | >= 2 | ❌ MultisigRequired: 1 |
+| MultisigTotal | >= MultisigRequired | ❌ Total=2, Required=3 |
+| ParticipantPubKeys | Not nil when enabled | ❌ Must provide keys |
+| ParticipantPubKeys | Length = MultisigTotal per wallet | ❌ Expected 3 keys, got 2 |
+| ParticipantPubKeys | No empty keys | ❌ Key at index 1 is empty |
+
+### Bitcoin vs Monero Multisig
+
+**Bitcoin multisig**:
+- Uses P2SH (legacy) or P2WSH (SegWit) addresses
+- Requires collecting signatures from M participants
+- Signatures can be collected off-chain, then broadcast together
+- Well-established, widely supported
+
+**Monero multisig**:
+- Uses native Monero multisig via RPC
+- Requires wallet synchronization between participants
+- More coordination steps (PrepareMultisig → MakeMultisig → FinalizeMultisig)
+- Provides privacy benefits
+
+### Common Multisig Configurations
+
+| Configuration | Use Case | Security | Complexity |
+|---------------|----------|----------|------------|
+| 2-of-2 | Joint accounts | High (both must approve) | Low |
+| 2-of-3 | Escrow with arbiter | Medium (dispute resolution) | Medium |
+| 3-of-5 | Business board | Medium (majority approval) | High |
+| 5-of-9 | High-security custody | Very high | Very high |
+
+### Single-Sig vs Multisig Comparison
+
+| Feature | Single-Sig | Multisig |
+|---------|------------|----------|
+| Setup complexity | Simple | Complex (key coordination) |
+| Transaction speed | Fast | Slower (signature collection) |
+| Security | Single key risk | Distributed key risk |
+| Use case | Content paywalls | Escrow, disputes |
+| Recommended | Default for most users | Only when needed |
+
+### Backward Compatibility
+
+Multisig is **completely optional**. When `MultisigEnabled: false` (default):
+- System behaves exactly as before
+- No multisig validation performed
+- Standard single-signature addresses generated
+- Existing code continues to work unchanged
+
 ## Troubleshooting Configuration
 
 **Error**: `PriceInBTC must be positive`
