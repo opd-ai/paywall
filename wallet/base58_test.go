@@ -202,7 +202,6 @@ func TestBase58EncodeDecodeRoundTrip(t *testing.T) {
 			// Encode then decode
 			encoded := Base58Encode(tt.input)
 			decoded, err := Base58Decode(encoded)
-
 			if err != nil {
 				t.Errorf("Round trip failed with error: %v", err)
 				return
@@ -248,7 +247,6 @@ func TestBase58LargeNumbers(t *testing.T) {
 
 	encoded := Base58Encode(largeBytes)
 	decoded, err := Base58Decode(encoded)
-
 	if err != nil {
 		t.Errorf("Large number decode failed: %v", err)
 		return

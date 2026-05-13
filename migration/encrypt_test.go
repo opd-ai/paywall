@@ -56,7 +56,7 @@ func createTestJSONFile(t *testing.T, dir, id string, payment *paywall.Payment) 
 	}
 
 	filePath := filepath.Join(dir, id+".json")
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o644); err != nil {
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 }
@@ -137,7 +137,7 @@ func TestEncryptExisting_SkipAlreadyEncrypted(t *testing.T) {
 
 	// Create existing encrypted file
 	encPath := filepath.Join(baseDir, paymentID+".enc")
-	if err := os.WriteFile(encPath, []byte("existing encrypted data"), 0644); err != nil {
+	if err := os.WriteFile(encPath, []byte("existing encrypted data"), 0o644); err != nil {
 		t.Fatalf("Failed to create existing encrypted file: %v", err)
 	}
 
@@ -208,7 +208,7 @@ func TestEncryptExisting_CorruptedJSONFile(t *testing.T) {
 
 	// Create corrupted JSON file
 	corruptedPath := filepath.Join(baseDir, "corrupted_payment.json")
-	if err := os.WriteFile(corruptedPath, []byte("{invalid json"), 0644); err != nil {
+	if err := os.WriteFile(corruptedPath, []byte("{invalid json"), 0o644); err != nil {
 		t.Fatalf("Failed to create corrupted JSON file: %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestEncryptExisting_NonJSONFiles(t *testing.T) {
 
 	for _, file := range testFiles {
 		filePath := filepath.Join(baseDir, file.name)
-		if err := os.WriteFile(filePath, []byte(file.content), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte(file.content), 0o644); err != nil {
 			t.Fatalf("Failed to create test file %s: %v", file.name, err)
 		}
 	}
@@ -327,19 +327,19 @@ func TestEncryptExisting_MixedScenario(t *testing.T) {
 	existingPayment := createTestPayment("existing_payment")
 	createTestJSONFile(t, baseDir, "existing_payment", existingPayment)
 	existingEncPath := filepath.Join(baseDir, "existing_payment.enc")
-	if err := os.WriteFile(existingEncPath, []byte("existing encrypted data"), 0644); err != nil {
+	if err := os.WriteFile(existingEncPath, []byte("existing encrypted data"), 0o644); err != nil {
 		t.Fatalf("Failed to create existing encrypted file: %v", err)
 	}
 
 	// 3. Corrupted JSON file
 	corruptedPath := filepath.Join(baseDir, "corrupted.json")
-	if err := os.WriteFile(corruptedPath, []byte("{corrupted"), 0644); err != nil {
+	if err := os.WriteFile(corruptedPath, []byte("{corrupted"), 0o644); err != nil {
 		t.Fatalf("Failed to create corrupted file: %v", err)
 	}
 
 	// 4. Non-JSON file
 	txtPath := filepath.Join(baseDir, "readme.txt")
-	if err := os.WriteFile(txtPath, []byte("readme content"), 0644); err != nil {
+	if err := os.WriteFile(txtPath, []byte("readme content"), 0o644); err != nil {
 		t.Fatalf("Failed to create text file: %v", err)
 	}
 

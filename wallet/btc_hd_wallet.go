@@ -132,6 +132,7 @@ func Intn(n int) int {
 	}
 	return int(r.Int64())
 }
+
 func randomInt(min, max int) int {
 	return min + Intn(max-min)
 }
@@ -234,7 +235,7 @@ func NewBTCHDWallet(seed []byte, testnet bool, minConf int) (*BTCHDWallet, error
 			Host:         publicHost,
 			HTTPPostMode: true,
 			DisableTLS:   false,
-			//Confirmations: 1, // Default confirmations
+			// Confirmations: 1, // Default confirmations
 		}
 
 		client, err = rpcclient.New(publicConfig, nil)

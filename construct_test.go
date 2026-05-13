@@ -50,7 +50,6 @@ func TestConstructPaywall_Success_NewFilestore(t *testing.T) {
 	// Test construction without existing wallet - this demonstrates the bug
 	// but also shows the function handles the filestore creation
 	pw, err := ConstructPaywall(basePath)
-
 	// This currently fails due to the nil seed bug, but tests filestore creation
 	if err != nil {
 		// Expected error due to nil seed in construct.go

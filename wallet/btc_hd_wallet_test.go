@@ -235,7 +235,6 @@ func TestBTCHDWallet_pubKeyToAddress(t *testing.T) {
 			}
 
 			address, err := wallet.pubKeyToAddress(tt.pubKey)
-
 			if err != nil {
 				t.Errorf("pubKeyToAddress() error = %v", err)
 			}
@@ -529,7 +528,6 @@ func TestBTCHDWallet_HDWalletInterface(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for invalid address")
 	}
-
 }
 
 // TestUtilityFunctions tests the utility functions

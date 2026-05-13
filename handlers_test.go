@@ -360,8 +360,8 @@ func TestPaywall_validatePaymentData_TableDriven(t *testing.T) {
 			wantErrorMsg: "Invalid payment",
 		},
 		{
-			name:         "Empty addresses map",
-			payment:      &Payment{
+			name: "Empty addresses map",
+			payment: &Payment{
 				ID:        "test",
 				Addresses: nil,
 				Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},

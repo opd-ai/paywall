@@ -269,7 +269,6 @@ func TestHDWallet_InterfaceSignature(t *testing.T) {
 	if balance != 0.0 || err != nil {
 		t.Errorf("GetAddressBalance() = (%v, %v), want (0.0, nil)", balance, err)
 	}
-
 }
 
 // mockHDWallet is a simple mock implementation for testing interface compliance

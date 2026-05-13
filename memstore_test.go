@@ -149,7 +149,6 @@ func TestMemoryStore_GetPayment(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			payment, err := store.GetPayment(tc.id)
-
 			if err != nil {
 				t.Errorf("GetPayment() unexpected error = %v", err)
 				return
@@ -209,7 +208,6 @@ func TestMemoryStore_UpdatePayment(t *testing.T) {
 	if retrieved.Confirmations != 3 {
 		t.Errorf("Confirmations not updated: got %v, want %v", retrieved.Confirmations, 3)
 	}
-
 }
 
 func TestMemoryStore_ListPendingPayments(t *testing.T) {
@@ -342,7 +340,6 @@ func TestMemoryStore_GetPaymentByAddress(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			payment, err := store.GetPaymentByAddress(tc.address)
-
 			if err != nil {
 				t.Errorf("GetPaymentByAddress() unexpected error = %v", err)
 				return

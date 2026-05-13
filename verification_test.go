@@ -99,7 +99,6 @@ func TestCheckWalletPayment_BalanceBelowThreshold(t *testing.T) {
 
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -135,7 +134,6 @@ func TestCheckWalletPayment_BalanceAboveThreshold(t *testing.T) {
 
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -215,7 +213,6 @@ func TestCheckWalletPayment_UpdatePaymentError(t *testing.T) {
 
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-
 	// Current implementation doesn't check UpdatePayment error
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)

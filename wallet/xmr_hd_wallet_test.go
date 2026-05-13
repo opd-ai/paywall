@@ -49,6 +49,7 @@ func (m *MockMoneroClient) GetTransfers(req *monero.RequestGetTransfers) (*moner
 func (m *MockMoneroClient) GetAddress(*monero.RequestGetAddress) (*monero.ResponseGetAddress, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetAddressIndex(*monero.RequestGetAddressIndex) (*monero.ResponseGetAddressIndex, error) {
 	return nil, nil
 }
@@ -56,9 +57,11 @@ func (m *MockMoneroClient) LabelAddress(*monero.RequestLabelAddress) error { ret
 func (m *MockMoneroClient) ValidateAddress(*monero.RequestValidateAddress) (*monero.ResponseValidateAddress, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetAccounts(*monero.RequestGetAccounts) (*monero.ResponseGetAccounts, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) CreateAccount(*monero.RequestCreateAccount) (*monero.ResponseCreateAccount, error) {
 	return nil, nil
 }
@@ -73,24 +76,31 @@ func (m *MockMoneroClient) GetHeight() (*monero.ResponseGetHeight, error) { retu
 func (m *MockMoneroClient) Transfer(*monero.RequestTransfer) (*monero.ResponseTransfer, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) TransferSplit(*monero.RequestTransferSplit) (*monero.ResponseTransferSplit, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SignTransfer(*monero.RequestSignTransfer) (*monero.ResponseSignTransfer, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SubmitTransfer(*monero.RequestSubmitTransfer) (*monero.ResponseSubmitTransfer, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SweepDust(*monero.RequestSweepDust) (*monero.ResponseSweepDust, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SweepAll(*monero.RequestSweepAll) (*monero.ResponseSweepAll, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SweepSingle(*monero.RequestSweepSingle) (*monero.ResponseSweepSingle, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) RelayTx(*monero.RequestRelayTx) (*monero.ResponseRelayTx, error) {
 	return nil, nil
 }
@@ -98,18 +108,23 @@ func (m *MockMoneroClient) Store() error { return nil }
 func (m *MockMoneroClient) GetPayments(*monero.RequestGetPayments) (*monero.ResponseGetPayments, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetBulkPayments(*monero.RequestGetBulkPayments) (*monero.ResponseGetBulkPayments, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) IncomingTransfers(*monero.RequestIncomingTransfers) (*monero.ResponseIncomingTransfers, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) QueryKey(*monero.RequestQueryKey) (*monero.ResponseQueryKey, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) MakeIntegratedAddress(*monero.RequestMakeIntegratedAddress) (*monero.ResponseMakeIntegratedAddress, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SplitIntegratedAddress(*monero.RequestSplitIntegratedAddress) (*monero.ResponseSplitIntegratedAddress, error) {
 	return nil, nil
 }
@@ -123,30 +138,39 @@ func (m *MockMoneroClient) SetAttribute(*monero.RequestSetAttribute) error { ret
 func (m *MockMoneroClient) GetAttribute(*monero.RequestGetAttribute) (*monero.ResponseGetAttribute, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetTxKey(*monero.RequestGetTxKey) (*monero.ResponseGetTxKey, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) CheckTxKey(*monero.RequestCheckTxKey) (*monero.ResponseCheckTxKey, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetTxProof(*monero.RequestGetTxProof) (*monero.ResponseGetTxProof, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) CheckTxProof(*monero.RequestCheckTxProof) (*monero.ResponseCheckTxProof, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetSpendProof(*monero.RequestGetSpendProof) (*monero.ResponseGetSpendProof, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) CheckSpendProof(*monero.RequestCheckSpendProof) (*monero.ResponseCheckSpendProof, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetReserveProof(*monero.RequestGetReserveProof) (*monero.ResponseGetReserveProof, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) CheckReserveProof(*monero.RequestCheckReserveProof) (*monero.ResponseCheckReserveProof, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetTransferByTxID(*monero.RequestGetTransferByTxID) (*monero.ResponseGetTransferByTxID, error) {
 	return nil, nil
 }
@@ -158,21 +182,27 @@ func (m *MockMoneroClient) ExportOutputs() (*monero.ResponseExportOutputs, error
 func (m *MockMoneroClient) ImportOutputs(*monero.RequestImportOutputs) (*monero.ResponseImportOutputs, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) ExportKeyImages() (*monero.ResponseExportKeyImages, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) ImportKeyImages(*monero.RequestImportKeyImages) (*monero.ResponseImportKeyImages, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) MakeURI(*monero.RequestMakeURI) (*monero.ResponseMakeURI, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) ParseURI(*monero.RequestParseURI) (*monero.ResponseParseURI, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) GetAddressBook(*monero.RequestGetAddressBook) (*monero.ResponseGetAddressBook, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) AddAddressBook(*monero.RequestAddAddressBook) (*monero.ResponseAddAddressBook, error) {
 	return nil, nil
 }
@@ -197,21 +227,27 @@ func (m *MockMoneroClient) IsMultisig() (*monero.ResponseIsMultisig, error) { re
 func (m *MockMoneroClient) PrepareMultisig() (*monero.ResponsePrepareMultisig, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) MakeMultisig(*monero.RequestMakeMultisig) (*monero.ResponseMakeMultisig, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) ExportMultisigInfo() (*monero.ResponseExportMultisigInfo, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) ImportMultisigInfo(*monero.RequestImportMultisigInfo) (*monero.ResponseImportMultisigInfo, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) FinalizeMultisig(*monero.RequestFinalizeMultisig) (*monero.ResponseFinalizeMultisig, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SignMultisig(*monero.RequestSignMultisig) (*monero.ResponseSignMultisig, error) {
 	return nil, nil
 }
+
 func (m *MockMoneroClient) SubmitMultisig(*monero.RequestSubmitMultisig) (*monero.ResponseSubmitMultisig, error) {
 	return nil, nil
 }
@@ -543,7 +579,6 @@ func TestMoneroHDWallet_GetAddressBalance_InsufficientConfirmations(t *testing.T
 	wallet.minConfirmations = 3 // Require 3 confirmations
 
 	balance, err := wallet.GetAddressBalance(testAddress)
-
 	// Should return actual balance, not zero
 	if err != nil {
 		t.Fatalf("GetAddressBalance() should not error with insufficient confirmations, got: %v", err)

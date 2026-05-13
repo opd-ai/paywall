@@ -22,7 +22,6 @@ func TestPaywall_CreatePayment(t *testing.T) {
 		XMRPassword:      "testpass123",
 		XMRRPC:           "http://localhost:18081",
 	})
-
 	// XMR wallet creation will fail (expected), but BTC should work
 	if err != nil {
 		t.Fatalf("NewPaywall() failed: %v", err)
