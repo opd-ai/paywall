@@ -390,6 +390,78 @@ func TestBTCHDWallet_GetAddressBalance(t *testing.T) {
 			expectError: true,
 			errorMsg:    "RPC client not initialized",
 		},
+		{
+			name: "Valid P2SH multisig address (mainnet)",
+			wallet: &BTCHDWallet{
+				masterKey: make([]byte, 32),
+				chainCode: make([]byte, 32),
+				network:   &chaincfg.MainNetParams,
+				rpcClient: nil,
+			},
+			address:     "3J98t1WpEZ73CNmYviecrnyiWrnqRhWNLy",
+			expectError: true,
+			errorMsg:    "RPC client not initialized",
+		},
+		{
+			name: "Valid P2SH multisig address (testnet)",
+			wallet: &BTCHDWallet{
+				masterKey: make([]byte, 32),
+				chainCode: make([]byte, 32),
+				network:   &chaincfg.TestNet3Params,
+				rpcClient: nil,
+			},
+			address:     "2N8hwP1WmJrFF5QWABn38y63uYLhnJYJYTF",
+			expectError: true,
+			errorMsg:    "RPC client not initialized",
+		},
+		{
+			name: "Valid P2WSH multisig address (mainnet bech32)",
+			wallet: &BTCHDWallet{
+				masterKey: make([]byte, 32),
+				chainCode: make([]byte, 32),
+				network:   &chaincfg.MainNetParams,
+				rpcClient: nil,
+			},
+			address:     "bc1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3qccfmv3",
+			expectError: true,
+			errorMsg:    "RPC client not initialized",
+		},
+		{
+			name: "Valid P2WSH multisig address (testnet bech32)",
+			wallet: &BTCHDWallet{
+				masterKey: make([]byte, 32),
+				chainCode: make([]byte, 32),
+				network:   &chaincfg.TestNet3Params,
+				rpcClient: nil,
+			},
+			address:     "tb1qrp33g0q5c5txsp9arysrx4k6zdkfs4nce4xj0gdcccefvpysxf3q0sl5k7",
+			expectError: true,
+			errorMsg:    "RPC client not initialized",
+		},
+		{
+			name: "Address network mismatch (mainnet address with testnet wallet)",
+			wallet: &BTCHDWallet{
+				masterKey: make([]byte, 32),
+				chainCode: make([]byte, 32),
+				network:   &chaincfg.TestNet3Params,
+				rpcClient: nil,
+			},
+			address:     "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa",
+			expectError: true,
+			errorMsg:    "address network mismatch",
+		},
+		{
+			name: "Address network mismatch (testnet address with mainnet wallet)",
+			wallet: &BTCHDWallet{
+				masterKey: make([]byte, 32),
+				chainCode: make([]byte, 32),
+				network:   &chaincfg.MainNetParams,
+				rpcClient: nil,
+			},
+			address:     "n1AHjQU4Ut9wVYcxNFMZ1dvXTaG5EbPSZE",
+			expectError: true,
+			errorMsg:    "address network mismatch",
+		},
 	}
 
 	for _, tt := range tests {

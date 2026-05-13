@@ -435,34 +435,52 @@ func (w *BTCHDWallet) Currency() string {
 }
 
 // GetAddressBalance implements paywall.CryptoClient
-// Returns the balance for a specific Bitcoin address.
+// Returns the balance for a specific Bitcoin address, including multisig addresses.
+//
+// This function supports all standard Bitcoin address formats:
+//   - Base58 P2PKH addresses (starting with 1 on mainnet, m/n on testnet)
+//   - Base58 P2SH addresses (starting with 3 on mainnet, 2 on testnet) - including multisig
+//   - Bech32 P2WPKH addresses (starting with bc1 on mainnet, tb1 on testnet)
+//   - Bech32 P2WSH addresses (starting with bc1 on mainnet, tb1 on testnet) - including SegWit multisig
 //
 // Parameters:
-//   - address: Bitcoin address to check
+//   - address: Bitcoin address to check (single-sig or multisig)
 //
 // Returns:
 //   - float64: Current balance in BTC
 //   - error: If address is invalid or query fails
 //
-// Related: GetTransactionConfirmations
+// Related: GetTransactionConfirmations, CreateP2SHAddress, CreateP2WSHAddress
 func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
-	// Validate address format
+	// Validate address format (supports all Bitcoin address types including multisig)
 	if address == "" {
 		return 0, fmt.Errorf("invalid bitcoin address: address is empty")
 	}
-	_, err := Base58Decode(address)
-	if err != nil {
-		return 0, fmt.Errorf("invalid bitcoin address: %w", err)
+
+	// Use IsBitcoinAddress for comprehensive validation (Base58 + Bech32)
+	valid, networkType := IsBitcoinAddress(address)
+	if !valid {
+		return 0, fmt.Errorf("invalid bitcoin address format: %s", address)
 	}
+
+	// Verify address network matches wallet network
+	expectedNetwork := "testnet"
+	if w.network.Name == chaincfg.MainNetParams.Name {
+		expectedNetwork = "mainnet"
+	}
+	if networkType != expectedNetwork {
+		return 0, fmt.Errorf("address network mismatch: expected %s, got %s", expectedNetwork, networkType)
+	}
+
 	if w.rpcClient == nil {
 		return 0, fmt.Errorf("RPC client not initialized")
 	}
 
 	// Use RPC client to get address balance
 	// GetReceivedByAddressMinConf returns the total amount received by the address,
-	// but only when the minimum confirmations are reached.
-	// This simplifies balance checking by avoiding the need to parse transactions.
-	// It returns the total amount received by the address, which is what we want.
+	// including multisig P2SH and P2WSH addresses, but only when the minimum
+	// confirmations are reached. This simplifies balance checking by avoiding
+	// the need to parse transactions.
 	// Note: This does not include unconfirmed transactions.
 	balance, err := w.rpcClient.GetReceivedByAddressMinConf(Address(address), w.minConf)
 	if err != nil {
