@@ -599,3 +599,152 @@ func TestConcurrentMultisigOperations(t *testing.T) {
 		}
 	}
 }
+
+// TestFailureRecoveryAndRollback tests error handling and state recovery
+func TestFailureRecoveryAndRollback(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeys()
+	publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+	store := paywall.NewMemoryStore()
+	config := paywall.Config{
+		PriceInBTC:     0.001,
+		TestNet:        true,
+		Store:          store,
+		PaymentTimeout: time.Hour * 24,
+
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: publicKeys,
+		},
+		MultisigRole: paywall.RoleBuyer,
+	}
+
+	pw, err := paywall.NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	escrowMgr, err := paywall.NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	// Test 1: Attempt to fund an escrow without confirmation
+	paymentID, _ := escrowMgr.CreateEscrow(1.0, time.Hour*72)
+
+	err = escrowMgr.FundEscrow(paymentID)
+	if err == nil {
+		t.Error("Expected error when funding unconfirmed payment, got nil")
+	}
+
+	// Verify payment state is still pending (not corrupted)
+	payment, _ := store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowPending {
+		t.Errorf("Expected state EscrowPending after failed fund, got %s", payment.EscrowState)
+	}
+
+	// Test 2: Recover from failed fund by properly confirming
+	payment.Status = paywall.StatusConfirmed
+	payment.Confirmations = 3
+	store.UpdatePayment(payment)
+
+	err = escrowMgr.FundEscrow(paymentID)
+	if err != nil {
+		t.Errorf("Expected successful fund after confirmation, got: %v", err)
+	}
+
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowFunded {
+		t.Errorf("Expected state EscrowFunded, got %s", payment.EscrowState)
+	}
+
+	// Test 3: Attempt invalid state transition
+	err = escrowMgr.RequestDispute(paymentID, paywall.RoleArbiter, "Invalid requester")
+	if err == nil {
+		t.Error("Expected error when arbiter requests dispute, got nil")
+	}
+
+	// Verify state unchanged
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowFunded {
+		t.Errorf("Expected state to remain EscrowFunded, got %s", payment.EscrowState)
+	}
+
+	// Test 4: Valid dispute followed by invalid resolution attempt
+	err = escrowMgr.RequestDispute(paymentID, paywall.RoleBuyer, "Valid dispute")
+	if err != nil {
+		t.Fatalf("Valid dispute request failed: %v", err)
+	}
+
+	// Try to resolve with wrong signatures
+	buyerSig := mockSignatureData(paywall.RoleBuyer, buyerPubKey)
+	sellerSig := mockSignatureData(paywall.RoleSeller, sellerPubKey)
+
+	err = escrowMgr.ResolveDispute(paymentID, buyerSig, sellerSig) // Wrong: need arbiter
+	if err == nil {
+		t.Error("Expected error when resolving without arbiter signature, got nil")
+	}
+
+	// Verify state unchanged
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowDisputed {
+		t.Errorf("Expected state to remain EscrowDisputed, got %s", payment.EscrowState)
+	}
+
+	// Test 5: Proper recovery with correct signatures
+	arbiterSig := mockSignatureData(paywall.RoleArbiter, arbiterPubKey)
+	err = escrowMgr.ResolveDispute(paymentID, arbiterSig, buyerSig)
+	if err != nil {
+		t.Fatalf("Valid dispute resolution failed: %v", err)
+	}
+
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowRefunded {
+		t.Errorf("Expected state EscrowRefunded, got %s", payment.EscrowState)
+	}
+
+	// Test 6: Attempt operation on completed escrow
+	err = escrowMgr.RequestDispute(paymentID, paywall.RoleSeller, "Too late")
+	if err == nil {
+		t.Error("Expected error when disputing completed escrow, got nil")
+	}
+
+	// Test 7: Test timeout handling
+	shortTimeoutID, _ := escrowMgr.CreateEscrow(1.0, time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+
+	shortPayment, _ := store.GetPayment(shortTimeoutID)
+	if time.Now().Before(shortPayment.EscrowTimeout) {
+		t.Error("Expected timeout to be in the past")
+	}
+
+	// Test 8: Multiple failure-recovery cycles
+	cycleID, _ := escrowMgr.CreateEscrow(1.0, time.Hour*72)
+
+	// Cycle through multiple failed attempts
+	for i := 0; i < 3; i++ {
+		err = escrowMgr.FundEscrow(cycleID)
+		if err == nil {
+			t.Error("Expected error on unfunded escrow")
+		}
+
+		cyclePayment, _ := store.GetPayment(cycleID)
+		if cyclePayment.EscrowState != paywall.EscrowPending {
+			t.Errorf("Cycle %d: State corrupted after failure", i)
+		}
+	}
+
+	// Finally succeed
+	cyclePayment, _ := store.GetPayment(cycleID)
+	cyclePayment.Status = paywall.StatusConfirmed
+	cyclePayment.Confirmations = 3
+	store.UpdatePayment(cyclePayment)
+
+	err = escrowMgr.FundEscrow(cycleID)
+	if err != nil {
+		t.Errorf("Expected successful fund after multiple retries: %v", err)
+	}
+}
