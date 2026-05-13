@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 	"time"
-	
+
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -22,7 +22,7 @@ func TestPaywall_CreatePayment(t *testing.T) {
 		XMRPassword:      "testpass123",
 		XMRRPC:           "http://localhost:18081",
 	})
-	
+
 	// XMR wallet creation will fail (expected), but BTC should work
 	if err != nil {
 		t.Fatalf("NewPaywall() failed: %v", err)
@@ -67,9 +67,9 @@ func TestPaywall_CreatePayment(t *testing.T) {
 		}
 
 		expectedExpiry := payment.CreatedAt.Add(time.Hour)
-		if payment.ExpiresAt.Before(expectedExpiry.Add(-time.Second)) || 
-		   payment.ExpiresAt.After(expectedExpiry.Add(time.Second)) {
-			t.Errorf("Payment expiry time incorrect: got %v, expected ~%v", 
+		if payment.ExpiresAt.Before(expectedExpiry.Add(-time.Second)) ||
+			payment.ExpiresAt.After(expectedExpiry.Add(time.Second)) {
+			t.Errorf("Payment expiry time incorrect: got %v, expected ~%v",
 				payment.ExpiresAt, expectedExpiry)
 		}
 
@@ -175,7 +175,7 @@ func TestPaywall_CreatePayment_ErrorCases(t *testing.T) {
 func TestPaywall_CreatePayment_RaceConditionFix(t *testing.T) {
 	// Create paywall with a failing store to test rollback
 	failingStore := &FailingStore{}
-	
+
 	pw, err := NewPaywall(Config{
 		PriceInBTC:       0.001,
 		TestNet:          true,
@@ -225,6 +225,14 @@ func (fs *FailingStore) UpdatePayment(payment *Payment) error {
 }
 
 func (fs *FailingStore) ListPendingPayments() ([]*Payment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (fs *FailingStore) GetPendingMultisigPayments() ([]*Payment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+func (fs *FailingStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 

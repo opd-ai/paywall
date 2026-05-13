@@ -65,6 +65,32 @@ func (m *mockPaymentStore) ListPendingPayments() ([]*Payment, error) {
 	return pending, nil
 }
 
+func (m *mockPaymentStore) GetPendingMultisigPayments() ([]*Payment, error) {
+	var pending []*Payment
+	for _, payment := range m.payments {
+		if payment.MultisigEnabled && payment.Status == StatusPending {
+			pending = append(pending, payment)
+		}
+	}
+	return pending, nil
+}
+
+func (m *mockPaymentStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
+	var payments []*Payment
+	for _, payment := range m.payments {
+		if !payment.MultisigEnabled {
+			continue
+		}
+		for _, addr := range payment.Addresses {
+			if addr == address {
+				payments = append(payments, payment)
+				break
+			}
+		}
+	}
+	return payments, nil
+}
+
 // mockPaywall provides a testable Paywall instance
 type mockPaywall struct {
 	store           PaymentStore

@@ -18,24 +18,24 @@ func TestCryptoChainMonitor_ExponentialBackoff(t *testing.T) {
 	pw := &Paywall{
 		Store: mockStore,
 	}
-	
+
 	monitor := &CryptoChainMonitor{
 		paywall: pw,
 	}
-	
+
 	// Create a context that we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	// Start the monitor
 	monitor.Start(ctx)
-	
+
 	// Let it run for a short time to ensure it starts
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Cancel the context to stop the monitor
 	cancel()
-	
+
 	// Test passes if no panic occurs and monitor starts/stops cleanly
 	// The actual backoff behavior is tested by observing logs in integration tests
 }
@@ -45,25 +45,25 @@ func TestCryptoChainMonitor_ExponentialBackoff(t *testing.T) {
 func TestCheckWalletPayment_MissingClient(t *testing.T) {
 	mockStore := &mockStore{}
 	pw := &Paywall{
-		Store:             mockStore,
+		Store:            mockStore,
 		minConfirmations: 3,
 	}
-	
+
 	monitor := &CryptoChainMonitor{
 		paywall: pw,
 		client:  make(map[wallet.WalletType]CryptoClient),
 	}
-	
+
 	payment := &Payment{
 		ID:        "test-payment",
 		Addresses: map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
 		Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
 		Status:    StatusPending,
 	}
-	
+
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-	
+
 	if err == nil {
 		t.Fatal("Expected error for missing client, got nil")
 	}
@@ -77,29 +77,29 @@ func TestCheckWalletPayment_MissingClient(t *testing.T) {
 func TestCheckWalletPayment_BalanceBelowThreshold(t *testing.T) {
 	mockStore := &mockStore{}
 	pw := &Paywall{
-		Store:             mockStore,
+		Store:            mockStore,
 		minConfirmations: 3,
 	}
-	
+
 	mockClient := &mockCryptoClient{
 		balance: 0.0005, // Below required amount
 	}
-	
+
 	monitor := &CryptoChainMonitor{
 		paywall: pw,
 		client:  map[wallet.WalletType]CryptoClient{wallet.Bitcoin: mockClient},
 	}
-	
+
 	payment := &Payment{
 		ID:        "test-payment",
 		Addresses: map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
 		Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
 		Status:    StatusPending,
 	}
-	
+
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-	
+
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -113,29 +113,29 @@ func TestCheckWalletPayment_BalanceBelowThreshold(t *testing.T) {
 func TestCheckWalletPayment_BalanceAboveThreshold(t *testing.T) {
 	mockStore := &mockStore{}
 	pw := &Paywall{
-		Store:             mockStore,
+		Store:            mockStore,
 		minConfirmations: 3,
 	}
-	
+
 	mockClient := &mockCryptoClient{
 		balance: 0.002, // Above required amount
 	}
-	
+
 	monitor := &CryptoChainMonitor{
 		paywall: pw,
 		client:  map[wallet.WalletType]CryptoClient{wallet.Bitcoin: mockClient},
 	}
-	
+
 	payment := &Payment{
 		ID:        "test-payment",
 		Addresses: map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
 		Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
 		Status:    StatusPending,
 	}
-	
+
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-	
+
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -155,29 +155,29 @@ func TestCheckWalletPayment_BalanceAboveThreshold(t *testing.T) {
 func TestCheckWalletPayment_GetBalanceError(t *testing.T) {
 	mockStore := &mockStore{}
 	pw := &Paywall{
-		Store:             mockStore,
+		Store:            mockStore,
 		minConfirmations: 3,
 	}
-	
+
 	mockClient := &mockCryptoClient{
 		err: errors.New("network error"),
 	}
-	
+
 	monitor := &CryptoChainMonitor{
 		paywall: pw,
 		client:  map[wallet.WalletType]CryptoClient{wallet.Bitcoin: mockClient},
 	}
-	
+
 	payment := &Payment{
 		ID:        "test-payment",
 		Addresses: map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
 		Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
 		Status:    StatusPending,
 	}
-	
+
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-	
+
 	if err == nil {
 		t.Fatal("Expected error from GetAddressBalance, got nil")
 	}
@@ -193,29 +193,29 @@ func TestCheckWalletPayment_UpdatePaymentError(t *testing.T) {
 		updateError: errors.New("storage error"),
 	}
 	pw := &Paywall{
-		Store:             mockStore,
+		Store:            mockStore,
 		minConfirmations: 3,
 	}
-	
+
 	mockClient := &mockCryptoClient{
 		balance: 0.002, // Above required amount
 	}
-	
+
 	monitor := &CryptoChainMonitor{
 		paywall: pw,
 		client:  map[wallet.WalletType]CryptoClient{wallet.Bitcoin: mockClient},
 	}
-	
+
 	payment := &Payment{
 		ID:        "test-payment",
 		Addresses: map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
 		Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
 		Status:    StatusPending,
 	}
-	
+
 	var mux sync.Mutex
 	err := monitor.checkWalletPayment(payment, wallet.Bitcoin, &mux)
-	
+
 	// Current implementation doesn't check UpdatePayment error
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
@@ -249,6 +249,14 @@ func (m *mockStore) UpdatePayment(payment *Payment) error {
 }
 
 func (m *mockStore) ListPendingPayments() ([]*Payment, error) {
+	return nil, nil
+}
+
+func (m *mockStore) GetPendingMultisigPayments() ([]*Payment, error) {
+	return nil, nil
+}
+
+func (m *mockStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
 	return nil, nil
 }
 
@@ -293,7 +301,14 @@ func (m *mockFailingStore) ListPendingPayments() ([]*Payment, error) {
 	return nil, errors.New("mock store error")
 }
 
+func (m *mockFailingStore) GetPendingMultisigPayments() ([]*Payment, error) {
+	return nil, errors.New("mock store error")
+}
+
+func (m *mockFailingStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
+	return nil, errors.New("mock store error")
+}
+
 func (m *mockFailingStore) Close() error {
 	return nil
 }
-
