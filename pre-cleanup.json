@@ -1,0 +1,259 @@
+{
+  "metadata": {
+    "repository": "/home/runner/work/paywall/paywall",
+    "generated_at": "2026-05-13T00:24:17.978413171Z",
+    "analysis_time": 90528899,
+    "files_processed": 21,
+    "tool_version": "1.0.0",
+    "go_version": ""
+  },
+  "overview": {
+    "total_lines_of_code": 1305,
+    "total_functions": 29,
+    "total_methods": 57,
+    "total_structs": 15,
+    "total_interfaces": 3,
+    "total_packages": 5,
+    "total_files": 21
+  },
+  "functions": null,
+  "structs": null,
+  "interfaces": null,
+  "packages": null,
+  "circular_dependencies": null,
+  "patterns": {
+    "design_patterns": {
+      "singleton": null,
+      "factory": null,
+      "builder": null,
+      "observer": null,
+      "strategy": null
+    },
+    "concurrency_patterns": {
+      "worker_pools": null,
+      "pipelines": null,
+      "fan_out": null,
+      "fan_in": null,
+      "semaphores": null,
+      "goroutines": {
+        "total_count": 0,
+        "anonymous_count": 0,
+        "named_count": 0,
+        "potential_leaks": null,
+        "instances": null
+      },
+      "channels": {
+        "total_count": 0,
+        "buffered_count": 0,
+        "unbuffered_count": 0,
+        "directional_count": 0,
+        "instances": null
+      },
+      "sync_primitives": {
+        "mutexes": null,
+        "rw_mutexes": null,
+        "wait_groups": null,
+        "once": null,
+        "cond": null,
+        "atomic": null
+      }
+    },
+    "anti_patterns": {
+      "god_objects": null,
+      "long_methods": null,
+      "deep_nesting": null,
+      "magic_numbers": null,
+      "performance_antipatterns": null
+    }
+  },
+  "complexity": {
+    "average_function_complexity": 0,
+    "average_struct_complexity": 0,
+    "highest_complexity": null,
+    "complexity_distribution": null
+  },
+  "documentation": {
+    "coverage": {
+      "packages": 0,
+      "functions": 0,
+      "types": 0,
+      "methods": 0,
+      "overall": 0
+    },
+    "quality": {
+      "average_length": 0,
+      "code_examples": 0,
+      "inline_comments": 0,
+      "block_comments": 0,
+      "quality_score": 0
+    },
+    "todo_comments": null,
+    "fixme_comments": null,
+    "hack_comments": null,
+    "bug_comments": null,
+    "xxx_comments": null,
+    "deprecated_comments": null,
+    "note_comments": null,
+    "stale_annotations": 0,
+    "annotations_by_category": null
+  },
+  "generics": {
+    "type_parameters": {
+      "count": 0,
+      "constraints": null,
+      "complexity": null
+    },
+    "instantiations": {
+      "functions": null,
+      "types": null,
+      "methods": null
+    },
+    "constraint_usage": null,
+    "complexity_score": 0
+  },
+  "duplication": {
+    "clone_pairs": 4,
+    "duplicated_lines": 60,
+    "duplication_ratio": 0.019218449711723255,
+    "largest_clone_size": 18,
+    "clones": [
+      {
+        "hash": "7fbdcdb67e267a89",
+        "type": "exact",
+        "instances": [
+          {
+            "file": "filestore.go",
+            "start_line": 58,
+            "end_line": 67,
+            "node_count": 56
+          },
+          {
+            "file": "filestore.go",
+            "start_line": 112,
+            "end_line": 121,
+            "node_count": 56
+          }
+        ],
+        "line_count": 10,
+        "severity": "warning",
+        "suggestion": "Extract 10-line duplicate code block into a shared function. Found in 2 locations"
+      },
+      {
+        "hash": "798a434223730312",
+        "type": "exact",
+        "instances": [
+          {
+            "file": "encryptedfilestore.go",
+            "start_line": 103,
+            "end_line": 117,
+            "node_count": 76
+          },
+          {
+            "file": "encryptedfilestore.go",
+            "start_line": 149,
+            "end_line": 163,
+            "node_count": 76
+          }
+        ],
+        "line_count": 15,
+        "severity": "warning",
+        "suggestion": "Extract 15-line duplicate code block into a shared function. Found in 2 locations"
+      },
+      {
+        "hash": "b69d5e7b3146b3f5",
+        "type": "renamed",
+        "instances": [
+          {
+            "file": "verification.go",
+            "start_line": 121,
+            "end_line": 137,
+            "node_count": 78
+          },
+          {
+            "file": "verification.go",
+            "start_line": 143,
+            "end_line": 160,
+            "node_count": 78
+          }
+        ],
+        "line_count": 17,
+        "severity": "warning",
+        "suggestion": "Extract 17-line duplicate code block into a shared function. Found in 2 locations. Consider using generics or interface-based abstraction"
+      },
+      {
+        "hash": "c9a5af36bdfc4e79",
+        "type": "exact",
+        "instances": [
+          {
+            "file": "encryptedfilestore.go",
+            "start_line": 178,
+            "end_line": 195,
+            "node_count": 71
+          },
+          {
+            "file": "encryptedfilestore.go",
+            "start_line": 216,
+            "end_line": 233,
+            "node_count": 71
+          }
+        ],
+        "line_count": 18,
+        "severity": "warning",
+        "suggestion": "Extract 18-line duplicate code block into a shared function. Found in 2 locations"
+      }
+    ]
+  },
+  "naming": {
+    "file_name_violations": 0,
+    "identifier_violations": 0,
+    "package_name_violations": 0,
+    "overall_naming_score": 0,
+    "file_name_issues": null,
+    "identifier_issues": null,
+    "package_name_issues": null
+  },
+  "placement": {
+    "misplaced_functions": 0,
+    "misplaced_methods": 0,
+    "low_cohesion_files": 0,
+    "avg_file_cohesion": 0,
+    "function_issues": null,
+    "method_issues": null,
+    "cohesion_issues": null
+  },
+  "organization": {
+    "oversized_files": null,
+    "oversized_packages": null,
+    "deep_directories": null,
+    "high_fan_in_packages": null,
+    "high_fan_out_packages": null,
+    "avg_package_instability": 0
+  },
+  "burden": {
+    "magic_numbers": null,
+    "dead_code": {
+      "unreferenced_functions": null,
+      "unreachable_code": null,
+      "total_dead_lines": 0,
+      "dead_code_percent": 0
+    },
+    "complex_signatures": null,
+    "deeply_nested_functions": null,
+    "feature_envy_methods": null
+  },
+  "scores": {
+    "file_scores": null,
+    "package_scores": null
+  },
+  "test_coverage": {
+    "function_coverage_rate": 0,
+    "complexity_coverage_rate": 0,
+    "high_risk_functions": null,
+    "coverage_gaps": null
+  },
+  "test_quality": {
+    "total_tests": 0,
+    "avg_assertions_per_test": 0,
+    "test_files": null
+  }
+}
