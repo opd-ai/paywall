@@ -44,6 +44,18 @@ func NewFileStore(base string) *FileStore {
 	return &FileStore{baseDir: baseDir}
 }
 
+// writePayment is a helper that marshals and writes a payment to disk.
+// Must be called with the mutex held.
+func (m *FileStore) writePayment(p *Payment) error {
+	data, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("marshal payment: %w", err)
+	}
+
+	filename := filepath.Join(m.baseDir, p.ID+".json")
+	return os.WriteFile(filename, data, 0o600)
+}
+
 // CreatePayment stores a new payment record as a JSON file.
 // The payment ID is used as the filename.
 //
@@ -57,14 +69,7 @@ func NewFileStore(base string) *FileStore {
 func (m *FileStore) CreatePayment(p *Payment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	data, err := json.Marshal(p)
-	if err != nil {
-		return fmt.Errorf("marshal payment: %w", err)
-	}
-
-	filename := filepath.Join(m.baseDir, p.ID+".json")
-	return os.WriteFile(filename, data, 0o600)
+	return m.writePayment(p)
 }
 
 // GetPayment retrieves a payment record by ID from its JSON file.
@@ -111,14 +116,7 @@ func (m *FileStore) GetPayment(id string) (*Payment, error) {
 func (m *FileStore) UpdatePayment(p *Payment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	data, err := json.Marshal(p)
-	if err != nil {
-		return fmt.Errorf("marshal payment: %w", err)
-	}
-
-	filename := filepath.Join(m.baseDir, p.ID+".json")
-	return os.WriteFile(filename, data, 0o600)
+	return m.writePayment(p)
 }
 
 // ListPendingPayments returns all payment records with less than 1 confirmation.

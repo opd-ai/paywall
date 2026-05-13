@@ -1,3 +1,25 @@
 *log
 ex
 paywallet
+
+# Build artifacts
+*.exe
+*.so
+*.dylib
+*.dll
+*.a
+
+# Analysis and report files
+*-baseline.json
+*-post.json
+*-cleanup.json
+diff-report*.json
+loop-*.json
+pre-cleanup.json
+post-cleanup.json
+
+# Development artifacts
+*.swp
+*.swo
+*~
+.DS_Store
