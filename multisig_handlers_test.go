@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ func (m *mockAuthenticator) Authenticate(r *http.Request, paymentID string, role
 
 // mockNotifier implements MultisigWebhookNotifier for testing
 type mockNotifier struct {
+	mu                sync.Mutex
 	signatureReceived int
 	readyToBroadcast  int
 	broadcastComplete int
@@ -34,18 +36,24 @@ type mockNotifier struct {
 }
 
 func (m *mockNotifier) NotifySignatureReceived(paymentID string, signerID string, role MultisigRole) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.signatureReceived++
 	m.lastPaymentID = paymentID
 	return nil
 }
 
 func (m *mockNotifier) NotifyReadyToBroadcast(paymentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.readyToBroadcast++
 	m.lastPaymentID = paymentID
 	return nil
 }
 
 func (m *mockNotifier) NotifyBroadcastComplete(paymentID string, txID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.broadcastComplete++
 	m.lastPaymentID = paymentID
 	m.lastTxID = txID
@@ -161,13 +169,13 @@ func TestMultisigCoordinator_HandleInitiate(t *testing.T) {
 func TestMultisigCoordinator_HandleInitiate_Authentication(t *testing.T) {
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {
@@ -200,13 +208,13 @@ func TestMultisigCoordinator_HandleSign(t *testing.T) {
 	// Create paywall and payment
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {
@@ -277,7 +285,10 @@ func TestMultisigCoordinator_HandleSign(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			notifier.mu.Lock()
 			notifier.signatureReceived = 0
+			notifier.mu.Unlock()
+
 			body, _ := json.Marshal(tt.request)
 			req := httptest.NewRequest(http.MethodPost, "/multisig/sign", bytes.NewReader(body))
 			w := httptest.NewRecorder()
@@ -288,8 +299,15 @@ func TestMultisigCoordinator_HandleSign(t *testing.T) {
 				t.Errorf("HandleSign() status = %v, want %v", w.Code, tt.wantStatus)
 			}
 
-			if tt.wantNotify && notifier.signatureReceived != 1 {
-				t.Errorf("Expected notification, got %d", notifier.signatureReceived)
+			if tt.wantNotify {
+				// Wait for goroutine notification
+				time.Sleep(50 * time.Millisecond)
+				notifier.mu.Lock()
+				sigCount := notifier.signatureReceived
+				notifier.mu.Unlock()
+				if sigCount != 1 {
+					t.Errorf("Expected notification, got %d", sigCount)
+				}
 			}
 		})
 	}
@@ -298,13 +316,13 @@ func TestMultisigCoordinator_HandleSign(t *testing.T) {
 func TestMultisigCoordinator_HandleSign_ReadyToBroadcast(t *testing.T) {
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {
@@ -352,24 +370,29 @@ func TestMultisigCoordinator_HandleSign_ReadyToBroadcast(t *testing.T) {
 
 	// Should have received both signature and ready notifications
 	time.Sleep(100 * time.Millisecond) // Wait for goroutines
-	if notifier.signatureReceived != 1 {
-		t.Errorf("Expected 1 signature notification, got %d", notifier.signatureReceived)
+	notifier.mu.Lock()
+	sigReceived := notifier.signatureReceived
+	readyCount := notifier.readyToBroadcast
+	notifier.mu.Unlock()
+
+	if sigReceived != 1 {
+		t.Errorf("Expected 1 signature notification, got %d", sigReceived)
 	}
-	if notifier.readyToBroadcast != 1 {
-		t.Errorf("Expected 1 ready notification, got %d", notifier.readyToBroadcast)
+	if readyCount != 1 {
+		t.Errorf("Expected 1 ready notification, got %d", readyCount)
 	}
 }
 
 func TestMultisigCoordinator_HandleStatus(t *testing.T) {
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {
@@ -423,13 +446,13 @@ func TestMultisigCoordinator_HandleStatus(t *testing.T) {
 func TestMultisigCoordinator_HandleBroadcast(t *testing.T) {
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {
@@ -486,21 +509,25 @@ func TestMultisigCoordinator_HandleBroadcast(t *testing.T) {
 
 	// Check notification
 	time.Sleep(100 * time.Millisecond)
-	if notifier.broadcastComplete != 1 {
-		t.Errorf("Expected 1 broadcast notification, got %d", notifier.broadcastComplete)
+	notifier.mu.Lock()
+	broadcastCount := notifier.broadcastComplete
+	notifier.mu.Unlock()
+
+	if broadcastCount != 1 {
+		t.Errorf("Expected 1 broadcast notification, got %d", broadcastCount)
 	}
 }
 
 func TestMultisigCoordinator_HandleBroadcast_InsufficientSignatures(t *testing.T) {
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {
@@ -545,13 +572,13 @@ func TestMultisigCoordinator_HandleBroadcast_InsufficientSignatures(t *testing.T
 func TestMultisigCoordinator_MethodNotAllowed(t *testing.T) {
 	pubKeys := [][]byte{make([]byte, 33), make([]byte, 33), make([]byte, 33)}
 	pw, err := NewPaywall(Config{
-		PriceInBTC:     0.001,
-		TestNet:        true,
-		Store:          NewMemoryStore(),
-		PaymentTimeout: time.Hour,
-		MultisigEnabled: true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              NewMemoryStore(),
+		PaymentTimeout:     time.Hour,
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: pubKeys},
 	})
 	if err != nil {

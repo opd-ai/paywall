@@ -5,6 +5,7 @@ Complete reference for the opd-ai/paywall public API.
 ## Table of Contents
 
 - [Main Package](#main-package)
+- [Multisig Support](#multisig-support)
 - [Wallet Package](#wallet-package)
 - [Storage Interface](#storage-interface)
 
@@ -236,6 +237,502 @@ Stops the background payment verification goroutine and releases resources.
 pw, _ := paywall.NewPaywall(config)
 defer pw.Close()  // Cleanup on exit
 ```
+
+---
+
+## Multisig Support
+
+The paywall package provides optional multisig (multi-signature) support for escrow and dispute resolution scenarios. Multisig features are opt-in and fully backward compatible with single-signature mode.
+
+### Multisig Configuration
+
+Extend the `Config` struct with multisig parameters:
+
+```go
+type Config struct {
+    // ... existing fields ...
+    
+    // Multisig configuration (optional - all zero values mean single-sig mode)
+    MultisigEnabled     bool                              // Enable multisig address generation
+    MultisigRequired    int                               // m in m-of-n multisig
+    MultisigTotal       int                               // n in m-of-n multisig
+    ParticipantPubKeys  map[wallet.WalletType][][]byte    // Public keys per wallet type
+    MultisigRole        MultisigRole                      // This instance's role
+}
+```
+
+**Requirements**:
+- When `MultisigEnabled = true`, all other multisig fields must be provided
+- `MultisigRequired` must be >= 1 and <= `MultisigTotal`
+- `MultisigTotal` must match the length of `ParticipantPubKeys` for each wallet type
+- Maximum 15 public keys (Bitcoin consensus limit)
+- Public keys must be in compressed format (33 bytes)
+
+**Example**:
+```go
+pubKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+config := paywall.Config{
+    PriceInBTC:         0.001,
+    TestNet:            true,
+    Store:              paywall.NewMemoryStore(),
+    PaymentTimeout:     time.Hour * 24,
+    MultisigEnabled:    true,
+    MultisigRequired:   2,  // 2-of-3 multisig
+    MultisigTotal:      3,
+    ParticipantPubKeys: map[wallet.WalletType][][]byte{
+        wallet.Bitcoin: pubKeys,
+    },
+    MultisigRole:       paywall.RoleBuyer,
+}
+```
+
+### Multisig Types
+
+#### MultisigRole
+
+```go
+type MultisigRole string
+
+const (
+    RoleBuyer   MultisigRole = "buyer"
+    RoleSeller  MultisigRole = "seller"
+    RoleArbiter MultisigRole = "arbiter"
+)
+```
+
+Identifies the role of a participant in a multisig transaction.
+
+#### SignatureData
+
+```go
+type SignatureData struct {
+    SignerID  string       // Unique identifier for the signer
+    Role      MultisigRole // Signer's role (buyer, seller, arbiter)
+    Signature []byte       // Cryptographic signature bytes
+    PublicKey []byte       // Signer's public key for verification
+    SignedAt  time.Time    // Timestamp when signature was created
+}
+```
+
+Contains a partial signature for multisig transactions.
+
+#### EscrowState
+
+```go
+type EscrowState int
+
+const (
+    EscrowNone      EscrowState = iota  // Not an escrow payment
+    EscrowPending                       // Escrow created, awaiting funding
+    EscrowFunded                        // Buyer funded the escrow
+    EscrowCompleted                     // Released to seller
+    EscrowDisputed                      // Dispute raised
+    EscrowRefunded                      // Refunded to buyer
+)
+```
+
+Tracks the state of an escrow payment.
+
+### Multisig Payment Fields
+
+When `MultisigEnabled = true`, the `Payment` struct includes additional fields:
+
+```go
+type Payment struct {
+    // ... existing fields ...
+    
+    // Multisig fields
+    MultisigEnabled    bool                                      // True if multisig
+    MultisigMetadata   map[wallet.WalletType]*MultisigMetadata  // Metadata per wallet
+    RequiredSignatures map[wallet.WalletType]int                // Required sigs per wallet
+    Signatures         map[wallet.WalletType][]SignatureData    // Collected signatures
+    
+    // Escrow fields (optional)
+    EscrowState        EscrowState  // Current escrow state
+    EscrowTimeout      time.Time    // When escrow auto-refunds
+    DisputeReason      string       // Reason if disputed
+}
+```
+
+### Multisig Coordinator
+
+#### NewMultisigCoordinator
+
+```go
+func NewMultisigCoordinator(
+    pw *Paywall,
+    auth MultisigAuthenticator,
+    notifier MultisigWebhookNotifier,
+) *MultisigCoordinator
+```
+
+Creates a coordinator for managing multisig signature collection.
+
+**Parameters**:
+- `pw`: Configured paywall with multisig enabled
+- `auth`: Optional authenticator for restricting API access
+- `notifier`: Optional webhook notifier for signature events
+
+**Returns**: `*MultisigCoordinator` for attaching HTTP handlers
+
+**Example**:
+```go
+coordinator := paywall.NewMultisigCoordinator(pw, nil, nil)
+
+http.HandleFunc("/multisig/initiate", coordinator.HandleInitiate)
+http.HandleFunc("/multisig/sign", coordinator.HandleSign)
+http.HandleFunc("/multisig/status/", coordinator.HandleStatus)
+http.HandleFunc("/multisig/broadcast", coordinator.HandleBroadcast)
+```
+
+### Multisig HTTP Handlers
+
+#### POST /multisig/initiate
+
+Initiates a new multisig payment.
+
+**Request**:
+```json
+{
+    "wallet_type": "bitcoin",
+    "required_sigs": 2,
+    "public_keys": ["<pubkey1>", "<pubkey2>", "<pubkey3>"],
+    "role": "buyer",
+    "price_multiplier": 1.0
+}
+```
+
+**Response**:
+```json
+{
+    "payment_id": "abc123",
+    "address": "3MultiSigAddress",
+    "amount": 0.001,
+    "redeem_script": "<base64>",
+    "expires_at": "2026-05-14T18:00:00Z"
+}
+```
+
+#### POST /multisig/sign
+
+Submits a partial signature.
+
+**Request**:
+```json
+{
+    "payment_id": "abc123",
+    "wallet_type": "bitcoin",
+    "signer_id": "buyer1",
+    "role": "buyer",
+    "signature": "<signature_bytes>",
+    "public_key": "<pubkey_bytes>"
+}
+```
+
+**Response**:
+```json
+{
+    "success": true,
+    "signature_count": 2,
+    "required_signatures": 2,
+    "message": "Signature accepted (2 of 2)"
+}
+```
+
+#### GET /multisig/status/:paymentID
+
+Retrieves current signing status.
+
+**Response**:
+```json
+{
+    "payment_id": "abc123",
+    "status": "pending",
+    "confirmations": 0,
+    "signatures": {
+        "bitcoin": [
+            {
+                "signer_id": "buyer1",
+                "role": "buyer",
+                "signed_at": "2026-05-13T18:00:00Z"
+            }
+        ]
+    },
+    "required_signatures": {
+        "bitcoin": 2
+    },
+    "ready_to_broadcast": false,
+    "escrow_state": "funded"
+}
+```
+
+#### POST /multisig/broadcast
+
+Broadcasts a fully-signed transaction.
+
+**Request**:
+```json
+{
+    "payment_id": "abc123",
+    "wallet_type": "bitcoin",
+    "transaction": "<signed_tx_bytes>"
+}
+```
+
+**Response**:
+```json
+{
+    "success": true,
+    "transaction_id": "abc123def456",
+    "message": "Transaction broadcast successful"
+}
+```
+
+### Multisig API Client
+
+#### NewMultisigClient
+
+```go
+func NewMultisigClient(baseURL string, authToken string) *MultisigClient
+```
+
+Creates an API client for interacting with multisig endpoints.
+
+**Parameters**:
+- `baseURL`: Paywall server URL (e.g., "https://api.example.com")
+- `authToken`: Optional bearer token for authentication
+
+**Returns**: `*MultisigClient` for making API calls
+
+**Example**:
+```go
+client := paywall.NewMultisigClient("https://api.example.com", "token123")
+
+// Initiate multisig payment
+resp, err := client.InitiateMultisig(
+    wallet.Bitcoin,
+    2,  // 2-of-3
+    [][]byte{pubKey1, pubKey2, pubKey3},
+    paywall.RoleBuyer,
+    1.0,
+)
+```
+
+#### (*MultisigClient) InitiateMultisig
+
+```go
+func (mc *MultisigClient) InitiateMultisig(
+    walletType wallet.WalletType,
+    requiredSigs int,
+    publicKeys [][]byte,
+    role MultisigRole,
+    priceMultiplier float64,
+) (*MultisigInitiateResponse, error)
+```
+
+Starts a new multisig payment setup.
+
+**Parameters**:
+- `walletType`: Bitcoin or Monero
+- `requiredSigs`: Number of signatures required (m in m-of-n)
+- `publicKeys`: All participant public keys
+- `role`: Role of the initiator
+- `priceMultiplier`: Multiplier for the base price (default 1.0)
+
+**Returns**:
+- `*MultisigInitiateResponse` with payment ID and address
+- Error if initiation fails
+
+#### (*MultisigClient) SubmitSignature
+
+```go
+func (mc *MultisigClient) SubmitSignature(
+    paymentID string,
+    walletType wallet.WalletType,
+    signerID string,
+    role MultisigRole,
+    signature []byte,
+    publicKey []byte,
+) (*MultisigSignResponse, error)
+```
+
+Submits a partial signature for a multisig payment.
+
+**Parameters**:
+- `paymentID`: Payment to sign
+- `walletType`: Wallet type for this signature
+- `signerID`: Unique identifier for the signer
+- `role`: Signer's role
+- `signature`: Cryptographic signature bytes
+- `publicKey`: Signer's public key
+
+**Returns**:
+- `*MultisigSignResponse` with signature count
+- Error if submission fails
+
+#### (*MultisigClient) GetStatus
+
+```go
+func (mc *MultisigClient) GetStatus(paymentID string) (*MultisigStatusResponse, error)
+```
+
+Retrieves current signing status for a payment.
+
+**Returns**:
+- `*MultisigStatusResponse` with signatures and readiness
+- Error if payment not found
+
+#### (*MultisigClient) BroadcastTransaction
+
+```go
+func (mc *MultisigClient) BroadcastTransaction(
+    paymentID string,
+    walletType wallet.WalletType,
+    transaction []byte,
+) (*MultisigBroadcastResponse, error)
+```
+
+Broadcasts a fully-signed multisig transaction.
+
+**Parameters**:
+- `paymentID`: Payment to broadcast
+- `walletType`: Wallet type
+- `transaction`: Fully-signed transaction bytes
+
+**Returns**:
+- `*MultisigBroadcastResponse` with transaction ID
+- Error if broadcast fails or insufficient signatures
+
+#### (*MultisigClient) WaitForSignatures
+
+```go
+func (mc *MultisigClient) WaitForSignatures(
+    paymentID string,
+    timeout time.Duration,
+    pollInterval time.Duration,
+) (*MultisigStatusResponse, error)
+```
+
+Polls for signatures until required count is reached or timeout expires.
+
+**Parameters**:
+- `paymentID`: Payment to monitor
+- `timeout`: Maximum time to wait
+- `pollInterval`: How often to check status
+
+**Returns**:
+- `*MultisigStatusResponse` when ready
+- Error if timeout or polling fails
+
+**Example**:
+```go
+status, err := client.WaitForSignatures(
+    "payment123",
+    5 * time.Minute,
+    10 * time.Second,
+)
+if err != nil {
+    log.Fatal(err)
+}
+if status.ReadyToBroadcast {
+    // Proceed with broadcast
+}
+```
+
+### Escrow Manager
+
+#### NewEscrowManager
+
+```go
+func NewEscrowManager(pw *Paywall) (*EscrowManager, error)
+```
+
+Creates an escrow manager for 2-of-3 multisig escrow workflows.
+
+**Requires**: Paywall must have multisig enabled
+
+**Returns**:
+- `*EscrowManager` for managing escrow lifecycles
+- Error if multisig not enabled
+
+#### (*EscrowManager) CreateEscrow
+
+```go
+func (em *EscrowManager) CreateEscrow(
+    priceMultiplier float64,
+    escrowTimeout time.Duration,
+) (string, error)
+```
+
+Creates a new escrow payment.
+
+**Parameters**:
+- `priceMultiplier`: Price adjustment factor
+- `escrowTimeout`: When to auto-refund if unresolved
+
+**Returns**:
+- Payment ID
+- Error if creation fails
+
+#### (*EscrowManager) FundEscrow
+
+```go
+func (em *EscrowManager) FundEscrow(paymentID string) error
+```
+
+Marks an escrow as funded after buyer payment confirmed.
+
+#### (*EscrowManager) ReleaseToSeller
+
+```go
+func (em *EscrowManager) ReleaseToSeller(paymentID string) error
+```
+
+Releases escrow funds to seller (requires buyer + seller or arbiter signatures).
+
+#### (*EscrowManager) RefundBuyer
+
+```go
+func (em *EscrowManager) RefundBuyer(paymentID string) error
+```
+
+Refunds escrow to buyer (requires buyer + seller or arbiter signatures).
+
+### Dispute Resolution
+
+#### (*EscrowManager) RequestDispute
+
+```go
+func (em *EscrowManager) RequestDispute(paymentID string, reason string) error
+```
+
+Raises a dispute for an escrow payment.
+
+**Parameters**:
+- `paymentID`: Escrow to dispute
+- `reason`: Explanation for the dispute
+
+**Returns**: Error if dispute cannot be raised (e.g., wrong state)
+
+#### (*EscrowManager) ResolveDispute
+
+```go
+func (em *EscrowManager) ResolveDispute(
+    paymentID string,
+    favorBuyer bool,
+    resolution string,
+) error
+```
+
+Resolves a dispute in favor of buyer or seller.
+
+**Parameters**:
+- `paymentID`: Disputed payment
+- `favorBuyer`: True to refund buyer, false to pay seller
+- `resolution`: Explanation of the resolution
+
+**Returns**: Error if resolution fails
 
 ---
 
