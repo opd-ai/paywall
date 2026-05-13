@@ -29,18 +29,18 @@ The opd-ai/paywall project delivers on most of its core promises but has **1 cri
 
 | Goal | Status | Location(s) | Evidence/Gap |
 |------|--------|------------|--------------|
-| **Secure Bitcoin HD wallet** | ⚠️ Partial | `wallet/btc_hd_wallet.go` | ✅ BIP32/44 compliant<br>❌ CRITICAL: Unsafe fallback to `math/rand` (line 126)<br>❌ HIGH: RecoverNextIndex exported but unused (line 475) |
-| **Monero RPC integration** | ⚠️ Partial | `wallet/xmr_hd_wallet.go` | ✅ RPC client configured<br>❌ MEDIUM: `GetAddressBalance()` ignores address parameter (security issue) |
-| **Flexible payment tracking** | ⚠️ Partial | `handlers.go`, `memstore.go`, `filestore.go`, `encryptedfilestore.go` | ✅ Multi-backend support works<br>❌ MEDIUM: Inconsistent pending payment logic (FileStore uses `<= 1`, EncryptedFileStore uses `< 1`) |
-| **Easy-to-use HTTP middleware** | ⚠️ Partial | `middleware.go`, `example/example.go` | ✅ Middleware pattern works<br>❌ MEDIUM: Bitcoin-only config blocked by mandatory XMR_WALLET_PASS |
+| **Secure Bitcoin HD wallet** | ✅ Achieved | `wallet/btc_hd_wallet.go` | ✅ BIP32/44 compliant<br>✅ Crypto/rand panic on failure (line 126)<br>✅ RecoverNextIndex made private (line 477) |
+| **Monero RPC integration** | ✅ Achieved | `wallet/xmr_hd_wallet.go` | ✅ RPC client configured<br>✅ `GetAddressBalance()` filters by address via GetTransfers() |
+| **Flexible payment tracking** | ✅ Achieved | `handlers.go`, `memstore.go`, `filestore.go`, `encryptedfilestore.go` | ✅ Multi-backend support works<br>✅ Consistent pending payment logic (both use `< 1`) |
+| **Easy-to-use HTTP middleware** | ✅ Achieved | `middleware.go`, `example/example.go` | ✅ Middleware pattern works<br>✅ Bitcoin-only config works without XMR env vars |
 | **Multiple storage backends** | ✅ Achieved | `memstore.go`, `filestore.go`, `encryptedfilestore.go` | ✅ Memory, File, EncryptedFile all working<br>✅ Tests confirm interface compliance |
 | **AES-256 encrypted wallet storage** | ✅ Achieved | `encryptedfilestore.go`, `wallet/storage.go` | ✅ AES-256-GCM implemented<br>✅ Key generation secure (`wallet.GenerateEncryptionKey()`) |
 | **Real-time payment verification** | ✅ Achieved | `verification.go` | ✅ Background goroutine with exponential backoff<br>✅ Confirmation tracking works |
 | **Mobile-friendly payment UI with QR codes** | ✅ Achieved | `templates/payment.html`, `static/qrcode.min.js` | ✅ Embedded templates work<br>✅ QR code generation functional |
 | **Testnet support** | ✅ Achieved | `Config.TestNet` throughout | ✅ Testnet/mainnet separation works<br>✅ Example uses testnet correctly |
-| **Production-ready** | ❌ Blocked | Entire codebase | ❌ Critical security gap blocks production use<br>❌ Documentation incomplete (8 empty doc files) |
+| **Production-ready** | ⚠️ Partial | Entire codebase | ✅ Critical security gaps resolved (Priorities 1-5 complete)<br>❌ Documentation incomplete (6 empty doc files remain) |
 
-**Summary**: **5/10** core goals fully achieved, **4/10** partially achieved with fixable gaps, **1/10** blocked by critical security issue.
+**Summary**: **9/10** core goals fully achieved, **1/10** partially achieved (documentation), **0/10** blocked.
 
 ---
 
