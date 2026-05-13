@@ -46,7 +46,7 @@ func main() {
         PaymentTimeout: time.Hour * 24,           // 24-hour payment window
     })
 
-    // Call close when your program shuts down to terminate the payment check routine
+    // Call close when your program shuts down to terminate the payment check routine co
     defer pw.Close()
     if err != nil {
         log.Fatal(err)

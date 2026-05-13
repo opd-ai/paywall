@@ -216,6 +216,103 @@ func (m *FileStore) GetPaymentByAddress(addr string) (*Payment, error) {
 	return nil, nil
 }
 
+// GetPendingMultisigPayments returns all pending payments that have multisig enabled.
+// Scans all payment files sequentially and filters by multisig status and pending state.
+//
+// Returns:
+//   - []*Payment: Slice of pending multisig payments
+//   - error: Directory read errors
+//
+// Notes:
+//   - Silently skips non-JSON files and parse errors
+//   - Thread-safety: Protected by read lock
+func (m *FileStore) GetPendingMultisigPayments() ([]*Payment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	files, err := os.ReadDir(m.baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var payments []*Payment
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(m.baseDir, file.Name()))
+		if err != nil {
+			continue
+		}
+
+		var payment Payment
+		if err := json.Unmarshal(data, &payment); err != nil {
+			continue
+		}
+
+		if payment.MultisigEnabled && payment.Status == StatusPending {
+			payments = append(payments, &payment)
+		}
+	}
+
+	return payments, nil
+}
+
+// GetPaymentsByMultisigAddress finds payments by multisig address.
+// Scans all payment files sequentially and matches by multisig address.
+//
+// Parameters:
+//   - address: The multisig address to search for
+//
+// Returns:
+//   - []*Payment: Slice of payments associated with the address
+//   - error: Directory read errors
+//
+// Notes:
+//   - Silently skips non-JSON files and parse errors
+//   - Thread-safety: Protected by read lock
+func (m *FileStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	files, err := os.ReadDir(m.baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var payments []*Payment
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(m.baseDir, file.Name()))
+		if err != nil {
+			continue
+		}
+
+		var payment Payment
+		if err := json.Unmarshal(data, &payment); err != nil {
+			continue
+		}
+
+		if !payment.MultisigEnabled {
+			continue
+		}
+
+		// Check if any wallet address matches
+		for _, addr := range payment.Addresses {
+			if addr == address {
+				payments = append(payments, &payment)
+				break
+			}
+		}
+	}
+
+	return payments, nil
+}
+
 // FileStoreConfig defines configuration parameters for file-based payment storage
 //
 // Fields:

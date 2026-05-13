@@ -191,3 +191,35 @@ func (w *MoneroHDWallet) RollbackLastAddress() {
 		w.nextIndex--
 	}
 }
+
+// Multisig operations (default implementations for backward compatibility)
+
+// IsMultisigEnabled returns false as multisig is not yet implemented for Monero wallets.
+// This default implementation maintains backward compatibility with existing code.
+func (w *MoneroHDWallet) IsMultisigEnabled() bool {
+	return false
+}
+
+// GetMultisigConfig returns ErrMultisigNotSupported as multisig is not yet implemented.
+// This default implementation maintains backward compatibility with existing code.
+func (w *MoneroHDWallet) GetMultisigConfig() (*MultisigConfig, error) {
+	return nil, ErrMultisigNotSupported
+}
+
+// DeriveMultisigAddress returns ErrMultisigNotSupported as multisig is not yet implemented.
+// This default implementation maintains backward compatibility with existing code.
+//
+// Future implementation will support Monero's native multisig via RPC commands:
+// prepare_multisig, make_multisig, export_multisig_info, import_multisig_info, finalize_multisig.
+func (w *MoneroHDWallet) DeriveMultisigAddress(pubKeys [][]byte, requiredSigs int) (string, *MultisigMetadata, error) {
+	return "", nil, ErrMultisigNotSupported
+}
+
+// CreateRedeemScript returns ErrMultisigNotSupported as multisig is not yet implemented.
+// This default implementation maintains backward compatibility with existing code.
+//
+// Future implementation will use Monero RPC's multisig workflow to generate and export
+// multisig setup information for coordination between participants.
+func (w *MoneroHDWallet) CreateRedeemScript(pubKeys [][]byte, requiredSigs int) ([]byte, error) {
+	return nil, ErrMultisigNotSupported
+}

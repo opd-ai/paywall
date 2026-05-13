@@ -294,3 +294,19 @@ func (m *mockHDWallet) GetAddressBalance(address string) (float64, error) {
 func (m *mockHDWallet) GetTransactionConfirmations(txID string) (int, error) {
 	return 0, nil
 }
+
+func (m *mockHDWallet) IsMultisigEnabled() bool {
+	return false
+}
+
+func (m *mockHDWallet) GetMultisigConfig() (*MultisigConfig, error) {
+	return nil, ErrMultisigNotSupported
+}
+
+func (m *mockHDWallet) DeriveMultisigAddress(pubKeys [][]byte, requiredSigs int) (string, *MultisigMetadata, error) {
+	return "", nil, ErrMultisigNotSupported
+}
+
+func (m *mockHDWallet) CreateRedeemScript(pubKeys [][]byte, requiredSigs int) ([]byte, error) {
+	return nil, ErrMultisigNotSupported
+}

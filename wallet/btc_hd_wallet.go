@@ -597,3 +597,35 @@ func (w *BTCHDWallet) GetNextIndex() uint32 {
 	defer w.mu.RUnlock()
 	return w.nextIndex
 }
+
+// Multisig operations (default implementations for backward compatibility)
+
+// IsMultisigEnabled returns false as multisig is not yet implemented for Bitcoin wallets.
+// This default implementation maintains backward compatibility with existing code.
+func (w *BTCHDWallet) IsMultisigEnabled() bool {
+	return false
+}
+
+// GetMultisigConfig returns ErrMultisigNotSupported as multisig is not yet implemented.
+// This default implementation maintains backward compatibility with existing code.
+func (w *BTCHDWallet) GetMultisigConfig() (*MultisigConfig, error) {
+	return nil, ErrMultisigNotSupported
+}
+
+// DeriveMultisigAddress returns ErrMultisigNotSupported as multisig is not yet implemented.
+// This default implementation maintains backward compatibility with existing code.
+//
+// Future implementation will support Bitcoin P2SH (Pay-to-Script-Hash) and P2WSH
+// (Pay-to-Witness-Script-Hash) multisig address generation per BIP16 and BIP141.
+func (w *BTCHDWallet) DeriveMultisigAddress(pubKeys [][]byte, requiredSigs int) (string, *MultisigMetadata, error) {
+	return "", nil, ErrMultisigNotSupported
+}
+
+// CreateRedeemScript returns ErrMultisigNotSupported as multisig is not yet implemented.
+// This default implementation maintains backward compatibility with existing code.
+//
+// Future implementation will generate Bitcoin redeem scripts for P2SH multisig addresses,
+// combining public keys with OP_CHECKMULTISIG opcode per BIP16 specification.
+func (w *BTCHDWallet) CreateRedeemScript(pubKeys [][]byte, requiredSigs int) ([]byte, error) {
+	return nil, ErrMultisigNotSupported
+}

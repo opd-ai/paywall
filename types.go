@@ -37,6 +37,17 @@ type Payment struct {
 	Status PaymentStatus `json:"status"`
 	// Confirmations is the number of blockchain confirmations received
 	Confirmations int `json:"confirmations"`
+
+	// Multisig fields (optional - zero values indicate single-signature payment)
+
+	// MultisigEnabled indicates whether this payment uses multisig addresses
+	MultisigEnabled bool `json:"multisig_enabled,omitempty"`
+	// MultisigMetadata contains multisig-specific data per wallet type (redeem scripts, etc.)
+	MultisigMetadata map[wallet.WalletType]*wallet.MultisigMetadata `json:"multisig_metadata,omitempty"`
+	// RequiredSignatures specifies the number of signatures needed per wallet type
+	RequiredSignatures map[wallet.WalletType]int `json:"required_signatures,omitempty"`
+	// Signatures contains collected partial signatures per wallet type
+	Signatures map[wallet.WalletType][]SignatureData `json:"signatures,omitempty"`
 }
 
 // PaymentStore defines the interface for payment persistence operations
@@ -58,6 +69,18 @@ type PaymentStore interface {
 	// ListPendingPayments returns all payments in pending status
 	// Returns error if retrieval fails
 	ListPendingPayments() ([]*Payment, error)
+
+	// Multisig operations (optional - implementations may return empty results)
+
+	// GetPendingMultisigPayments returns all pending payments that have multisig enabled.
+	// This is useful for tracking multisig payments that need signature coordination.
+	// Returns error if retrieval fails. Returns empty slice if no multisig payments pending.
+	GetPendingMultisigPayments() ([]*Payment, error)
+
+	// GetPaymentsByMultisigAddress finds payments by multisig address.
+	// Useful for identifying payments associated with a specific multisig address.
+	// Returns error if retrieval fails. Returns empty slice if no matching payments.
+	GetPaymentsByMultisigAddress(address string) ([]*Payment, error)
 }
 
 // PaymentPageData contains the data needed to render the payment page template
@@ -77,4 +100,32 @@ type PaymentPageData struct {
 	PaymentID string `json:"payment_id"`
 	// QrcodeJs contains the JS code for generating the QR cde
 	QrcodeJs template.JS
+}
+
+// MultisigRole identifies the role of a participant in a multisig transaction
+// Used for escrow and dispute resolution workflows
+type MultisigRole string
+
+const (
+	// RoleBuyer represents the party paying for goods/services
+	RoleBuyer MultisigRole = "buyer"
+	// RoleSeller represents the party providing goods/services
+	RoleSeller MultisigRole = "seller"
+	// RoleArbiter represents the neutral third party for dispute resolution
+	RoleArbiter MultisigRole = "arbiter"
+)
+
+// SignatureData contains a signature and signer identity for multisig transactions
+// Used to track partial signatures in m-of-n multisig payments
+type SignatureData struct {
+	// SignerID uniquely identifies the signer (public key hash or other identifier)
+	SignerID string `json:"signer_id"`
+	// Role indicates the signer's role in the transaction
+	Role MultisigRole `json:"role"`
+	// Signature contains the cryptographic signature bytes
+	Signature []byte `json:"signature"`
+	// PublicKey is the signer's public key used for verification
+	PublicKey []byte `json:"public_key"`
+	// SignedAt is the timestamp when the signature was created
+	SignedAt time.Time `json:"signed_at"`
 }
