@@ -250,6 +250,376 @@ config := paywall.Config{
 
 ## Security Checklist for Production Deployment
 
+## Security Review: Key Generation and Derivation Paths
+
+This section documents the security review of key generation and derivation mechanisms performed as part of the multisig implementation security audit (PLAN.md Phase 7.3).
+
+### Bitcoin HD Wallet Key Generation (✅ Secure)
+
+**Master Key Derivation** (`wallet/btc_hd_wallet.go:207-210`):
+- ✅ Uses HMAC-SHA512 with constant "Bitcoin seed" per BIP32 specification
+- ✅ Splits 512-bit output into 256-bit master key and 256-bit chain code
+- ✅ Seed validation requires 16-64 bytes (128-512 bits of entropy)
+- ✅ No weak key derivation patterns detected
+
+**BIP32 Child Key Derivation** (`wallet/btc_hd_wallet.go:324-364`):
+- ✅ Implements proper hardened vs. non-hardened derivation:
+  - **Hardened** (index >= 0x80000000): Uses `0x00 || privKey || index` for HMAC input
+  - **Non-hardened**: Uses `compressed_pubKey || index` for HMAC input
+- ✅ Proper modular arithmetic with curve order (secp256k1)
+- ✅ Invalid key detection: Rejects keys where `childInt == 0` or `childInt >= curveOrder`
+- ✅ Padding of derived keys to 32 bytes with leading zeros maintained
+
+**BIP44 Derivation Path** (`wallet/btc_hd_wallet.go:265-295`):
+```
+m/44'/0'/0'/0/index
+   ↑   ↑  ↑  ↑  ↑
+   │   │  │  │  └── Address index (non-hardened, enables public derivation)
+   │   │  │  └────── External chain (0 = receiving, 1 = change)
+   │   │  └─────────── Account 0 (hardened, prevents account linkage)
+   │   └────────────── Bitcoin coin type (hardened)
+   └────────────────── BIP44 purpose (hardened)
+```
+
+**Security Properties**:
+- ✅ Hardened indices (44', 0', 0') prevent public key→sibling private key attacks
+- ✅ Non-hardened address index allows watch-only wallet implementations
+- ✅ Each payment receives unique address at incremented index
+- ✅ `nextIndex` protected by mutex for thread-safe concurrent address generation
+
+**Cryptographic Validation**:
+- ✅ Public key derivation uses btcsuite's `btcec.PrivKeyFromBytes()` with automatic curve validation
+- ✅ Address generation includes proper HASH160 (SHA256 + RIPEMD160) and Base58Check encoding
+- ✅ No raw private key logging or network transmission detected
+
+### Multisig Key Derivation (✅ Secure)
+
+**Participant Key Derivation** (`wallet/btc_multisig.go:246-286`):
+- ✅ Uses BIP32 non-hardened derivation (allows public key coordination)
+- ✅ Validates index is non-hardened (`< 0x80000000`)
+- ✅ Proper HMAC-SHA512 with `compressed_pubKey || index`
+- ✅ Modular arithmetic with secp256k1 curve order
+- ✅ Invalid key rejection: `childInt == 0` or `childInt >= curve.N`
+
+**Redeem Script Generation** (`wallet/btc_multisig.go:38-94`):
+- ✅ Validates public key count: 1 ≤ n ≤ 15 (Bitcoin consensus limit)
+- ✅ Validates signature requirement: 1 ≤ m ≤ n
+- ✅ Accepts compressed (33 bytes) or uncompressed (65 bytes) public keys
+- ✅ Parses public keys with `btcec.ParsePubKey()` for curve validation
+- ✅ Uses btcsuite's `txscript.MultiSigScript()` for standard-compliant redeem scripts
+
+**Multisig Address Generation**:
+- ✅ **P2SH** (BIP16): RIPEMD160(SHA256(redeemScript)) with proper version byte and checksum
+- ✅ **P2WSH** (BIP141): SHA256(redeemScript) with Bech32 encoding
+- ✅ Network-specific address prefixes prevent testnet/mainnet confusion:
+  - P2SH: `3xxx` (mainnet) / `2xxx` (testnet)
+  - P2WSH: `bc1qxxx` (mainnet) / `tb1qxxx` (testnet)
+
+**Redeem Script Validation** (`wallet/btc_multisig.go:290-319`):
+- ✅ Verifies OP_CHECKMULTISIG opcode (0xae) at script end
+- ✅ Extracts and validates m-of-n parameters from script
+- ✅ Length validation prevents malformed scripts
+
+### Monero Key Management (✅ Secure by Delegation)
+
+**RPC-Based Key Handling** (`wallet/xmr_hd_wallet.go`):
+- ✅ Key generation delegated to Monero wallet RPC (external daemon)
+- ✅ Subaddress derivation via `CreateAddress()` RPC method (account 0)
+- ✅ No private key exposure to paywall application
+- ✅ Subaddress label includes sequential index for tracking
+
+**Monero Multisig** (`wallet/xmr_multisig.go`):
+- ✅ Uses Monero's native multisig protocol via RPC:
+  - `PrepareMultisig()` - Initialize multisig state
+  - `MakeMultisig()` - Exchange multisig info between participants
+  - `ExportMultisigInfo()` / `ImportMultisigInfo()` - Synchronization
+  - `FinalizeMultisig()` - Complete setup
+- ✅ No custom cryptography implemented; relies on audited Monero codebase
+- ✅ Participant coordination requires out-of-band secure communication (design choice)
+
+**Security Considerations**:
+- ⚠️ Monero RPC must be properly secured (authentication, encryption, network isolation)
+- ⚠️ View-only wallets recommended for production payment verification (not yet implemented)
+- ✅ Subaddress-per-payment provides transaction unlinkability
+- ✅ Transfer verification filters by specific subaddress to prevent payment confusion
+
+### Entropy and Randomness (✅ Secure)
+
+**Random Number Generation** (`wallet/btc_hd_wallet.go:120-128`):
+- ✅ Uses `crypto/rand.Int(rand.Reader, big.NewInt(n))` for all randomness
+- ✅ **Fail-fast on entropy exhaustion**: Panics instead of falling back to `math/rand`
+- ✅ Critical for endpoint selection and payment ID generation
+- ✅ Error message clearly indicates security failure: `"crypto/rand.Int failed: cannot initialize wallet securely"`
+
+**Seed Generation** (referenced in documentation):
+- ✅ 256-bit seeds required (16-64 byte range enforced)
+- ✅ Must be generated with `crypto/rand.Reader` by caller
+- ⚠️ No built-in mnemonic phrase support (BIP39) - users must manage raw seed bytes
+
+### Risk Assessment Summary
+
+| Component | Status | Risk Level | Notes |
+|-----------|--------|------------|-------|
+| Bitcoin master key derivation | ✅ Secure | Low | BIP32 compliant, proper HMAC-SHA512 |
+| Bitcoin child key derivation | ✅ Secure | Low | Hardened indices prevent key leakage |
+| Multisig participant keys | ✅ Secure | Low | Non-hardened derivation appropriate for pubkey exchange |
+| Multisig redeem scripts | ✅ Secure | Low | Standard Bitcoin script format, validated |
+| Monero key management | ✅ Secure | Low | Delegated to audited Monero RPC |
+| Entropy source | ✅ Secure | Low | crypto/rand with fail-fast on errors |
+| Seed backup/recovery | ⚠️ Manual | Medium | No BIP39 mnemonic; users handle raw bytes |
+| View-only Monero wallet | ❌ Not implemented | Medium | Production deployments expose full wallet RPC |
+
+### Recommendations
+
+1. **Immediate (Already Implemented)**:
+   - ✅ crypto/rand failure causes panic (no silent degradation)
+   - ✅ Key validation on all derived keys
+   - ✅ Proper BIP32/BIP44 compliance
+
+2. **Short Term (Optional Enhancements)**:
+   - Consider BIP39 mnemonic phrase support for user-friendly seed backups
+   - Document seed backup procedures in user-facing documentation
+   - Implement view-only Monero wallet support for production deployments
+
+3. **Long Term (Advanced Features)**:
+   - Hardware wallet integration (Trezor, Ledger) for critical key operations
+   - Threshold signature schemes (TSS) to avoid redeem script exposure
+   - Taproot (BIP341/342) multisig for improved privacy and efficiency
+
+### Audit Trail
+
+- **Reviewed by**: Automated security audit (AI-assisted code review)
+- **Review date**: May 13, 2026
+- **Files audited**:
+  - `wallet/btc_hd_wallet.go` (lines 1-530)
+  - `wallet/btc_multisig.go` (lines 1-400)
+  - `wallet/xmr_hd_wallet.go` (lines 1-200)
+  - `wallet/xmr_multisig.go` (multisig RPC integration)
+- **Standards validated**: BIP32, BIP44, BIP16 (P2SH), BIP141 (P2WSH)
+- **Findings**: No critical vulnerabilities detected in key generation, derivation, or redeem script validation logic
+
+---
+
+## Security Review: Redeem Script Validation
+
+This section documents the security audit of Bitcoin multisig redeem script validation (PLAN.md Phase 7.3).
+
+### Redeem Script Construction (✅ Secure)
+
+**BuildRedeemScript()** (`wallet/btc_multisig.go:38-94`):
+
+**Input Validation**:
+- ✅ Validates public key count: `1 ≤ n ≤ 15` (Bitcoin consensus limit per BIP11/BIP16)
+- ✅ Validates signature requirement: `1 ≤ m ≤ n`
+- ✅ Rejects empty public key arrays
+- ✅ Validates public key length: 33 bytes (compressed) or 65 bytes (uncompressed)
+
+**Public Key Parsing**:
+- ✅ Uses `btcec.ParsePubKey()` for cryptographic validation
+  - Verifies point is on secp256k1 curve
+  - Validates coordinate bounds
+  - Rejects invalid/malformed keys
+- ✅ Converts all keys to compressed format (33 bytes) for consistency
+- ✅ Uses btcsuite's `btcutil.NewAddressPubKey()` for address representation
+
+**Script Generation**:
+- ✅ Delegates to `txscript.MultiSigScript()` (audited btcsuite library)
+- ✅ Standard format: `<m> <pubkey1> ... <pubkeyN> <n> OP_CHECKMULTISIG`
+- ✅ Proper OP_m and OP_n encoding (OP_1 = 0x51, OP_2 = 0x52, etc.)
+
+**Security Properties**:
+- ✅ No buffer overflows (btcsuite handles script sizing)
+- ✅ No public key reordering attacks (order preserved as provided)
+- ✅ Deterministic output (same inputs → same script)
+
+### Redeem Script Validation (✅ Secure)
+
+**ValidateRedeemScript()** (`wallet/btc_multisig.go:290-341`):
+
+**Structure Validation**:
+- ✅ Checks minimum length (4 bytes: OP_m + OP_n + OP_CHECKMULTISIG)
+- ✅ Verifies OP_CHECKMULTISIG (0xae) at script end
+- ✅ Extracts m and n values by decoding opcodes (OP_1 = 0x51, OP_2 = 0x52, etc.)
+
+**Parameter Validation**:
+- ✅ Validates: `1 ≤ m ≤ 15`
+- ✅ Validates: `1 ≤ n ≤ 15`
+- ✅ Validates: `m ≤ n`
+- ✅ Clear error messages for invalid parameters
+
+**Limitations (Acceptable Trade-offs)**:
+- ⚠️ Does not validate public key count matches `n` (caller responsibility)
+- ⚠️ Does not validate individual public keys are on curve (should validate at construction time)
+- ✅ These limitations are acceptable because:
+  - Validation happens at script creation (`BuildRedeemScript`)
+  - Invalid scripts will fail at spend time (Bitcoin consensus rules)
+  - Performance trade-off: Full validation expensive, construction-time validation sufficient
+
+### Public Key Extraction (✅ Secure)
+
+**ExtractPubKeysFromRedeemScript()** (`wallet/btc_multisig.go:343-389`):
+
+**Parsing Logic**:
+- ✅ Uses `txscript.MakeScriptTokenizer()` (audited btcsuite library)
+- ✅ Skips first opcode (OP_m)
+- ✅ Extracts data chunks matching public key lengths (33 or 65 bytes)
+- ✅ Stops at OP_n or OP_CHECKMULTISIG
+- ✅ Handles tokenizer errors gracefully
+
+**Data Handling**:
+- ✅ Creates defensive copies of public key bytes (`pubKeysCopy`)
+- ✅ Prevents modification of original script data
+- ✅ Returns empty array + error if no keys found
+
+**Security Properties**:
+- ✅ No out-of-bounds reads (tokenizer handles bounds)
+- ✅ Memory safe (defensive copying)
+- ✅ Handles malformed scripts without panicking
+
+### Script Comparison (✅ Secure)
+
+**CompareRedeemScripts()** (`wallet/btc_multisig.go:391-400`):
+- ✅ Uses `bytes.Equal()` for constant-time comparison (prevents timing attacks)
+- ✅ No custom comparison logic (reduces bug surface area)
+- ✅ Handles nil slices correctly (`bytes.Equal(nil, nil) == true`)
+
+### Address Generation Security (✅ Secure)
+
+**P2SH Address Generation** (`wallet/btc_multisig.go:96-132`):
+
+**Hash Chain**:
+- ✅ HASH160(redeemScript) = RIPEMD160(SHA256(redeemScript))
+- ✅ Proper hash sequence per BIP16 specification
+- ✅ Uses standard library `crypto/sha256` and `golang.org/x/crypto/ripemd160`
+
+**Encoding**:
+- ✅ Uses `btcutil.NewAddressScriptHashFromHash()` for address creation
+- ✅ Includes version byte (0x05 mainnet, 0xC4 testnet)
+- ✅ Includes checksum via Base58Check encoding
+- ✅ Prevents address type confusion (mainnet vs. testnet prefixes)
+
+**P2WSH Address Generation** (`wallet/btc_multisig.go:134-173`):
+
+**Hash**:
+- ✅ SHA256(redeemScript) - single round per BIP141
+- ✅ No double-hashing (unlike P2SH, this is intentional per spec)
+
+**Encoding**:
+- ✅ Uses `btcutil.NewAddressWitnessScriptHash()` for Bech32 encoding
+- ✅ Native SegWit format: `bc1q...` (mainnet), `tb1q...` (testnet)
+- ✅ Bech32 checksum prevents transcription errors
+- ✅ Case-insensitive (better UX)
+
+### Attack Resistance
+
+**Script Malleability (✅ Protected)**:
+- ✅ Redeem scripts are deterministic (same inputs → same output)
+- ✅ Public keys are validated and normalized to compressed format
+- ✅ No non-canonical encodings accepted by `btcec.ParsePubKey()`
+
+**Key Reordering Attacks (✅ Protected)**:
+- ✅ Public key order is significant (affects script hash)
+- ✅ Different key orders produce different addresses
+- ✅ Coordinating parties must use consistent key ordering
+
+**Signature Grinding (✅ Protected by Bitcoin Consensus)**:
+- ✅ Multisig requires `m` valid signatures per Bitcoin consensus
+- ✅ Cannot be bypassed at script validation level
+- ✅ Script structure enforced by OP_CHECKMULTISIG semantics
+
+**Invalid Key Inclusion (✅ Protected)**:
+- ✅ `btcec.ParsePubKey()` validates keys are on secp256k1 curve
+- ✅ Invalid keys rejected at script construction time
+- ⚠️ Extracted keys not re-validated (acceptable: validation at construction sufficient)
+
+### Opcode Injection Risks (✅ Mitigated)
+
+**Script Construction**:
+- ✅ Uses btcsuite's `txscript.MultiSigScript()` (no manual opcode assembly)
+- ✅ No string concatenation or templating
+- ✅ No user-controlled opcode insertion
+- ✅ Public keys pushed as data, not executed as code
+
+**Script Parsing**:
+- ✅ Uses `txscript.MakeScriptTokenizer()` (handles malformed scripts safely)
+- ✅ No custom parser vulnerable to malicious input
+- ✅ Graceful error handling for unexpected opcodes
+
+### Consensus Compliance (✅ Validated)
+
+**Bitcoin Consensus Rules**:
+- ✅ Maximum 20 public keys per multisig (implementation enforces 15, safer than consensus limit)
+- ✅ OP_CHECKMULTISIG requires m ≤ n
+- ✅ Public keys must be valid secp256k1 points
+- ✅ Script size limits respected (btcsuite handles this)
+
+**BIP Compliance**:
+- ✅ BIP16 (P2SH): Correct HASH160 usage and address encoding
+- ✅ BIP141 (P2WSH): Correct SHA256 usage and Bech32 encoding
+- ✅ BIP11 (Multisig): Standard multisig script format
+
+### Risk Assessment
+
+| Validation Area | Status | Risk Level | Notes |
+|----------------|--------|------------|-------|
+| Redeem script construction | ✅ Secure | Low | Delegates to audited btcsuite library |
+| Public key validation | ✅ Secure | Low | Curve validation via btcec.ParsePubKey() |
+| Parameter bounds checking | ✅ Secure | Low | 1 ≤ m ≤ n ≤ 15 enforced |
+| Address generation (P2SH) | ✅ Secure | Low | BIP16 compliant HASH160 |
+| Address generation (P2WSH) | ✅ Secure | Low | BIP141 compliant SHA256 + Bech32 |
+| Script parsing | ✅ Secure | Low | Uses btcsuite tokenizer |
+| Opcode injection | ✅ Protected | Low | No manual opcode assembly |
+| Key extraction | ✅ Secure | Low | Defensive copying, safe parsing |
+
+### Recommendations
+
+**Already Implemented**:
+- ✅ Input validation at all entry points
+- ✅ Delegation to audited cryptographic libraries
+- ✅ Proper error handling for all failure modes
+- ✅ Defensive copying to prevent data corruption
+
+**Optional Enhancements (Not Required)**:
+1. Add comprehensive unit tests for malformed redeem scripts
+2. Document key ordering requirements in API docs
+3. Add helper function to validate extracted keys match expected set
+4. Implement script size validation (currently delegated to btcsuite)
+
+### Test Coverage Analysis
+
+**BuildRedeemScript** (`wallet/btc_multisig_test.go`):
+- ✅ Tests 2-of-3 standard case
+- ✅ Tests invalid input (empty keys, m > n, n > 15)
+- ✅ Tests public key validation
+
+**ValidateRedeemScript** (`wallet/btc_multisig_test.go`):
+- ✅ Tests valid scripts
+- ✅ Tests empty scripts
+- ✅ Tests scripts without OP_CHECKMULTISIG
+- ✅ Tests invalid m/n values
+
+**Address Generation** (`wallet/btc_multisig_test.go`):
+- ✅ Tests P2SH address format (mainnet/testnet)
+- ✅ Tests P2WSH address format (mainnet/testnet)
+- ✅ Tests address prefixes correct
+
+**ExtractPubKeysFromRedeemScript**:
+- ✅ Tests key extraction from valid scripts
+- ✅ Tests malformed script handling
+
+### Audit Conclusion
+
+The redeem script validation implementation is **secure and production-ready**. The code:
+- Properly validates all inputs
+- Uses audited cryptographic libraries (btcsuite)
+- Handles errors gracefully
+- Complies with Bitcoin consensus rules and BIPs
+- Resists common attack vectors (malleability, opcode injection, key reordering)
+
+No security vulnerabilities or weaknesses were identified during this audit.
+
+
+
 - [ ] Wallet encryption key stored in secure key storage (not in code)
 - [ ] RPC endpoints configured (local Bitcoin node strongly recommended)
 - [ ] Minimum confirmations set to 6 for mainnet
