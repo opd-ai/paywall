@@ -157,7 +157,8 @@ func (m *EncryptedFileStore) UpdatePayment(p *Payment) error {
 }
 
 // readAndDecryptPayment is a helper that reads, decrypts, and unmarshals a payment file.
-// Returns nil payment if the file has the wrong extension, read error, decryption error, or unmarshal error.
+// Returns (nil, nil) if the file has the wrong extension.
+// Returns (nil, error) for read errors, decryption errors, or unmarshal errors.
 // Must be called with the mutex held.
 func (m *EncryptedFileStore) readAndDecryptPayment(filename string) (*Payment, error) {
 	if filepath.Ext(filename) != ".enc" {
