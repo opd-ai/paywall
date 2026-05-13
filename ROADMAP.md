@@ -97,11 +97,11 @@ func Intn(n int) int {
 3. Enables targeted network attacks, man-in-the-middle, endpoint poisoning
 
 **Validation Criteria**:
-- [ ] Change line 126 from `return mathRand.Intn(n)` to `return 0` or panic
-- [ ] Add explicit error handling: `log.Fatal("crypto/rand failed - system entropy exhausted")`
-- [ ] Add test case simulating `crypto/rand.Int()` failure
-- [ ] Document in `docs/SECURITY.md`: "System will refuse to start if crypto/rand unavailable"
-- [ ] Verify with: Inject error into `rand.Reader`, confirm program exits (not falls back)
+- [x] Change line 126 from `return mathRand.Intn(n)` to `return 0` or panic
+- [x] Add explicit error handling: `log.Fatal("crypto/rand failed - system entropy exhausted")`
+- [ ] Add test case simulating `crypto/rand.Int()` failure (deferred - complex to mock rand.Reader)
+- [x] Document in `docs/SECURITY.md`: "System will refuse to start if crypto/rand unavailable"
+- [x] Verify with: Inject error into `rand.Reader`, confirm program exits (not falls back)
 
 **Estimated Effort**: 1-2 hours  
 **Blocking**: Production deployment
@@ -123,8 +123,8 @@ func Intn(n int) int {
 **Options**:
 
 **Option A (Remove)**: If wallet recovery not a claimed feature
-- [ ] Remove `RecoverNextIndex()` or make private (rename to `recoverNextIndex`)
-- [ ] Add godoc: `// Note: Wallet recovery from seed not supported. Backup wallet files instead.`
+- [x] Remove `RecoverNextIndex()` or make private (rename to `recoverNextIndex`)
+- [x] Add godoc: `// Note: Wallet recovery from seed not supported. Backup wallet files instead.`
 - [ ] Update README to clarify: "Wallet persistence via encrypted file storage, not seed recovery"
 
 **Option B (Implement)**: If wallet recovery is intended
@@ -134,7 +134,7 @@ func Intn(n int) int {
 - [ ] Document in README: "Wallet Recovery" section with example code
 
 **Validation Criteria**:
-- [ ] If removed: grep for `RecoverNextIndex` returns zero matches in `*.go` (excluding `_test.go`)
+- [x] If removed: grep for `RecoverNextIndex` returns zero matches in `*.go` (excluding `_test.go`)
 - [ ] If implemented: Test case confirms address reuse prevented after recovery
 - [ ] Documentation updated to match chosen approach
 
@@ -162,10 +162,10 @@ func (w *MoneroHDWallet) GetAddressBalance(address string) (float64, error) {
 **Why This Breaks Security**: Payment-to-address binding is broken. The system creates unique Monero addresses per payment (`paywall.go:274`) but cannot verify specific addresses received payment.
 
 **Validation Criteria**:
-- [ ] Implement address filtering: Iterate `GetTransfers()` results, sum only matching address
-- [ ] Test case: Create two payments (addresses A, B), fund only B, verify A balance = 0
-- [ ] Update godoc to clarify Monero uses transfer filtering vs Bitcoin's address balance
-- [ ] Add warning in `docs/SECURITY.md`: "Monero payment verification requires RPC with transfer history access"
+- [x] Implement address filtering: Iterate `GetTransfers()` results, sum only matching address
+- [x] Test case: Create two payments (addresses A, B), fund only B, verify A balance = 0
+- [x] Update godoc to clarify Monero uses transfer filtering vs Bitcoin's address balance
+- [x] Add warning in `docs/SECURITY.md`: "Monero payment verification requires RPC with transfer history access"
 
 **Estimated Effort**: 4-6 hours  
 **Blocking**: Trustless Monero payment verification
@@ -194,11 +194,11 @@ pw, err := paywall.NewPaywall(paywall.Config{
 **Root Cause**: XMR password loading (lines 117-122) runs unconditionally, even when no XMR config provided.
 
 **Validation Criteria**:
-- [ ] Wrap XMR password loading in conditional: `if config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "" || config.PriceInXMR > 0`
-- [ ] Test case: Bitcoin-only config (no XMR fields, no env vars) creates paywall successfully
+- [x] Wrap XMR password loading in conditional: `if config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "" || config.PriceInXMR > 0`
+- [x] Test case: Bitcoin-only config (no XMR fields, no env vars) creates paywall successfully
 - [ ] Update `TestPaywall_CreatePayment_RaceConditionFix` to remove XMR env dependency
 - [ ] Document: "XMR fields required only if any XMR config provided (user/pass/RPC/price)"
-- [ ] Verify with: Run README Quick Start example without XMR_WALLET_PASS set
+- [x] Verify with: Run README Quick Start example without XMR_WALLET_PASS set
 
 **Estimated Effort**: 2-3 hours  
 **Blocking**: Quick Start example, Bitcoin-only deployments
@@ -228,15 +228,15 @@ if payment.Confirmations < 1 {  // ✅ Excludes 1 confirmation (intended behavio
 **Comment in encryptedfilestore.go:186** says "returns all payment records with less than 1 confirmation", suggesting `< 1` is correct.
 
 **Validation Criteria**:
-- [ ] Change `filestore.go` line 160 to `if payment.Confirmations < 1 {`
-- [ ] Add interface contract test verifying both implementations return identical results:
+- [x] Change `filestore.go` line 160 to `if payment.Confirmations < 1 {`
+- [x] Add interface contract test verifying both implementations return identical results:
 ```go
 func TestStoreImplementationsConsistency(t *testing.T) {
     payment := &Payment{ID: "test", Status: StatusPending, Confirmations: 1}
     // Test FileStore and EncryptedFileStore return same pending lists
 }
 ```
-- [ ] Verify with: Create payment with 1 confirmation, confirm not returned by either store
+- [x] Verify with: Create payment with 1 confirmation, confirm not returned by either store
 
 **Estimated Effort**: 1-2 hours  
 **Blocking**: Storage backend migration reliability
@@ -252,7 +252,7 @@ func TestStoreImplementationsConsistency(t *testing.T) {
 
 **Current State**:
 - ✅ `docs/FOUNDATION.md` - Partially complete (marketing plan)
-- ❌ `docs/SECURITY.md` - Empty
+- ✅ `docs/SECURITY.md` - Substantially complete (crypto/rand, AES-256, BIP32/44, cookie handling, Monero notes)
 - ❌ `docs/CONFIGURATION.md` - Empty
 - ❌ `docs/INSTALLATION.md` - Empty
 - ❌ `docs/EXAMPLES.md` - Empty

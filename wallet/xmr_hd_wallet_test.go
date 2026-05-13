@@ -604,3 +604,120 @@ func TestMoneroConfig_Validation(t *testing.T) {
 		})
 	}
 }
+
+// TestMoneroHDWallet_GetAddressBalance_AddressFiltering validates that GetAddressBalance
+// correctly filters transfers by specific address rather than returning account-level balance.
+// This addresses PRIORITY 3 from ROADMAP.md - ensuring payment-to-address binding security.
+func TestMoneroHDWallet_GetAddressBalance_AddressFiltering(t *testing.T) {
+	// Test addresses
+	addressA := "48edfHu7V9Z84YzzMa6fUueoELZ9ZRXq9VetWzYGzKt52XU5xvqgzYnDK9URnRoJMk1j8nLwEVsaSWJ4fhdUyZijBGUicoD"
+	addressB := "44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A"
+
+	// Mock client that simulates transfers only to address B
+	mockClient := &MockMoneroClient{
+		GetTransfersFunc: func(req *monero.RequestGetTransfers) (*monero.ResponseGetTransfers, error) {
+			return &monero.ResponseGetTransfers{
+				In: []*monero.Transfer{
+					{
+						TxID:          "tx_to_b_1",
+						Amount:        5000000000000, // 5 XMR to address B
+						Address:       addressB,
+						Confirmations: 10,
+					},
+					{
+						TxID:          "tx_to_b_2",
+						Amount:        3000000000000, // 3 XMR to address B
+						Address:       addressB,
+						Confirmations: 5,
+					},
+				},
+			}, nil
+		},
+	}
+
+	wallet := createMockMoneroWallet(mockClient)
+
+	// Test address A (no transfers) should return 0 balance
+	balanceA, err := wallet.GetAddressBalance(addressA)
+	if err != nil {
+		t.Fatalf("GetAddressBalance(addressA) error = %v, want nil", err)
+	}
+	if balanceA != 0 {
+		t.Errorf("GetAddressBalance(addressA) = %v, want 0 (no transfers to this address)", balanceA)
+	}
+
+	// Test address B (has transfers) should return sum of transfers
+	balanceB, err := wallet.GetAddressBalance(addressB)
+	if err != nil {
+		t.Fatalf("GetAddressBalance(addressB) error = %v, want nil", err)
+	}
+	expectedBalanceB := float64(5000000000000+3000000000000) / 1e12 // 8 XMR
+	if balanceB != expectedBalanceB {
+		t.Errorf("GetAddressBalance(addressB) = %v, want %v (sum of transfers to this address)", balanceB, expectedBalanceB)
+	}
+
+	// Verify the address parameter matters - different addresses return different balances
+	if balanceA == balanceB {
+		t.Error("GetAddressBalance returned same balance for different addresses - address filtering not working")
+	}
+}
+
+// TestMoneroHDWallet_GetAddressBalance_MultipleAddresses validates that when multiple
+// addresses have received transfers, each address returns only its own balance.
+func TestMoneroHDWallet_GetAddressBalance_MultipleAddresses(t *testing.T) {
+	addressX := "48edfHu7V9Z84YzzMa6fUueoELZ9ZRXq9VetWzYGzKt52XU5xvqgzYnDK9URnRoJMk1j8nLwEVsaSWJ4fhdUyZijBGUicoD"
+	addressY := "44AFFq5kSiGBoZ4NMDwYtN18obc8AemS33DBLWs3H7otXft3XjrpDtQGv7SqSsaBYBb98uNbr2VBBEt7f2wfn3RVGQBEP3A"
+	addressZ := "42qeWsMmTLvfGmKC3xhKELPGmKC3xhKELPGmKC3xhKELPGmKC3xhKELPGmKC3xhKELPGmKC3xhKELPGmKC3xhKE"
+
+	// Mock client with transfers to multiple addresses
+	mockClient := &MockMoneroClient{
+		GetTransfersFunc: func(req *monero.RequestGetTransfers) (*monero.ResponseGetTransfers, error) {
+			return &monero.ResponseGetTransfers{
+				In: []*monero.Transfer{
+					{TxID: "tx1", Amount: 2000000000000, Address: addressX, Confirmations: 10},
+					{TxID: "tx2", Amount: 5000000000000, Address: addressY, Confirmations: 10},
+					{TxID: "tx3", Amount: 1000000000000, Address: addressX, Confirmations: 5},
+					{TxID: "tx4", Amount: 3000000000000, Address: addressZ, Confirmations: 10},
+					{TxID: "tx5", Amount: 2000000000000, Address: addressY, Confirmations: 3},
+				},
+			}, nil
+		},
+	}
+
+	wallet := createMockMoneroWallet(mockClient)
+
+	// Verify each address returns only its own balance
+	balanceX, err := wallet.GetAddressBalance(addressX)
+	if err != nil {
+		t.Fatalf("GetAddressBalance(addressX) error = %v", err)
+	}
+	expectedX := float64(2000000000000+1000000000000) / 1e12 // 3 XMR
+	if balanceX != expectedX {
+		t.Errorf("GetAddressBalance(addressX) = %v, want %v", balanceX, expectedX)
+	}
+
+	balanceY, err := wallet.GetAddressBalance(addressY)
+	if err != nil {
+		t.Fatalf("GetAddressBalance(addressY) error = %v", err)
+	}
+	expectedY := float64(5000000000000+2000000000000) / 1e12 // 7 XMR
+	if balanceY != expectedY {
+		t.Errorf("GetAddressBalance(addressY) = %v, want %v", balanceY, expectedY)
+	}
+
+	balanceZ, err := wallet.GetAddressBalance(addressZ)
+	if err != nil {
+		t.Fatalf("GetAddressBalance(addressZ) error = %v", err)
+	}
+	expectedZ := float64(3000000000000) / 1e12 // 3 XMR
+	if balanceZ != expectedZ {
+		t.Errorf("GetAddressBalance(addressZ) = %v, want %v", balanceZ, expectedZ)
+	}
+
+	// Verify no cross-contamination between addresses
+	totalBalance := balanceX + balanceY + balanceZ
+	expectedTotal := float64(13000000000000) / 1e12 // 13 XMR total
+	if totalBalance != expectedTotal {
+		t.Errorf("Sum of individual balances = %v, want %v", totalBalance, expectedTotal)
+	}
+}

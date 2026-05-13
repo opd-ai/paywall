@@ -207,6 +207,9 @@ If using Monero for payments:
 - **RPC Encryption**: Ensure Monero wallet RPC is not exposed to untrusted networks
 - **View-Only Wallet**: Consider using a view-only wallet for payment verification to limit key exposure
 - **Subaddress Isolation**: Monero subaddress per payment provides privacy without requiring HD derivation of Bitcoin
+- **Transfer History Access**: Monero payment verification requires RPC with transfer history access via `GetTransfers()`. Unlike Bitcoin's address-level balance queries, Monero verification filters incoming transfers by subaddress to verify specific payments. Ensure your Monero wallet RPC endpoint supports the `get_transfers` method with the `in` parameter for incoming transaction filtering.
+
+**Critical**: The payment system creates unique Monero subaddresses per payment and validates transfers to specific addresses by filtering the wallet's transfer history. If the RPC wallet is used for other purposes, ensure the payment system accounts for non-payment-related transfers. For production deployments, consider using a dedicated Monero wallet instance exclusively for paywall operations.
 
 Configuration:
 
@@ -218,6 +221,12 @@ config := paywall.Config{
     XMRRPC:        "http://localhost:18081",
 }
 ```
+
+**Monero RPC Requirements**:
+- Must support `create_address` for subaddress generation
+- Must support `get_transfers` with `in` and `account_index` parameters for payment verification
+- Account 0 is used for all payment subaddresses
+- Each payment receives a unique subaddress for privacy and tracking
 
 ### HTTPS Deployment
 

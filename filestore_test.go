@@ -744,3 +744,129 @@ func BenchmarkFileStore_GetPayment(b *testing.B) {
 		}
 	}
 }
+
+// TestStoreImplementations_PendingPaymentConsistency validates that FileStore and
+// EncryptedFileStore implement identical pending payment logic.
+// This addresses PRIORITY 5 from ROADMAP.md - ensuring Liskov Substitution Principle
+// compliance across storage backend implementations.
+func TestStoreImplementations_PendingPaymentConsistency(t *testing.T) {
+	// Test that both stores exclude payments with 1 confirmation from pending list
+	t.Run("ExcludeOneConfirmation", func(t *testing.T) {
+		// Create FileStore
+		tempDir1 := createTempDir(t)
+		defer os.RemoveAll(tempDir1)
+		fileStore := NewFileStore(tempDir1)
+
+		// Create EncryptedFileStore
+		tempDir2 := createTempDir(t)
+		defer os.RemoveAll(tempDir2)
+		encKey, err := wallet.GenerateEncryptionKey()
+		if err != nil {
+			t.Fatalf("Failed to generate encryption key: %v", err)
+		}
+		encStore, err := NewFileStoreWithConfig(FileStoreConfig{
+			DataDir:       tempDir2,
+			EncryptionKey: encKey,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create encrypted file store: %v", err)
+		}
+
+		// Create identical payment with 1 confirmation
+		payment1 := createTestPayment("test-payment-1")
+		payment1.Confirmations = 1
+		payment2 := createTestPayment("test-payment-1")
+		payment2.Confirmations = 1
+
+		// Store in both backends
+		if err := fileStore.CreatePayment(payment1); err != nil {
+			t.Fatalf("FileStore.CreatePayment() error = %v", err)
+		}
+		if err := encStore.CreatePayment(payment2); err != nil {
+			t.Fatalf("EncryptedFileStore.CreatePayment() error = %v", err)
+		}
+
+		// Get pending payments from both stores
+		filePending, err := fileStore.ListPendingPayments()
+		if err != nil {
+			t.Fatalf("FileStore.ListPendingPayments() error = %v", err)
+		}
+		encPending, err := encStore.ListPendingPayments()
+		if err != nil {
+			t.Fatalf("EncryptedFileStore.ListPendingPayments() error = %v", err)
+		}
+
+		// Both should return empty list (exclude payments with 1 confirmation)
+		if len(filePending) != 0 {
+			t.Errorf("FileStore.ListPendingPayments() returned %d payments, want 0 (should exclude confirmations=1)", len(filePending))
+		}
+		if len(encPending) != 0 {
+			t.Errorf("EncryptedFileStore.ListPendingPayments() returned %d payments, want 0 (should exclude confirmations=1)", len(encPending))
+		}
+
+		// Verify both stores behave identically
+		if len(filePending) != len(encPending) {
+			t.Errorf("Store implementations inconsistent: FileStore returned %d, EncryptedFileStore returned %d", len(filePending), len(encPending))
+		}
+	})
+
+	// Test that both stores include payments with 0 confirmations in pending list
+	t.Run("IncludeZeroConfirmations", func(t *testing.T) {
+		// Create FileStore
+		tempDir1 := createTempDir(t)
+		defer os.RemoveAll(tempDir1)
+		fileStore := NewFileStore(tempDir1)
+
+		// Create EncryptedFileStore
+		tempDir2 := createTempDir(t)
+		defer os.RemoveAll(tempDir2)
+		encKey, err := wallet.GenerateEncryptionKey()
+		if err != nil {
+			t.Fatalf("Failed to generate encryption key: %v", err)
+		}
+		encStore, err := NewFileStoreWithConfig(FileStoreConfig{
+			DataDir:       tempDir2,
+			EncryptionKey: encKey,
+		})
+		if err != nil {
+			t.Fatalf("Failed to create encrypted file store: %v", err)
+		}
+
+		// Create identical payment with 0 confirmations
+		payment1 := createTestPayment("test-payment-0")
+		payment1.Confirmations = 0
+		payment2 := createTestPayment("test-payment-0")
+		payment2.Confirmations = 0
+
+		// Store in both backends
+		if err := fileStore.CreatePayment(payment1); err != nil {
+			t.Fatalf("FileStore.CreatePayment() error = %v", err)
+		}
+		if err := encStore.CreatePayment(payment2); err != nil {
+			t.Fatalf("EncryptedFileStore.CreatePayment() error = %v", err)
+		}
+
+		// Get pending payments from both stores
+		filePending, err := fileStore.ListPendingPayments()
+		if err != nil {
+			t.Fatalf("FileStore.ListPendingPayments() error = %v", err)
+		}
+		encPending, err := encStore.ListPendingPayments()
+		if err != nil {
+			t.Fatalf("EncryptedFileStore.ListPendingPayments() error = %v", err)
+		}
+
+		// Both should return 1 payment (include payments with 0 confirmations)
+		if len(filePending) != 1 {
+			t.Errorf("FileStore.ListPendingPayments() returned %d payments, want 1 (should include confirmations=0)", len(filePending))
+		}
+		if len(encPending) != 1 {
+			t.Errorf("EncryptedFileStore.ListPendingPayments() returned %d payments, want 1 (should include confirmations=0)", len(encPending))
+		}
+
+		// Verify both stores behave identically
+		if len(filePending) != len(encPending) {
+			t.Errorf("Store implementations inconsistent: FileStore returned %d, EncryptedFileStore returned %d", len(filePending), len(encPending))
+		}
+	})
+}

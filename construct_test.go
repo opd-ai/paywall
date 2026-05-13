@@ -371,3 +371,82 @@ func TestNewPaywall_PriceValidation(t *testing.T) {
 		}
 	})
 }
+
+// TestNewPaywall_BitcoinOnlyConfiguration validates that a Bitcoin-only configuration
+// works without requiring any Monero configuration or environment variables.
+// This addresses PRIORITY 4 from ROADMAP.md.
+func TestNewPaywall_BitcoinOnlyConfiguration(t *testing.T) {
+	// Ensure no XMR environment variables are set
+	origXMRUser := os.Getenv("XMR_WALLET_USER")
+	origXMRPass := os.Getenv("XMR_WALLET_PASS")
+	os.Unsetenv("XMR_WALLET_USER")
+	os.Unsetenv("XMR_WALLET_PASS")
+	defer func() {
+		if origXMRUser != "" {
+			os.Setenv("XMR_WALLET_USER", origXMRUser)
+		}
+		if origXMRPass != "" {
+			os.Setenv("XMR_WALLET_PASS", origXMRPass)
+		}
+	}()
+
+	// Bitcoin-only config matching README Quick Start example
+	config := Config{
+		PriceInBTC:       0.001,
+		TestNet:          true,
+		Store:            NewMemoryStore(),
+		PaymentTimeout:   time.Hour * 24,
+		MinConfirmations: 1,
+		// Note: No XMR fields (XMRUser, XMRPassword, XMRRPC, PriceInXMR) provided
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("NewPaywall() with Bitcoin-only config failed: %v", err)
+	}
+	if pw == nil {
+		t.Fatal("NewPaywall() returned nil paywall instance")
+	}
+	defer pw.Close()
+
+	// Verify Bitcoin wallet is initialized
+	if pw.HDWallets == nil {
+		t.Fatal("HDWallets map not initialized")
+	}
+	btcWallet, hasBTC := pw.HDWallets[wallet.Bitcoin]
+	if !hasBTC {
+		t.Fatal("Bitcoin wallet not found in HDWallets map")
+	}
+	if btcWallet == nil {
+		t.Fatal("Bitcoin wallet is nil")
+	}
+
+	// Verify Monero wallet is NOT initialized
+	xmrWallet, hasXMR := pw.HDWallets[wallet.Monero]
+	if hasXMR && xmrWallet != nil {
+		t.Error("Monero wallet should not be initialized for Bitcoin-only config")
+	}
+
+	// Verify can create a payment
+	payment, err := pw.CreatePayment()
+	if err != nil {
+		t.Fatalf("CreatePayment() failed: %v", err)
+	}
+	if payment == nil {
+		t.Fatal("CreatePayment() returned nil payment")
+	}
+	// Verify Bitcoin address and amount are set
+	btcAddr, hasBTCAddr := payment.Addresses[wallet.Bitcoin]
+	if !hasBTCAddr || btcAddr == "" {
+		t.Error("Payment Bitcoin address is missing or empty")
+	}
+	btcAmount, hasBTCAmount := payment.Amounts[wallet.Bitcoin]
+	if !hasBTCAmount || btcAmount <= 0 {
+		t.Error("Payment Bitcoin amount is missing or non-positive")
+	}
+	// Verify XMR address and amount are NOT set
+	_, hasXMRAddr := payment.Addresses[wallet.Monero]
+	if hasXMRAddr {
+		t.Error("Payment should not have Monero address for Bitcoin-only config")
+	}
+}

@@ -77,11 +77,22 @@ func (w *MoneroHDWallet) GetAddress() (string, error) {
 	return address, nil
 }
 
-// GetAddressBalance implements paywall.CryptoClient by getting balance for specific address
-// Note: Unlike Bitcoin, Monero wallet RPC provides account-level balance. This function
-// iterates through incoming transfers to find the balance for the specific address.
-// In practice, since each address is derived as a unique subaddress for payments,
-// this should correctly identify transfers to that specific address.
+// GetAddressBalance implements paywall.CryptoClient by getting balance for specific address.
+//
+// Unlike Bitcoin which queries address-level balance directly from blockchain explorers,
+// Monero uses account-level transfer queries and filters by subaddress. This method:
+//  1. Calls GetTransfers() to retrieve all incoming transfers for account 0
+//  2. Filters transfers by the specific address parameter
+//  3. Sums the amounts for matching transfers
+//
+// This approach is necessary because Monero's RPC provides account-level balance data,
+// not per-subaddress balances. Each payment receives a unique subaddress, and this method
+// ensures payment-to-address binding security by filtering transfers to verify that
+// the specific payment address received funds, preventing false positive confirmations
+// where payment A (address X, unpaid) could incorrectly confirm if payment B (address Y, paid)
+// exists in the same account.
+//
+// Returns 0 balance if no transfers found for the specified address.
 func (w *MoneroHDWallet) GetAddressBalance(address string) (float64, error) {
 	// Get all incoming transfers for the account
 	resp, err := w.client.GetTransfers(&monero.RequestGetTransfers{
