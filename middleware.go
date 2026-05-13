@@ -40,7 +40,7 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 		// Determine cookie name and security based on connection type
 		cookieName := "payment_id"
 		isSecure := false
-		
+
 		// Use __Host- prefix only for HTTPS connections
 		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 			cookieName = "__Host-payment_id"
@@ -50,7 +50,8 @@ func (p *Paywall) Middleware(next http.Handler) http.Handler {
 		// First check for existing cookie (try both names for compatibility)
 		cookie, err := r.Cookie(cookieName)
 		if err != nil && cookieName == "payment_id" {
-			// Fallback: try __Host- version for backward compatibility
+			// Fallback: try __Host- version for backward compatibility with HTTPS-only cookies
+			// This allows HTTP sessions to access cookies from previous HTTPS sessions during migration
 			cookie, err = r.Cookie("__Host-payment_id")
 		}
 		if err == nil {

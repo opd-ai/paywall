@@ -511,14 +511,16 @@ func (w *BTCHDWallet) RecoverNextIndex() error {
 			return fmt.Errorf("address generation failed: %w", err)
 		}
 
-		// Check if address has been used by querying balance
-		balance, err := w.GetAddressBalance(address)
+		// Check if address has been used by checking transaction history
+		// An address is "used" if it has ANY transaction history (received OR sent)
+		// Check both confirmed and unconfirmed received amounts
+		receivedAll, err := w.rpcClient.GetReceivedByAddressMinConf(Address(address), 0)
 		if err != nil {
-			return fmt.Errorf("failed to check address balance: %w", err)
+			return fmt.Errorf("failed to check address transaction history: %w", err)
 		}
 
-		// If balance > 0 or transactions exist, update highestIndex
-		if balance > 0 {
+		// If address has received any amount (even if now spent), update highestIndex
+		if receivedAll > 0 {
 			highestIndex = i
 		}
 	}

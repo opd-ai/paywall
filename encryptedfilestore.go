@@ -224,11 +224,13 @@ func (m *EncryptedFileStore) GetPaymentByAddress(addr string) (*Payment, error) 
 			continue
 		}
 
-		if payment.Addresses[wallet.Bitcoin] == addr {
-			return payment, nil
-		}
-		if payment.Addresses[wallet.Monero] == addr {
-			return payment, nil
+		if addr != "" {
+			if payment.Addresses[wallet.Bitcoin] == addr {
+				return payment, nil
+			}
+			if payment.Addresses[wallet.Monero] == addr {
+				return payment, nil
+			}
 		}
 	}
 
