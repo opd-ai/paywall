@@ -570,3 +570,332 @@ func (mt *MultisigPaymentTx) EstimateFee(satPerByte float64) int64 {
 	size := mt.EstimateSize()
 	return int64(float64(size) * satPerByte)
 }
+
+// SetLockTime sets the nLockTime field on the transaction.
+//
+// nLockTime prevents the transaction from being mined until:
+//   - A specific block height (if lockTime < 500,000,000)
+//   - A specific Unix timestamp (if lockTime >= 500,000,000)
+//
+// This is useful for refund scenarios: create a refund transaction with
+// a future lockTime, and if the primary transaction doesn't occur, the
+// refund can be broadcast after the lockTime expires.
+//
+// Parameters:
+//   - lockTime: Block height or Unix timestamp
+//
+// Security:
+//   - All inputs must have sequence < 0xffffffff for lockTime to be enforced
+//   - Use SetInputSequence to set appropriate sequence values
+//
+// Related: SetInputSequence, CreateTimelockRedeemScript
+func (mt *MultisigPaymentTx) SetLockTime(lockTime uint32) {
+	mt.Tx.LockTime = lockTime
+}
+
+// SetInputSequence sets the sequence number for a specific input.
+//
+// The sequence number affects lockTime and CSV (CheckSequenceVerify):
+//   - 0xffffffff: lockTime is disabled, CSV is disabled
+//   - 0xfffffffe: lockTime is enabled, CSV is disabled (common for lockTime usage)
+//   - < 0xfffffffe: Both lockTime and CSV can be enabled
+//
+// For refund transactions using lockTime, set sequence to 0xfffffffe.
+//
+// Parameters:
+//   - inputIndex: Index of the input to modify
+//   - sequence: Sequence number to set
+//
+// Returns:
+//   - error: If input index is invalid
+//
+// Related: SetLockTime
+func (mt *MultisigPaymentTx) SetInputSequence(inputIndex int, sequence uint32) error {
+	if inputIndex < 0 || inputIndex >= len(mt.Tx.TxIn) {
+		return fmt.Errorf("invalid input index: %d (transaction has %d inputs)", inputIndex, len(mt.Tx.TxIn))
+	}
+	mt.Tx.TxIn[inputIndex].Sequence = sequence
+	return nil
+}
+
+// SetAllInputSequences sets the same sequence number for all inputs.
+//
+// This is a convenience function for setting all inputs to enable lockTime.
+//
+// Parameters:
+//   - sequence: Sequence number to set (typically 0xfffffffe for lockTime)
+//
+// Related: SetInputSequence, SetLockTime
+func (mt *MultisigPaymentTx) SetAllInputSequences(sequence uint32) {
+	for i := range mt.Tx.TxIn {
+		mt.Tx.TxIn[i].Sequence = sequence
+	}
+}
+
+// GetLockTime returns the current nLockTime value.
+//
+// Returns:
+//   - uint32: Lock time value
+//   - bool: True if lock time is a timestamp (>= 500000000), false if block height
+//
+// Related: SetLockTime
+func (mt *MultisigPaymentTx) GetLockTime() (uint32, bool) {
+	const lockTimeThreshold = 500000000
+	isTimestamp := mt.Tx.LockTime >= lockTimeThreshold
+	return mt.Tx.LockTime, isTimestamp
+}
+
+// CreateTimelockRedeemScript creates a multisig redeem script with CLTV (CheckLockTimeVerify).
+//
+// This creates a script that requires both:
+//  1. A specific time/block height to pass (enforced by OP_CHECKLOCKTIMEVERIFY)
+//  2. M-of-N signatures (enforced by OP_CHECKMULTISIG)
+//
+// The resulting script can be used in escrow scenarios where funds should
+// only be spendable after a certain time. This is more secure than nLockTime
+// alone because the timelock is part of the script itself.
+//
+// Parameters:
+//   - pubKeys: Public keys for multisig (in desired order)
+//   - requiredSigs: Number of required signatures (m in m-of-n)
+//   - lockTime: Time or block height to lock until
+//
+// Returns:
+//   - []byte: The CLTV-enhanced redeem script
+//   - error: If script creation fails
+//
+// Script format:
+//
+//	<lockTime> OP_CHECKLOCKTIMEVERIFY OP_DROP <m> <pubkey1> ... <pubkeyN> <n> OP_CHECKMULTISIG
+//
+// Security:
+//   - Transaction spending this script must have nLockTime >= script's lockTime
+//   - Input sequence must be < 0xffffffff
+//
+// Related: BuildRedeemScript, SetLockTime
+func CreateTimelockRedeemScript(pubKeys [][]byte, requiredSigs int, lockTime uint32) ([]byte, error) {
+	if len(pubKeys) == 0 {
+		return nil, errors.New("at least one public key required")
+	}
+	if requiredSigs < 1 || requiredSigs > len(pubKeys) {
+		return nil, fmt.Errorf("requiredSigs must be between 1 and %d", len(pubKeys))
+	}
+	if lockTime == 0 {
+		return nil, errors.New("lockTime must be greater than 0")
+	}
+
+	// Start building the script
+	builder := txscript.NewScriptBuilder()
+
+	// Add CLTV portion: <lockTime> OP_CHECKLOCKTIMEVERIFY OP_DROP
+	builder.AddInt64(int64(lockTime))
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddOp(txscript.OP_DROP)
+
+	// Add multisig portion: <m> <pubkey1> ... <pubkeyN> <n> OP_CHECKMULTISIG
+	builder.AddInt64(int64(requiredSigs))
+
+	// Add public keys
+	for i, pubKey := range pubKeys {
+		if len(pubKey) != 33 && len(pubKey) != 65 {
+			return nil, fmt.Errorf("public key %d has invalid length %d", i, len(pubKey))
+		}
+		// Validate public key
+		if _, err := btcec.ParsePubKey(pubKey); err != nil {
+			return nil, fmt.Errorf("invalid public key %d: %w", i, err)
+		}
+		builder.AddData(pubKey)
+	}
+
+	builder.AddInt64(int64(len(pubKeys)))
+	builder.AddOp(txscript.OP_CHECKMULTISIG)
+
+	script, err := builder.Script()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build timelock script: %w", err)
+	}
+
+	return script, nil
+}
+
+// ValidateTimelockRedeemScript validates a CLTV multisig redeem script.
+//
+// Parameters:
+//   - script: The script to validate
+//
+// Returns:
+//   - lockTime: The embedded lock time value
+//   - requiredSigs: Number of required signatures (m)
+//   - totalKeys: Total number of public keys (n)
+//   - error: If script is invalid
+//
+// Related: CreateTimelockRedeemScript
+func ValidateTimelockRedeemScript(script []byte) (lockTime uint32, requiredSigs int, totalKeys int, err error) {
+	if len(script) < 10 {
+		return 0, 0, 0, errors.New("script too short for CLTV multisig")
+	}
+
+	// Parse the script
+	tokenizer := txscript.MakeScriptTokenizer(0, script)
+
+	// Expect: <lockTime>
+	if !tokenizer.Next() {
+		return 0, 0, 0, errors.New("failed to parse lockTime")
+	}
+	lockTimeInt, err := txscript.MakeScriptNum(tokenizer.Data(), false, 5)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("invalid lockTime: %w", err)
+	}
+	lockTime = uint32(lockTimeInt)
+
+	// Expect: OP_CHECKLOCKTIMEVERIFY
+	if !tokenizer.Next() || tokenizer.Opcode() != txscript.OP_CHECKLOCKTIMEVERIFY {
+		return 0, 0, 0, errors.New("missing OP_CHECKLOCKTIMEVERIFY")
+	}
+
+	// Expect: OP_DROP
+	if !tokenizer.Next() || tokenizer.Opcode() != txscript.OP_DROP {
+		return 0, 0, 0, errors.New("missing OP_DROP after OP_CHECKLOCKTIMEVERIFY")
+	}
+
+	// Now parse the multisig portion (same as regular multisig)
+	// Expect: <m>
+	if !tokenizer.Next() {
+		return 0, 0, 0, errors.New("failed to parse requiredSigs")
+	}
+
+	// Handle both data push and opcode (OP_1 through OP_16)
+	var reqSigsNum int64
+	if len(tokenizer.Data()) > 0 {
+		reqSigsNumScriptNum, err := txscript.MakeScriptNum(tokenizer.Data(), false, 5)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("invalid requiredSigs: %w", err)
+		}
+		reqSigsNum = int64(reqSigsNumScriptNum)
+	} else {
+		// Check for OP_1 through OP_16
+		opcode := tokenizer.Opcode()
+		if opcode >= txscript.OP_1 && opcode <= txscript.OP_16 {
+			reqSigsNum = int64(opcode) - int64(txscript.OP_1) + 1
+		} else if opcode == txscript.OP_0 {
+			reqSigsNum = 0
+		} else {
+			return 0, 0, 0, fmt.Errorf("unexpected opcode for requiredSigs: %v", opcode)
+		}
+	}
+	requiredSigs = int(reqSigsNum)
+
+	// Count public keys
+	pubKeyCount := 0
+	for tokenizer.Next() {
+		data := tokenizer.Data()
+		if len(data) == 33 || len(data) == 65 {
+			pubKeyCount++
+		} else {
+			// Should be <n> (number of keys) followed by OP_CHECKMULTISIG
+			break
+		}
+	}
+
+	// Verify <n> matches the count
+	var expectedN int64
+	if len(tokenizer.Data()) > 0 {
+		nScriptNum, err := txscript.MakeScriptNum(tokenizer.Data(), false, 5)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("invalid n (key count): %w", err)
+		}
+		expectedN = int64(nScriptNum)
+	} else {
+		opcode := tokenizer.Opcode()
+		if opcode >= txscript.OP_1 && opcode <= txscript.OP_16 {
+			expectedN = int64(opcode) - int64(txscript.OP_1) + 1
+		} else if opcode == txscript.OP_0 {
+			expectedN = 0
+		} else {
+			return 0, 0, 0, fmt.Errorf("unexpected opcode for key count: %v", opcode)
+		}
+	}
+
+	if int(expectedN) != pubKeyCount {
+		return 0, 0, 0, fmt.Errorf("key count mismatch: found %d keys but script says %d", pubKeyCount, expectedN)
+	}
+
+	totalKeys = pubKeyCount
+
+	// Expect OP_CHECKMULTISIG
+	if !tokenizer.Next() || tokenizer.Opcode() != txscript.OP_CHECKMULTISIG {
+		return 0, 0, 0, errors.New("missing OP_CHECKMULTISIG")
+	}
+
+	if requiredSigs < 1 || requiredSigs > totalKeys {
+		return 0, 0, 0, fmt.Errorf("invalid requiredSigs %d for %d keys", requiredSigs, totalKeys)
+	}
+
+	return lockTime, requiredSigs, totalKeys, nil
+}
+
+// CreateRefundTransaction creates a time-locked refund transaction.
+//
+// This is a convenience function for creating escrow refund transactions.
+// The transaction will be locked until the specified time/block height,
+// after which it can be broadcast to return funds to the refund address.
+//
+// Parameters:
+//   - inputs: UTXOs to refund (typically the escrow outputs)
+//   - refundAddress: Address to send refunded funds to
+//   - lockTime: Block height or timestamp when refund becomes valid
+//   - feeAmount: Transaction fee in satoshis
+//   - network: Bitcoin network parameters
+//
+// Returns:
+//   - *MultisigPaymentTx: The time-locked refund transaction
+//   - error: If transaction creation fails
+//
+// Usage:
+//
+//	After creating this transaction, all parties should sign it BEFORE
+//	funding the escrow. This ensures the funds can be recovered if needed.
+//
+// Related: CreateMultisigPaymentTx, SetLockTime
+func CreateRefundTransaction(inputs []UTXO, refundAddress string, lockTime uint32, feeAmount int64, network *chaincfg.Params) (*MultisigPaymentTx, error) {
+	if len(inputs) == 0 {
+		return nil, errors.New("at least one input required")
+	}
+	if refundAddress == "" {
+		return nil, errors.New("refund address required")
+	}
+	if lockTime == 0 {
+		return nil, errors.New("lockTime must be greater than 0")
+	}
+
+	// Calculate total input amount
+	var totalInput int64
+	for _, utxo := range inputs {
+		totalInput += utxo.Amount
+	}
+
+	// Calculate output amount (input - fee)
+	outputAmount := totalInput - feeAmount
+	if outputAmount <= 0 {
+		return nil, fmt.Errorf("insufficient funds: input %d, fee %d", totalInput, feeAmount)
+	}
+
+	// Create outputs map
+	outputs := map[string]int64{
+		refundAddress: outputAmount,
+	}
+
+	// Create the transaction
+	refundTx, err := CreateMultisigPaymentTx(inputs, outputs, network)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create refund transaction: %w", err)
+	}
+
+	// Set lock time
+	refundTx.SetLockTime(lockTime)
+
+	// Set input sequences to enable lockTime (0xfffffffe)
+	refundTx.SetAllInputSequences(wire.MaxTxInSequenceNum - 1)
+
+	return refundTx, nil
+}
