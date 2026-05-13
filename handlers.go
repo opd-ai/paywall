@@ -2,6 +2,7 @@
 package paywall
 
 import (
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -49,6 +50,24 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 		ExpiresAt:  payment.ExpiresAt.Format(time.RFC3339),
 		PaymentID:  payment.ID,
 		QrcodeJs:   qrCodeJsString,
+	}
+
+	// Add multisig information if enabled
+	if payment.MultisigEnabled {
+		data.IsMultisig = true
+		// Determine multisig type from payment metadata
+		if len(payment.RequiredSignatures) > 0 {
+			// Find any wallet type to get signature requirements
+			for walletType, required := range payment.RequiredSignatures {
+				if metadata, ok := payment.MultisigMetadata[walletType]; ok {
+					total := len(metadata.PublicKeys)
+					data.MultisigType = fmt.Sprintf("%d-of-%d", required, total)
+					break
+				}
+			}
+		}
+		data.MultisigRole = p.multisigRole
+		data.MultisigInstructions = "This is a multisig payment address. Funds sent to this address require multiple signatures to spend, providing additional security for escrow transactions."
 	}
 
 	if err := p.template.Execute(w, data); err != nil {

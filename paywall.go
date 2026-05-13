@@ -367,12 +367,40 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 	// Track which wallets had addresses generated for rollback on failure
 	var generatedWallets []wallet.WalletType
 	for walletType, hdWallet := range p.HDWallets {
-		address, err := hdWallet.DeriveNextAddress()
-		if err != nil {
-			// Rollback any previously generated addresses
-			p.rollbackAddressGeneration(generatedWallets)
-			return nil, fmt.Errorf("generate %s address: %w", walletType, err)
+		var address string
+		var err error
+
+		// Use multisig address if enabled, otherwise use standard HD derivation
+		if p.multisigEnabled {
+			// Get participant public keys for this wallet type
+			pubKeys, ok := p.participantPubKeys[walletType]
+			if !ok || len(pubKeys) == 0 {
+				// Skip this wallet type if no multisig keys configured
+				continue
+			}
+
+			// Generate multisig address with metadata
+			var metadata *wallet.MultisigMetadata
+			address, metadata, err = hdWallet.DeriveMultisigAddress(pubKeys, p.multisigRequired)
+			if err != nil {
+				// Rollback any previously generated addresses
+				p.rollbackAddressGeneration(generatedWallets)
+				return nil, fmt.Errorf("generate multisig %s address: %w", walletType, err)
+			}
+
+			// Store multisig metadata in payment
+			payment.MultisigMetadata[walletType] = metadata
+			payment.RequiredSignatures[walletType] = p.multisigRequired
+		} else {
+			// Standard single-signature address derivation
+			address, err = hdWallet.DeriveNextAddress()
+			if err != nil {
+				// Rollback any previously generated addresses
+				p.rollbackAddressGeneration(generatedWallets)
+				return nil, fmt.Errorf("generate %s address: %w", walletType, err)
+			}
 		}
+
 		payment.Addresses[walletType] = address
 		payment.Amounts[walletType] = p.prices[walletType]
 		generatedWallets = append(generatedWallets, walletType)

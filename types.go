@@ -100,6 +100,17 @@ type PaymentPageData struct {
 	PaymentID string `json:"payment_id"`
 	// QrcodeJs contains the JS code for generating the QR cde
 	QrcodeJs template.JS
+
+	// Multisig-specific fields (optional)
+
+	// IsMultisig indicates whether this is a multisig payment
+	IsMultisig bool `json:"is_multisig,omitempty"`
+	// MultisigType describes the multisig configuration (e.g., "2-of-3", "3-of-5")
+	MultisigType string `json:"multisig_type,omitempty"`
+	// MultisigRole describes the role of this participant (buyer/seller/arbiter)
+	MultisigRole MultisigRole `json:"multisig_role,omitempty"`
+	// MultisigInstructions provides guidance for multisig payments
+	MultisigInstructions string `json:"multisig_instructions,omitempty"`
 }
 
 // MultisigRole identifies the role of a participant in a multisig transaction

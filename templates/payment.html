@@ -20,6 +20,16 @@
 </head>
 <body>
     <div class="payment-details">
+        {{if .IsMultisig}}
+        <div style="background-color: #fff3cd; padding: 15px; margin-bottom: 20px; border-radius: 5px; border: 1px solid #ffc107;">
+            <h2 style="margin-top: 0; color: #856404;">🔐 Multisig Payment</h2>
+            <p><strong>Type:</strong> {{.MultisigType}} multisignature</p>
+            {{if .MultisigRole}}
+            <p><strong>Your Role:</strong> {{.MultisigRole}}</p>
+            {{end}}
+            <p style="margin-bottom: 0;"><em>{{.MultisigInstructions}}</em></p>
+        </div>
+        {{end}}
         <h1>Payment Option(Choose only one) - Bitcoin</h1>
         <p>Please send exactly {{.AmountBTC}} BTC to:</p>
         <div class="address">{{.BTCAddress}}</div>
