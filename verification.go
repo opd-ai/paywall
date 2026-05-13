@@ -115,19 +115,23 @@ func (m *CryptoChainMonitor) checkPendingPayments() error {
 	return nil
 }
 
-func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
-	m.xmrMux.Lock()
-	defer m.xmrMux.Unlock()
-	client, exists := m.client[wallet.Monero]
+// checkWalletPayment is a helper that checks payment balance for a specific wallet type.
+// Updates payment status to confirmed if balance meets requirement.
+func (m *CryptoChainMonitor) checkWalletPayment(payment *Payment, walletType wallet.WalletType, mux *sync.Mutex) error {
+	mux.Lock()
+	defer mux.Unlock()
+	
+	client, exists := m.client[walletType]
 	if !exists {
-		return fmt.Errorf("monero client not found")
+		return fmt.Errorf("%s client not found", walletType)
 	}
-	xmrBalance, err := client.GetAddressBalance(payment.Addresses[wallet.Monero])
+	
+	balance, err := client.GetAddressBalance(payment.Addresses[walletType])
 	if err != nil {
 		return err
 	}
 
-	if xmrBalance >= payment.Amounts[wallet.Monero] {
+	if balance >= payment.Amounts[walletType] {
 		// Payment confirmed by balance
 		// Confirmations are checked inline during GetAddressBalance
 		payment.Status = StatusConfirmed
@@ -137,27 +141,12 @@ func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
 	return nil
 }
 
+func (m *CryptoChainMonitor) CheckXMRPayments(payment *Payment) error {
+	return m.checkWalletPayment(payment, wallet.Monero, &m.xmrMux)
+}
+
 func (m *CryptoChainMonitor) CheckBTCPayments(payment *Payment) error {
-	m.btcMux.Lock()
-	defer m.btcMux.Unlock()
-	client, exists := m.client[wallet.Bitcoin]
-
-	if !exists {
-		return fmt.Errorf("bitcoin client not found")
-	}
-	btcBalance, err := client.GetAddressBalance(payment.Addresses[wallet.Bitcoin])
-	if err != nil {
-		return err
-	}
-
-	if btcBalance >= payment.Amounts[wallet.Bitcoin] {
-		// Payment confirmed by balance
-		// Confirmations are checked inline during GetAddressBalance
-		payment.Status = StatusConfirmed
-		payment.Confirmations = m.paywall.minConfirmations
-		m.paywall.Store.UpdatePayment(payment)
-	}
-	return nil
+	return m.checkWalletPayment(payment, wallet.Bitcoin, &m.btcMux)
 }
 
 // Close stops the blockchain monitor

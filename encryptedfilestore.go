@@ -97,12 +97,9 @@ func (m *EncryptedFileStore) decrypt(data []byte) ([]byte, error) {
 	return m.gcm.Open(nil, nonce, ciphertext, nil)
 }
 
-// CreatePayment stores an encrypted payment record
-func (m *EncryptedFileStore) CreatePayment(p *Payment) error {
-	// Use the embedded FileStore's mutex
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+// writeEncryptedPayment is a helper that marshals, encrypts, and writes a payment to disk.
+// Must be called with the mutex held.
+func (m *EncryptedFileStore) writeEncryptedPayment(p *Payment) error {
 	data, err := json.Marshal(p)
 	if err != nil {
 		return fmt.Errorf("marshal payment: %w", err)
@@ -115,6 +112,14 @@ func (m *EncryptedFileStore) CreatePayment(p *Payment) error {
 
 	filename := filepath.Join(m.baseDir, p.ID+".enc")
 	return os.WriteFile(filename, encrypted, 0o600)
+}
+
+// CreatePayment stores an encrypted payment record
+func (m *EncryptedFileStore) CreatePayment(p *Payment) error {
+	// Use the embedded FileStore's mutex
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.writeEncryptedPayment(p)
 }
 
 // GetPayment retrieves and decrypts a payment record
@@ -148,19 +153,33 @@ func (m *EncryptedFileStore) GetPayment(id string) (*Payment, error) {
 func (m *EncryptedFileStore) UpdatePayment(p *Payment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.writeEncryptedPayment(p)
+}
 
-	data, err := json.Marshal(p)
-	if err != nil {
-		return fmt.Errorf("marshal payment: %w", err)
+// readAndDecryptPayment is a helper that reads, decrypts, and unmarshals a payment file.
+// Returns nil payment if the file has the wrong extension, read error, decryption error, or unmarshal error.
+// Must be called with the mutex held.
+func (m *EncryptedFileStore) readAndDecryptPayment(filename string) (*Payment, error) {
+	if filepath.Ext(filename) != ".enc" {
+		return nil, nil
 	}
 
-	encrypted, err := m.encrypt(data)
+	encrypted, err := os.ReadFile(filepath.Join(m.baseDir, filename))
 	if err != nil {
-		return fmt.Errorf("encrypt payment: %w", err)
+		return nil, err
 	}
 
-	filename := filepath.Join(m.baseDir, p.ID+".enc")
-	return os.WriteFile(filename, encrypted, 0o600)
+	data, err := m.decrypt(encrypted)
+	if err != nil {
+		return nil, err
+	}
+
+	var payment Payment
+	if err := json.Unmarshal(data, &payment); err != nil {
+		return nil, err
+	}
+
+	return &payment, nil
 }
 
 // ListPendingPayments returns all encrypted payment records with less than 1 confirmation
@@ -175,27 +194,13 @@ func (m *EncryptedFileStore) ListPendingPayments() ([]*Payment, error) {
 
 	var payments []*Payment
 	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".enc" {
-			continue
-		}
-
-		encrypted, err := os.ReadFile(filepath.Join(m.baseDir, file.Name()))
-		if err != nil {
-			continue
-		}
-
-		data, err := m.decrypt(encrypted)
-		if err != nil {
-			continue
-		}
-
-		var payment Payment
-		if err := json.Unmarshal(data, &payment); err != nil {
+		payment, err := m.readAndDecryptPayment(file.Name())
+		if err != nil || payment == nil {
 			continue
 		}
 
 		if payment.Confirmations < 1 {
-			payments = append(payments, &payment)
+			payments = append(payments, payment)
 		}
 	}
 
@@ -213,30 +218,16 @@ func (m *EncryptedFileStore) GetPaymentByAddress(addr string) (*Payment, error) 
 	}
 
 	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".enc" {
-			continue
-		}
-
-		encrypted, err := os.ReadFile(filepath.Join(m.baseDir, file.Name()))
-		if err != nil {
-			continue
-		}
-
-		data, err := m.decrypt(encrypted)
-		if err != nil {
-			continue
-		}
-
-		var payment Payment
-		if err := json.Unmarshal(data, &payment); err != nil {
+		payment, err := m.readAndDecryptPayment(file.Name())
+		if err != nil || payment == nil {
 			continue
 		}
 
 		if payment.Addresses[wallet.Bitcoin] == addr {
-			return &payment, nil
+			return payment, nil
 		}
 		if payment.Addresses[wallet.Monero] == addr {
-			return &payment, nil
+			return payment, nil
 		}
 	}
 
