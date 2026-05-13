@@ -23,4 +23,5 @@ post-cleanup.json
 *.swo
 *~
 .DS_Store
-promo.json
+*.json
+/tmp

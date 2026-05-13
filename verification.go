@@ -45,7 +45,7 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Second)
 	consecutiveFailures := 0
 	maxBackoffInterval := 5 * time.Minute
-	
+
 	go func() {
 		defer ticker.Stop()
 		for {
@@ -89,8 +89,8 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 // Related types: Payment, PaymentStore
 func (m *CryptoChainMonitor) checkPendingPayments() error {
 	m.gmux.Lock()
-	payments, err := m.paywall.Store.ListPendingPayments()
 	defer m.gmux.Unlock()
+	payments, err := m.paywall.Store.ListPendingPayments()
 	if err != nil {
 		return fmt.Errorf("failed to list pending payments: %w", err)
 	}
@@ -108,7 +108,7 @@ func (m *CryptoChainMonitor) checkPendingPayments() error {
 			hasErrors = true
 		}
 	}
-	
+
 	if hasErrors {
 		return fmt.Errorf("some payment checks failed")
 	}
@@ -120,12 +120,12 @@ func (m *CryptoChainMonitor) checkPendingPayments() error {
 func (m *CryptoChainMonitor) checkWalletPayment(payment *Payment, walletType wallet.WalletType, mux *sync.Mutex) error {
 	mux.Lock()
 	defer mux.Unlock()
-	
+
 	client, exists := m.client[walletType]
 	if !exists {
 		return fmt.Errorf("%s client not found", walletType)
 	}
-	
+
 	balance, err := client.GetAddressBalance(payment.Addresses[walletType])
 	if err != nil {
 		return err

@@ -78,33 +78,54 @@ func (w *MoneroHDWallet) GetAddress() (string, error) {
 }
 
 // GetAddressBalance implements paywall.CryptoClient by getting balance for specific address
+// Note: Unlike Bitcoin, Monero wallet RPC provides account-level balance. This function
+// iterates through incoming transfers to find the balance for the specific address.
+// In practice, since each address is derived as a unique subaddress for payments,
+// this should correctly identify transfers to that specific address.
 func (w *MoneroHDWallet) GetAddressBalance(address string) (float64, error) {
-	resp, err := w.client.GetBalance(&monero.RequestGetBalance{AccountIndex: 0})
+	// Get all incoming transfers for the account
+	resp, err := w.client.GetTransfers(&monero.RequestGetTransfers{
+		In:           true,
+		AccountIndex: 0,
+	})
 	if err != nil {
-		return 0, fmt.Errorf("get balance failed: %w", err)
+		return 0, fmt.Errorf("get transfers failed: %w", err)
 	}
-	//get the TxID for the address
-	// Note: Monero does not use addresses in the same way as Bitcoin, so we
-	// will assume the balance is for the account index 0 which is the default account.
-	balance := float64(resp.Balance) / 1e12
-	txId, err := w.GetTransactionIDByAmount(float64(balance)) // Convert atomic units to XMR
-	if err != nil {
-		return 0, fmt.Errorf("get transaction ID failed: %w", err)
+
+	// Filter transfers to the specific address and sum their balance
+	var addressBalance uint64
+	var confirmations uint64
+	found := false
+
+	for _, tx := range resp.In {
+		// Check if transfer is to the requested address
+		// The Address field in monero Transfer indicates the destination subaddress
+		if tx.Address == address {
+			addressBalance += tx.Amount
+			// Store the confirmations for confirmation checking
+			// Use the first matching transaction's data
+			if !found {
+				confirmations = tx.Confirmations
+				found = true
+			}
+		}
 	}
-	// Log the transaction ID for debugging
-	fmt.Printf("Transaction ID for address %s: %s\n", address, txId)
-	// Get the confirmations for the TxID
-	conf, err := w.GetTransactionConfirmations(txId)
-	if err != nil {
-		return 0, fmt.Errorf("get confirmations failed: %w", err)
+
+	// If no transfer found for this address, return 0 balance
+	if !found {
+		return 0, nil
 	}
-	if conf < w.minConfirmations {
+
+	// Check confirmations meet minimum requirement, but still return balance
+	if int(confirmations) < w.minConfirmations {
 		// Return actual balance but log insufficient confirmations
 		// This allows payment detection while noting confirmation status
-		log.Printf("Monero payment received but insufficient confirmations: %d/%d for txid %s", conf, w.minConfirmations, txId)
+		log.Printf("Monero payment to address %s received but insufficient confirmations: %d/%d", address, confirmations, w.minConfirmations)
+		balance := float64(addressBalance) / 1e12 // Convert atomic units to XMR
 		return balance, nil
 	}
-	// Convert atomic units to XMR (1 XMR = 1e12 atomic units)
+
+	balance := float64(addressBalance) / 1e12 // Convert atomic units to XMR
 	return balance, nil
 }
 

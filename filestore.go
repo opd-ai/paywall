@@ -157,7 +157,7 @@ func (m *FileStore) ListPendingPayments() ([]*Payment, error) {
 			continue
 		}
 
-		if payment.Confirmations <= 1 {
+		if payment.Confirmations < 1 {
 			payments = append(payments, &payment)
 		}
 	}
@@ -203,11 +203,13 @@ func (m *FileStore) GetPaymentByAddress(addr string) (*Payment, error) {
 			continue
 		}
 
-		if addr != "" && payment.Addresses[wallet.Bitcoin] == addr {
-			return &payment, nil
-		}
-		if addr != "" && payment.Addresses[wallet.Monero] == addr {
-			return &payment, nil
+		if addr != "" {
+			if payment.Addresses[wallet.Bitcoin] == addr {
+				return &payment, nil
+			}
+			if payment.Addresses[wallet.Monero] == addr {
+				return &payment, nil
+			}
 		}
 	}
 
@@ -250,7 +252,7 @@ func NewFileStoreWithConfig(config FileStoreConfig) (PaymentStore, error) {
 	if config.DataDir == "" {
 		config.DataDir = "./payments"
 	}
-	
+
 	if err := os.MkdirAll(config.DataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create storage directory: %w", err)
 	}
@@ -260,7 +262,7 @@ func NewFileStoreWithConfig(config FileStoreConfig) (PaymentStore, error) {
 		if len(config.EncryptionKey) != 32 {
 			return nil, fmt.Errorf("encryption key must be 32 bytes, got %d", len(config.EncryptionKey))
 		}
-		
+
 		// For encrypted store, we need to save the key to a file
 		keyPath := filepath.Join(config.DataDir, "store.key")
 		return NewEncryptedFileStore(keyPath, config.DataDir)

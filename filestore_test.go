@@ -378,10 +378,10 @@ func TestFileStore_ListPendingPayments(t *testing.T) {
 		expectedMaxConfirms int
 	}{
 		{
-			name:                "list pending payments with 1 or fewer confirmations",
+			name:                "list pending payments with less than 1 confirmation",
 			wantErr:             false,
-			expectedCount:       2, // payments with 0 and 1 confirmations
-			expectedMaxConfirms: 1,
+			expectedCount:       1, // payments with 0 confirmations only
+			expectedMaxConfirms: 0,
 		},
 	}
 
@@ -398,10 +398,10 @@ func TestFileStore_ListPendingPayments(t *testing.T) {
 					t.Errorf("FileStore.ListPendingPayments() count = %v, want %v", len(pendingPayments), tt.expectedCount)
 				}
 
-				// Verify all returned payments have 1 or fewer confirmations
+				// Verify all returned payments have less than 1 confirmation
 				for _, payment := range pendingPayments {
-					if payment.Confirmations > 1 {
-						t.Errorf("FileStore.ListPendingPayments() returned payment with %v confirmations, want <= 1", payment.Confirmations)
+					if payment.Confirmations >= 1 {
+						t.Errorf("FileStore.ListPendingPayments() returned payment with %v confirmations, want < 1", payment.Confirmations)
 					}
 				}
 			}
