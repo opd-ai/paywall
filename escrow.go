@@ -44,15 +44,7 @@ func NewEscrowManager(pw *Paywall) (*EscrowManager, error) {
 func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout time.Duration) (string, error) {
 	// Verify the paywall is configured for escrow (multisig must be enabled)
 	// Escrow requires at least 3 participants for buyer, seller, and arbiter roles
-	hasMultisig := false
-	for _, hdWallet := range em.paywall.HDWallets {
-		if hdWallet.IsMultisigEnabled() {
-			hasMultisig = true
-			break
-		}
-	}
-
-	if !hasMultisig {
+	if !em.paywall.multisigEnabled {
 		return "", ErrMultisigRequired
 	}
 
