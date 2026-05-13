@@ -289,6 +289,8 @@ func TestPaywall_validatePaymentData_InvalidData(t *testing.T) {
 }
 
 func TestPaywall_validatePaymentData_PriceValidation(t *testing.T) {
+	// NOTE: Dust limit validation moved to NewPaywall() initialization time
+	// validatePaymentData now only checks payment structure, not prices
 	tests := []struct {
 		name      string
 		btcPrice  float64
@@ -302,22 +304,10 @@ func TestPaywall_validatePaymentData_PriceValidation(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name:      "BTC price at dust limit",
+			name:      "Any prices in validatePaymentData are already validated at init time",
 			btcPrice:  0.00001,
 			xmrPrice:  0.0001,
-			wantError: true,
-		},
-		{
-			name:      "XMR price at minimum",
-			btcPrice:  0.001,
-			xmrPrice:  0.0001,
-			wantError: true,
-		},
-		{
-			name:      "Both prices at limits",
-			btcPrice:  0.00001,
-			xmrPrice:  0.0001,
-			wantError: true,
+			wantError: false,
 		},
 	}
 
@@ -334,20 +324,9 @@ func TestPaywall_validatePaymentData_PriceValidation(t *testing.T) {
 
 			invalid := paywall.validatePaymentData(payment, recorder)
 
-			if tt.wantError && !invalid {
-				t.Errorf("validatePaymentData() should return true for invalid prices")
-			}
-			if !tt.wantError && invalid {
-				t.Errorf("validatePaymentData() should return false for valid prices")
-			}
-
-			if tt.wantError {
-				if recorder.Code != http.StatusInternalServerError {
-					t.Errorf("validatePaymentData() status = %v, want %v", recorder.Code, http.StatusInternalServerError)
-				}
-				if !strings.Contains(recorder.Body.String(), "Failed to create payment") {
-					t.Error("validatePaymentData() should return 'Failed to create payment' error message")
-				}
+			// validatePaymentData should only fail for payment structure issues, not price issues
+			if invalid {
+				t.Errorf("validatePaymentData() should return false - price validation happens at NewPaywall()")
 			}
 		})
 	}
@@ -381,8 +360,8 @@ func TestPaywall_validatePaymentData_TableDriven(t *testing.T) {
 			wantErrorMsg: "Invalid payment",
 		},
 		{
-			name: "Nil addresses map",
-			payment: &Payment{
+			name:         "Empty addresses map",
+			payment:      &Payment{
 				ID:        "test",
 				Addresses: nil,
 				Amounts:   map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
@@ -392,15 +371,6 @@ func TestPaywall_validatePaymentData_TableDriven(t *testing.T) {
 			wantInvalid:  true,
 			wantStatus:   http.StatusBadRequest,
 			wantErrorMsg: "Invalid payment data",
-		},
-		{
-			name:         "Price validation failure",
-			payment:      createHandlerTestPayment(),
-			btcPrice:     0.00001, // At dust limit
-			xmrPrice:     0.0001,  // At minimum
-			wantInvalid:  true,
-			wantStatus:   http.StatusInternalServerError,
-			wantErrorMsg: "Failed to create payment",
 		},
 	}
 

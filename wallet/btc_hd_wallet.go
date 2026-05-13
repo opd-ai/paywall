@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	mathRand "math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -126,7 +125,10 @@ func Intn(n int) int {
 	// use crypto/rand for better randomness
 	r, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
 	if err != nil {
-		return mathRand.Intn(n) // fallback to math/rand on error, this is probably OK
+		// CRITICAL: crypto/rand failure is fatal. We cannot use math/rand for
+		// security-sensitive operations like endpoint selection and payment ID generation.
+		// Panic here rather than silently degrading to predictable randomness.
+		panic(fmt.Sprintf("crypto/rand.Int failed: %v - cannot initialize wallet securely", err))
 	}
 	return int(r.Int64())
 }
@@ -472,7 +474,13 @@ func (w *BTCHDWallet) GetAddressBalance(address string) (float64, error) {
 	return btcBalance, nil
 }
 
-func (w *BTCHDWallet) RecoverNextIndex() error {
+// recoverNextIndex is an internal helper for potential future wallet recovery features.
+// It scans the blockchain for previously-used addresses and sets nextIndex to avoid address reuse
+// when importing a wallet seed on a new device (BIP44 recovery pattern).
+//
+// Currently unused and not integrated into the wallet initialization flow.
+// Present for future implementation if seed-based wallet recovery becomes a required feature.
+func (w *BTCHDWallet) recoverNextIndex() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

@@ -96,9 +96,20 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
 	}
 
+	// Validate dust limits to prevent payments below minimum blockchain amounts
+	const minBTCDustLimit = 0.00001
+	const minXMRDustLimit = 0.0001
+	if config.PriceInBTC > 0 && config.PriceInBTC <= minBTCDustLimit {
+		return nil, fmt.Errorf("PriceInBTC %f is below dust limit (minimum: %f)", config.PriceInBTC, minBTCDustLimit)
+	}
+
 	// Validate XMR price if XMR configuration is provided
 	if (config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "") && config.PriceInXMR <= 0 {
 		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
+	}
+	// Validate XMR dust limit
+	if config.PriceInXMR > 0 && config.PriceInXMR <= minXMRDustLimit {
+		return nil, fmt.Errorf("PriceInXMR %f is below dust limit (minimum: %f)", config.PriceInXMR, minXMRDustLimit)
 	}
 	// Generate random seed for HD wallet
 	seed := make([]byte, 32)

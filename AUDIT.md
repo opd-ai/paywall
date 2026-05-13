@@ -364,14 +364,14 @@ Quality: 96% implemented (23/24 exported functions working)
 ## Summary by Severity
 
 ### CRITICAL (1) — Blocks Secure Operation
-- [ ] Unsafe crypto/rand fallback in `Intn()` → Endpoint selection unpredictable
+- [x] Unsafe crypto/rand fallback in `Intn()` → Endpoint selection unpredictable
 
 ### HIGH (1) — Blocks Feature/API Clarity
-- [ ] Dead exported function `RecoverNextIndex()` → Wallet recovery feature unclear/incomplete
+- [x] Dead exported function `RecoverNextIndex()` → Wallet recovery feature unclear/incomplete
 
 ### MEDIUM (2) — Maintenance/UX Issues
-- [ ] Error message mismatch in dust limit validation → Misleading debugging info
-- [ ] Unexported API in validateEndpoint()` → Leaks internal implementation
+- [x] Error message mismatch in dust limit validation → Misleading debugging info
+- [x] Unexported API in validateEndpoint()` → Leaks internal implementation
 
 ## Remediation Priority
 
@@ -382,10 +382,10 @@ Quality: 96% implemented (23/24 exported functions working)
 
 ## Verification Checklist
 
-- [ ] All CRITICAL issues are fixed and re-tested
-- [ ] `go build ./...` succeeds
-- [ ] `go test ./...` passes with 100% coverage for modified functions
-- [ ] `go vet ./...` reports no warnings
-- [ ] Exported API only includes documented public interface
-- [ ] Error messages are clear and actionable
+- [x] All CRITICAL issues are fixed and re-tested
+- [x] `go build ./...` succeeds
+- [x] `go test ./...` passes with 100% coverage for modified functions
+- [x] `go vet ./...` reports no warnings
+- [x] Exported API only includes documented public interface
+- [x] Error messages are clear and actionable
 

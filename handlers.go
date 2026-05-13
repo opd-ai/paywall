@@ -72,12 +72,13 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 //   - Payment amounts are greater than configured prices
 //   - Configured prices are greater than 0
 //
+// Note: Price dust limit validation is performed at Paywall initialization time
+// (NewPaywall), so prices are guaranteed to pass dust limit checks here.
+//
 // Error handling:
 //   - Returns 400 Bad Request for nil payment or invalid payment data
 //   - Returns 500 Internal Server Error for invalid amounts or prices
 func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) bool {
-	const minBTC = 0.00001 // Dust limit
-	const minXMR = 0.0001
 	if payment == nil {
 		http.Error(w, "Invalid payment", http.StatusBadRequest)
 		return true
@@ -88,12 +89,5 @@ func (p *Paywall) validatePaymentData(payment *Payment, w http.ResponseWriter) b
 		return true
 	}
 
-	// Check if prices are below minimum thresholds (dust limits)
-	// Zero prices indicate disabled wallet types and should be allowed
-	if (p.prices[wallet.Bitcoin] > 0 && p.prices[wallet.Bitcoin] <= minBTC) ||
-		(p.prices[wallet.Monero] > 0 && p.prices[wallet.Monero] <= minXMR) {
-		http.Error(w, "Failed to create payment", http.StatusInternalServerError)
-		return true
-	}
 	return false
 }
