@@ -580,3 +580,300 @@ func TestKnownMultisigAddress(t *testing.T) {
 	t.Logf("P2SH address: %s", p2shAddress)
 	t.Logf("P2WSH address: %s", p2wshAddress)
 }
+
+// TestBuildRedeemScript_EdgeCases tests additional edge cases for multisig script creation
+func TestBuildRedeemScript_EdgeCases(t *testing.T) {
+	// Generate test keys
+	key1, _ := btcec.NewPrivateKey()
+	key2, _ := btcec.NewPrivateKey()
+	key3, _ := btcec.NewPrivateKey()
+
+	pubKey1 := key1.PubKey().SerializeCompressed()
+	pubKey2 := key2.PubKey().SerializeCompressed()
+	pubKey3 := key3.PubKey().SerializeCompressed()
+	pubKey1Uncompressed := key1.PubKey().SerializeUncompressed()
+
+	tests := []struct {
+		name         string
+		pubKeys      [][]byte
+		requiredSigs int
+		wantErr      bool
+		errorMsg     string
+	}{
+		{
+			name:         "nil public key in array",
+			pubKeys:      [][]byte{pubKey1, nil, pubKey2},
+			requiredSigs: 2,
+			wantErr:      true,
+			errorMsg:     "invalid length",
+		},
+		{
+			name:         "duplicate public keys",
+			pubKeys:      [][]byte{pubKey1, pubKey1, pubKey2},
+			requiredSigs: 2,
+			wantErr:      false, // Bitcoin allows duplicate keys technically
+		},
+		{
+			name:         "mix of compressed and uncompressed keys",
+			pubKeys:      [][]byte{pubKey1, pubKey1Uncompressed, pubKey2},
+			requiredSigs: 2,
+			wantErr:      false, // Should work with both formats
+		},
+		{
+			name: "exactly 15 keys (boundary)",
+			pubKeys: func() [][]byte {
+				keys := make([][]byte, 15)
+				for i := 0; i < 15; i++ {
+					k, _ := btcec.NewPrivateKey()
+					keys[i] = k.PubKey().SerializeCompressed()
+				}
+				return keys
+			}(),
+			requiredSigs: 10,
+			wantErr:      false,
+		},
+		{
+			name:         "negative requiredSigs",
+			pubKeys:      [][]byte{pubKey1, pubKey2},
+			requiredSigs: -1,
+			wantErr:      true,
+			errorMsg:     "at least 1",
+		},
+		{
+			name:         "all nil public keys",
+			pubKeys:      [][]byte{nil, nil},
+			requiredSigs: 1,
+			wantErr:      true,
+			errorMsg:     "invalid length",
+		},
+		{
+			name:         "invalid key - all zeros",
+			pubKeys:      [][]byte{make([]byte, 33)},
+			requiredSigs: 1,
+			wantErr:      true,
+			errorMsg:     "invalid public key",
+		},
+		{
+			name:         "single uncompressed key",
+			pubKeys:      [][]byte{pubKey1Uncompressed},
+			requiredSigs: 1,
+			wantErr:      false,
+		},
+		{
+			name:         "requiredSigs equals totalKeys (n-of-n)",
+			pubKeys:      [][]byte{pubKey1, pubKey2, pubKey3},
+			requiredSigs: 3,
+			wantErr:      false,
+		},
+		{
+			name:         "malformed key - wrong format marker",
+			pubKeys:      [][]byte{{0x05, 0x02, 0x03}}, // Invalid first byte
+			requiredSigs: 1,
+			wantErr:      true,
+			errorMsg:     "invalid length",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			redeemScript, err := BuildRedeemScript(tt.pubKeys, tt.requiredSigs)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("BuildRedeemScript() expected error containing %q, got nil", tt.errorMsg)
+					return
+				}
+				if tt.errorMsg != "" && !contains(err.Error(), tt.errorMsg) {
+					t.Errorf("BuildRedeemScript() error = %v, want error containing %q", err, tt.errorMsg)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("BuildRedeemScript() unexpected error = %v", err)
+				return
+			}
+
+			if len(redeemScript) == 0 {
+				t.Error("expected non-empty redeem script")
+			}
+
+			// Validate the script structure
+			m, n, err := ValidateRedeemScript(redeemScript)
+			if err != nil {
+				t.Errorf("ValidateRedeemScript() failed: %v", err)
+			}
+			if m != tt.requiredSigs {
+				t.Errorf("got requiredSigs %d, want %d", m, tt.requiredSigs)
+			}
+			// Count non-nil keys for validation
+			nonNilKeys := 0
+			for _, key := range tt.pubKeys {
+				if key != nil {
+					nonNilKeys++
+				}
+			}
+			if n != nonNilKeys {
+				t.Errorf("got totalKeys %d, want %d", n, nonNilKeys)
+			}
+		})
+	}
+}
+
+// contains is a helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && contains(s[1:], substr)) ||
+		(len(s) >= len(substr) && s[:len(substr)] == substr))
+}
+
+// TestValidateRedeemScript_EdgeCases tests edge cases for redeem script validation
+func TestValidateRedeemScript_EdgeCases(t *testing.T) {
+	// Generate valid test keys for creating valid scripts
+	key1, _ := btcec.NewPrivateKey()
+	key2, _ := btcec.NewPrivateKey()
+	key3, _ := btcec.NewPrivateKey()
+
+	pubKey1 := key1.PubKey().SerializeCompressed()
+	pubKey2 := key2.PubKey().SerializeCompressed()
+	pubKey3 := key3.PubKey().SerializeCompressed()
+
+	tests := []struct {
+		name    string
+		script  func() []byte
+		wantM   int
+		wantN   int
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid 2-of-3 script",
+			script: func() []byte {
+				script, _ := BuildRedeemScript([][]byte{pubKey1, pubKey2, pubKey3}, 2)
+				return script
+			},
+			wantM:   2,
+			wantN:   3,
+			wantErr: false,
+		},
+		{
+			name: "empty script",
+			script: func() []byte {
+				return []byte{}
+			},
+			wantErr: true,
+			errMsg:  "empty",
+		},
+		{
+			name: "nil script",
+			script: func() []byte {
+				return nil
+			},
+			wantErr: true,
+			errMsg:  "empty",
+		},
+		{
+			name: "script too short",
+			script: func() []byte {
+				return []byte{0x52, 0xae} // Just 2 bytes
+			},
+			wantErr: true,
+			errMsg:  "too short",
+		},
+		{
+			name: "script without OP_CHECKMULTISIG",
+			script: func() []byte {
+				return []byte{0x52, 0x21, 0x03, 0x00, 0x52, 0xff} // Doesn't end with 0xae
+			},
+			wantErr: true,
+			errMsg:  "OP_CHECKMULTISIG",
+		},
+		{
+			name: "script with invalid requiredSigs (0)",
+			script: func() []byte {
+				return []byte{0x50, 0x21, 0x03, 0x00, 0x51, 0xae} // OP_0 for required sigs
+			},
+			wantErr: true,
+			errMsg:  "invalid requiredSigs",
+		},
+		{
+			name: "script with invalid requiredSigs (>15)",
+			script: func() []byte {
+				return []byte{0x60, 0x21, 0x03, 0x00, 0x51, 0xae} // OP_16 = 0x60
+			},
+			wantErr: true,
+			errMsg:  "invalid requiredSigs",
+		},
+		{
+			name: "script with invalid totalKeys (0)",
+			script: func() []byte {
+				return []byte{0x51, 0x21, 0x03, 0x00, 0x50, 0xae} // OP_0 for total keys
+			},
+			wantErr: true,
+			errMsg:  "invalid totalKeys",
+		},
+		{
+			name: "script with requiredSigs > totalKeys",
+			script: func() []byte {
+				return []byte{0x53, 0x21, 0x03, 0x00, 0x52, 0xae} // OP_3 required, OP_2 total
+			},
+			wantErr: true,
+			errMsg:  "requiredSigs",
+		},
+		{
+			name: "valid 1-of-1 script",
+			script: func() []byte {
+				script, _ := BuildRedeemScript([][]byte{pubKey1}, 1)
+				return script
+			},
+			wantM:   1,
+			wantN:   1,
+			wantErr: false,
+		},
+		{
+			name: "valid 15-of-15 script (boundary)",
+			script: func() []byte {
+				keys := make([][]byte, 15)
+				for i := 0; i < 15; i++ {
+					k, _ := btcec.NewPrivateKey()
+					keys[i] = k.PubKey().SerializeCompressed()
+				}
+				script, _ := BuildRedeemScript(keys, 15)
+				return script
+			},
+			wantM:   15,
+			wantN:   15,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			script := tt.script()
+			m, n, err := ValidateRedeemScript(script)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ValidateRedeemScript() expected error containing %q, got nil", tt.errMsg)
+					return
+				}
+				if tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+					t.Errorf("ValidateRedeemScript() error = %v, want error containing %q", err, tt.errMsg)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ValidateRedeemScript() unexpected error = %v", err)
+				return
+			}
+
+			if m != tt.wantM {
+				t.Errorf("requiredSigs = %d, want %d", m, tt.wantM)
+			}
+			if n != tt.wantN {
+				t.Errorf("totalKeys = %d, want %d", n, tt.wantN)
+			}
+		})
+	}
+}

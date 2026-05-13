@@ -1237,3 +1237,190 @@ func TestRefundWorkflowIntegration(t *testing.T) {
 	t.Logf("  - Refund destination: %s", buyerAddress)
 	t.Logf("  - Signatures: 2-of-3 (buyer + mediator)")
 }
+
+// TestValidateTimelockRedeemScript_EdgeCases tests additional edge cases for timelock validation
+func TestValidateTimelockRedeemScript_EdgeCases(t *testing.T) {
+	key1, _ := btcec.NewPrivateKey()
+	key2, _ := btcec.NewPrivateKey()
+
+	pubKey1 := key1.PubKey().SerializeCompressed()
+	pubKey2 := key2.PubKey().SerializeCompressed()
+
+	tests := []struct {
+		name    string
+		script  []byte
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "script too short",
+			script:  []byte{0x01, 0x02},
+			wantErr: true,
+			errMsg:  "script too short",
+		},
+		{
+			name:    "nil script",
+			script:  nil,
+			wantErr: true,
+			errMsg:  "script too short",
+		},
+		{
+			name:    "empty script",
+			script:  []byte{},
+			wantErr: true,
+			errMsg:  "script too short",
+		},
+		{
+			name: "script with invalid locktime",
+			script: func() []byte {
+				// Malformed lockTime bytes - this will be caught as "too short"
+				return []byte{
+					0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // Invalid lockTime (too long)
+					byte(txscript.OP_CHECKLOCKTIMEVERIFY),
+					byte(txscript.OP_DROP),
+					byte(txscript.OP_2),
+				}
+			}(),
+			wantErr: true,
+			errMsg:  "script too short", // Caught early due to malformed structure
+		},
+		{
+			name: "script missing OP_DROP",
+			script: func() []byte {
+				builder := txscript.NewScriptBuilder()
+				builder.AddInt64(500000)
+				builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+				// Missing OP_DROP
+				builder.AddOp(txscript.OP_2)
+				builder.AddData(pubKey1)
+				builder.AddData(pubKey2)
+				builder.AddOp(txscript.OP_2)
+				builder.AddOp(txscript.OP_CHECKMULTISIG)
+				script, _ := builder.Script()
+				return script
+			}(),
+			wantErr: true,
+			errMsg:  "missing OP_DROP",
+		},
+		{
+			name: "script with 0 required signatures",
+			script: func() []byte {
+				builder := txscript.NewScriptBuilder()
+				builder.AddInt64(500000)
+				builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+				builder.AddOp(txscript.OP_DROP)
+				builder.AddOp(txscript.OP_0) // 0 required sigs
+				builder.AddData(pubKey1)
+				builder.AddOp(txscript.OP_1)
+				builder.AddOp(txscript.OP_CHECKMULTISIG)
+				script, _ := builder.Script()
+				return script
+			}(),
+			wantErr: true,
+			errMsg:  "invalid requiredSigs",
+		},
+		{
+			name: "script missing OP_CHECKMULTISIG",
+			script: func() []byte {
+				builder := txscript.NewScriptBuilder()
+				builder.AddInt64(500000)
+				builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+				builder.AddOp(txscript.OP_DROP)
+				builder.AddOp(txscript.OP_2)
+				builder.AddData(pubKey1)
+				builder.AddData(pubKey2)
+				builder.AddOp(txscript.OP_2)
+				// Missing OP_CHECKMULTISIG
+				script, _ := builder.Script()
+				return script
+			}(),
+			wantErr: true,
+			errMsg:  "missing OP_CHECKMULTISIG",
+		},
+		{
+			name: "script with key count mismatch",
+			script: func() []byte {
+				builder := txscript.NewScriptBuilder()
+				builder.AddInt64(500000)
+				builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+				builder.AddOp(txscript.OP_DROP)
+				builder.AddOp(txscript.OP_2)
+				builder.AddData(pubKey1)
+				builder.AddData(pubKey2)
+				builder.AddOp(txscript.OP_3) // Says 3 keys but only 2 provided
+				builder.AddOp(txscript.OP_CHECKMULTISIG)
+				script, _ := builder.Script()
+				return script
+			}(),
+			wantErr: true,
+			errMsg:  "key count mismatch",
+		},
+		{
+			name: "valid 1-of-1 timelock",
+			script: func() []byte {
+				script, _ := CreateTimelockRedeemScript(
+					[][]byte{pubKey1},
+					1,
+					600000,
+				)
+				return script
+			}(),
+			wantErr: false,
+		},
+		{
+			name: "valid with maximum timestamp (year 2038 problem boundary)",
+			script: func() []byte {
+				script, _ := CreateTimelockRedeemScript(
+					[][]byte{pubKey1, pubKey2},
+					2,
+					2147483647, // Max int32 timestamp
+				)
+				return script
+			}(),
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lockTime, requiredSigs, totalKeys, err := ValidateTimelockRedeemScript(tt.script)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ValidateTimelockRedeemScript() expected error containing %q, got nil", tt.errMsg)
+					return
+				}
+				if tt.errMsg != "" && !containsString(err.Error(), tt.errMsg) {
+					t.Errorf("ValidateTimelockRedeemScript() error = %v, want error containing %q", err, tt.errMsg)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("ValidateTimelockRedeemScript() unexpected error = %v", err)
+				return
+			}
+
+			// For valid scripts, verify the values are reasonable
+			if lockTime == 0 && tt.name != "script too short" {
+				t.Error("lockTime should not be 0 for valid script")
+			}
+			if requiredSigs < 1 {
+				t.Errorf("requiredSigs = %d, want >= 1", requiredSigs)
+			}
+			if totalKeys < 1 {
+				t.Errorf("totalKeys = %d, want >= 1", totalKeys)
+			}
+			if requiredSigs > totalKeys {
+				t.Errorf("requiredSigs (%d) > totalKeys (%d)", requiredSigs, totalKeys)
+			}
+		})
+	}
+}
+
+// containsString is a helper to check if string s contains substr
+func containsString(s, substr string) bool {
+	return len(substr) > 0 && len(s) >= len(substr) &&
+		(s == substr || s[:len(substr)] == substr ||
+			(len(s) > len(substr) && containsString(s[1:], substr)))
+}
