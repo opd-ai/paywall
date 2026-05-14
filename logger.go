@@ -39,7 +39,7 @@ type LogEntry struct {
 	EscrowID  string                 `json:"escrow_id,omitempty"`
 	Amount    float64                `json:"amount,omitempty"`
 	Currency  wallet.WalletType      `json:"currency,omitempty"`
-	Role      Role                   `json:"role,omitempty"`
+	Role      MultisigRole           `json:"role,omitempty"`
 	State     EscrowState            `json:"state,omitempty"`
 	Data      map[string]interface{} `json:"data,omitempty"`
 }
@@ -118,7 +118,7 @@ func (l *StructuredLogger) LogMultisigAddressGenerated(paymentID, address string
 	})
 }
 
-func (l *StructuredLogger) LogPartialSignatureSubmitted(paymentID string, role Role, signatureIndex int) {
+func (l *StructuredLogger) LogPartialSignatureSubmitted(paymentID string, role MultisigRole, signatureIndex int) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "partial_signature_submitted",
@@ -131,7 +131,7 @@ func (l *StructuredLogger) LogPartialSignatureSubmitted(paymentID string, role R
 	})
 }
 
-func (l *StructuredLogger) LogPartialSignatureVerified(paymentID string, role Role, signatureIndex int) {
+func (l *StructuredLogger) LogPartialSignatureVerified(paymentID string, role MultisigRole, signatureIndex int) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "partial_signature_verified",
@@ -172,7 +172,7 @@ func (l *StructuredLogger) LogMultisigTransactionBroadcast(paymentID, txHash str
 
 // Escrow Events
 
-func (l *StructuredLogger) LogEscrowCreated(paymentID string, amount float64, currency wallet.WalletType, participants []Role) {
+func (l *StructuredLogger) LogEscrowCreated(paymentID string, amount float64, currency wallet.WalletType, participants []MultisigRole) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "escrow_created",
@@ -187,7 +187,7 @@ func (l *StructuredLogger) LogEscrowCreated(paymentID string, amount float64, cu
 	})
 }
 
-func (l *StructuredLogger) LogEscrowStateTransition(paymentID string, fromState, toState EscrowState, role Role) {
+func (l *StructuredLogger) LogEscrowStateTransition(paymentID string, fromState, toState EscrowState, role MultisigRole) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "escrow_state_transition",
@@ -217,7 +217,7 @@ func (l *StructuredLogger) LogEscrowFunded(paymentID, txHash string, amount floa
 	})
 }
 
-func (l *StructuredLogger) LogEscrowCompleted(paymentID string, releasedToRole Role) {
+func (l *StructuredLogger) LogEscrowCompleted(paymentID string, releasedToRole MultisigRole) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "escrow_completed",
@@ -230,7 +230,7 @@ func (l *StructuredLogger) LogEscrowCompleted(paymentID string, releasedToRole R
 	})
 }
 
-func (l *StructuredLogger) LogEscrowRefunded(paymentID string, refundedToRole Role) {
+func (l *StructuredLogger) LogEscrowRefunded(paymentID string, refundedToRole MultisigRole) {
 	l.log(LogEntry{
 		Level:     LogLevelWarn,
 		Event:     "escrow_refunded",
@@ -245,7 +245,7 @@ func (l *StructuredLogger) LogEscrowRefunded(paymentID string, refundedToRole Ro
 
 // Dispute Events
 
-func (l *StructuredLogger) LogDisputeInitiated(paymentID string, initiatedBy Role, reason string) {
+func (l *StructuredLogger) LogDisputeInitiated(paymentID string, initiatedBy MultisigRole, reason string) {
 	l.log(LogEntry{
 		Level:     LogLevelWarn,
 		Event:     "dispute_initiated",
@@ -259,7 +259,7 @@ func (l *StructuredLogger) LogDisputeInitiated(paymentID string, initiatedBy Rol
 	})
 }
 
-func (l *StructuredLogger) LogArbiterVoteSubmitted(paymentID string, arbiterIndex int, votedFor Role) {
+func (l *StructuredLogger) LogArbiterVoteSubmitted(paymentID string, arbiterIndex int, votedFor MultisigRole) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "arbiter_vote_submitted",
@@ -272,7 +272,7 @@ func (l *StructuredLogger) LogArbiterVoteSubmitted(paymentID string, arbiterInde
 	})
 }
 
-func (l *StructuredLogger) LogDisputeResolved(paymentID string, winner Role, consensusReached bool, resolutionTimeMs int64) {
+func (l *StructuredLogger) LogDisputeResolved(paymentID string, winner MultisigRole, consensusReached bool, resolutionTimeMs int64) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "dispute_resolved",
@@ -316,7 +316,7 @@ func (l *StructuredLogger) LogTimeoutAutomation(paymentID string, actionTaken st
 
 // Error Events
 
-func (l *StructuredLogger) LogSignatureVerificationFailed(paymentID string, role Role, reason string) {
+func (l *StructuredLogger) LogSignatureVerificationFailed(paymentID string, role MultisigRole, reason string) {
 	l.log(LogEntry{
 		Level:     LogLevelError,
 		Event:     "signature_verification_failed",
