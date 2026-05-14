@@ -2,6 +2,7 @@ package paywall
 
 import (
 	"crypto/sha256"
+	"errors"
 	"testing"
 	"time"
 
@@ -182,9 +183,9 @@ func TestEscrowManager_FundEscrow(t *testing.T) {
 				return
 			}
 
-			if tt.expectedError != nil && err != nil && err != tt.expectedError {
+			if tt.expectedError != nil && err != nil {
 				// Check if the error wraps the expected error
-				if err.Error() != "" && err.Error() != tt.expectedError.Error() {
+				if !errors.Is(err, tt.expectedError) {
 					t.Errorf("FundEscrow() error = %v, want %v", err, tt.expectedError)
 				}
 			}
