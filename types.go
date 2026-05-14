@@ -214,6 +214,12 @@ type SignatureData struct {
 	PublicKey []byte `json:"public_key"`
 	// SignedAt is the timestamp when the signature was created
 	SignedAt time.Time `json:"signed_at"`
+	// Nonce is a cryptographically random value to prevent replay attacks
+	// Each signature must have a unique nonce to prevent reuse across payments
+	Nonce []byte `json:"nonce"`
+	// PaymentID binds this signature to a specific payment
+	// Prevents cross-payment signature replay attacks
+	PaymentID string `json:"payment_id"`
 }
 
 // AuditAction represents a type of action in the audit log

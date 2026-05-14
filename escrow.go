@@ -177,6 +177,20 @@ func (em *EscrowManager) validateSignatureData(sig *SignatureData, payment *Paym
 		}
 	}
 
+	// Check for signature replay attacks
+	// NOTE: Replay protection is optional for backward compatibility
+	// Signatures without nonces are allowed but logged as a warning
+	if err := em.validateSignatureReplay(sig, payment); err != nil {
+		// Check if error is due to missing nonce (backward compatibility)
+		if len(sig.Nonce) == 0 {
+			// Log warning but allow the signature for backward compatibility
+			log.Printf("WARNING: Signature for payment %s missing nonce (backward compatibility mode)", payment.ID)
+		} else {
+			// Strict replay protection for signatures with nonces
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -197,8 +211,17 @@ func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout tim
 	}
 
 	// Set escrow-specific fields
-	payment.EscrowState = EscrowPending
 	payment.EscrowTimeout = time.Now().Add(escrowTimeout)
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		EscrowPending,
+		"system",
+		"Escrow payment created",
+	); err != nil {
+		return "", fmt.Errorf("invalid state transition: %w", err)
+	}
 
 	// Update the payment in the store
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
@@ -251,7 +274,28 @@ func (em *EscrowManager) FundEscrow(paymentID string) error {
 	}
 
 	prevState := payment.EscrowState
-	payment.EscrowState = EscrowFunded
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		EscrowFunded,
+		"buyer",
+		"Multisig address funded on blockchain",
+	); err != nil {
+		// Log invalid transition attempt
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionFund,
+			PreviousState: prevState,
+			NewState:      prevState, // State unchanged due to error
+			Metadata: map[string]string{
+				"error":  err.Error(),
+				"status": "rejected",
+			},
+		})
+		return fmt.Errorf("invalid state transition: %w", err)
+	}
+
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
@@ -309,7 +353,29 @@ func (em *EscrowManager) ReleaseToSeller(paymentID string, buyerSig, sellerSig *
 	}
 
 	prevState := payment.EscrowState
-	payment.EscrowState = EscrowCompleted
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		EscrowCompleted,
+		"buyer+seller",
+		"Funds released to seller with buyer and seller agreement",
+	); err != nil {
+		// Log invalid transition attempt
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionRelease,
+			PreviousState: prevState,
+			NewState:      prevState,
+			ActorRole:     RoleBuyer,
+			Metadata: map[string]string{
+				"error":  err.Error(),
+				"status": "rejected",
+			},
+		})
+		return fmt.Errorf("invalid state transition: %w", err)
+	}
+
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
@@ -348,8 +414,31 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 	}
 
 	prevState := payment.EscrowState
-	payment.EscrowState = EscrowDisputed
 	payment.DisputeReason = reason
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		EscrowDisputed,
+		string(requesterRole),
+		fmt.Sprintf("Dispute requested: %s", reason),
+	); err != nil {
+		// Log invalid transition attempt
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionDispute,
+			PreviousState: prevState,
+			NewState:      prevState,
+			ActorRole:     requesterRole,
+			Metadata: map[string]string{
+				"error":  err.Error(),
+				"reason": reason,
+				"status": "rejected",
+			},
+		})
+		return fmt.Errorf("invalid state transition: %w", err)
+	}
+
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
@@ -418,11 +507,39 @@ func (em *EscrowManager) ResolveDispute(paymentID string, arbiterSig, winnerSig 
 		payment.Signatures[walletType] = append(payment.Signatures[walletType], *arbiterSig, *winnerSig)
 	}
 
-	// Set final state based on winner
+	prevState := payment.EscrowState
+
+	// Set final state based on winner using state validator
+	var newState EscrowState
+	var actor string
 	if winnerSig.Role == RoleBuyer {
-		payment.EscrowState = EscrowRefunded
+		newState = EscrowRefunded
+		actor = "arbiter+buyer"
 	} else {
-		payment.EscrowState = EscrowCompleted
+		newState = EscrowCompleted
+		actor = "arbiter+seller"
+	}
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		newState,
+		actor,
+		fmt.Sprintf("Dispute resolved by arbiter in favor of %s", string(winnerSig.Role)),
+	); err != nil {
+		// Log invalid transition attempt
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionResolve,
+			PreviousState: prevState,
+			NewState:      prevState,
+			ActorRole:     RoleArbiter,
+			Metadata: map[string]string{
+				"error":  err.Error(),
+				"status": "rejected",
+			},
+		})
+		return fmt.Errorf("invalid state transition: %w", err)
 	}
 
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
@@ -506,7 +623,37 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 		payment.Signatures[walletType] = append(payment.Signatures[walletType], *sig1, *sig2)
 	}
 
-	payment.EscrowState = EscrowRefunded
+	prevState := payment.EscrowState
+
+	// Determine actor for audit trail
+	actor := "buyer+seller"
+	if arbiterInvolved {
+		actor = "buyer+arbiter"
+	}
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		EscrowRefunded,
+		actor,
+		"Refund to buyer approved",
+	); err != nil {
+		// Log invalid transition attempt
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionRefund,
+			PreviousState: prevState,
+			NewState:      prevState,
+			ActorRole:     RoleBuyer,
+			Metadata: map[string]string{
+				"error":            err.Error(),
+				"status":           "rejected",
+				"arbiter_involved": fmt.Sprintf("%t", arbiterInvolved),
+			},
+		})
+		return fmt.Errorf("invalid state transition: %w", err)
+	}
+
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
@@ -572,3 +719,61 @@ func (em *EscrowManager) GetEscrowState(paymentID string) (EscrowState, error) {
 
 	return payment.EscrowState, nil
 }
+
+// validateSignatureReplay checks for signature replay attacks
+// Validates:
+//   - Signature has a nonce
+//   - Signature is bound to the correct payment
+//   - Signature has not been used before (nonce uniqueness)
+//
+// Parameters:
+//   - sig: The signature data to validate
+//   - payment: The payment being operated on
+//
+// Returns:
+//   - error: If replay attack is detected or validation fails
+func (em *EscrowManager) validateSignatureReplay(sig *SignatureData, payment *Payment) error {
+	if sig == nil {
+		return fmt.Errorf("signature data cannot be nil")
+	}
+
+	// Check that signature has a nonce (allow missing for backward compatibility)
+	if len(sig.Nonce) == 0 {
+		// Backward compatibility: allow signatures without nonce, but return a specific error
+		// The caller can decide to log a warning instead of failing
+		return fmt.Errorf("signature missing nonce: replay protection requires nonce")
+	}
+
+	// Check that signature is bound to this payment
+	// Allow empty PaymentID for backward compatibility
+	if sig.PaymentID != "" && sig.PaymentID != payment.ID {
+		return fmt.Errorf("signature payment ID mismatch: signature is for payment %s, but applied to payment %s",
+			sig.PaymentID, payment.ID)
+	}
+
+	// Check for duplicate nonces in existing signatures
+	if payment.Signatures != nil {
+		for _, sigs := range payment.Signatures {
+			for _, existingSig := range sigs {
+				// Check if nonce has been used before
+				if len(existingSig.Nonce) > 0 && bytesEqual(existingSig.Nonce, sig.Nonce) {
+					return fmt.Errorf("signature nonce reuse detected: replay attack prevented")
+				}
+
+				// Additional check: same signer same role
+				if existingSig.SignerID == sig.SignerID && existingSig.Role == sig.Role {
+					// If same signer already provided signature for this role, check if it's the same signature
+					if bytesEqual(existingSig.Signature, sig.Signature) {
+						// Idempotent - same signature being re-submitted, allow it
+						return nil
+					}
+					return fmt.Errorf("signer %s already provided a different signature for role %s", sig.SignerID, sig.Role)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// bytesEqual compares two byte slices for equality
