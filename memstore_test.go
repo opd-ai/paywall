@@ -436,4 +436,141 @@ func TestMemoryStore_ConcurrentAccess(t *testing.T) {
 	}
 }
 
+// TestMemoryStore_OptimisticLocking verifies version-based concurrency control
+func TestMemoryStore_OptimisticLocking(t *testing.T) {
+	store := NewMemoryStore()
+
+	// Create initial payment with version 0
+	payment := &Payment{
+		ID:      "test-version",
+		Status:  StatusPending,
+		Version: 0,
+	}
+	err := store.CreatePayment(payment)
+	if err != nil {
+		t.Fatalf("CreatePayment() error = %v", err)
+	}
+
+	// Test 1: Normal update increments version
+	payment.Status = StatusConfirmed
+	err = store.UpdatePayment(payment)
+	if err != nil {
+		t.Fatalf("UpdatePayment() error = %v", err)
+	}
+	if payment.Version != 1 {
+		t.Errorf("UpdatePayment() version = %d, want 1", payment.Version)
+	}
+
+	// Verify stored payment has incremented version
+	stored, _ := store.GetPayment("test-version")
+	if stored.Version != 1 {
+		t.Errorf("Stored payment version = %d, want 1", stored.Version)
+	}
+
+	// Test 2: Update with stale version fails
+	stalePayment := &Payment{
+		ID:      "test-version",
+		Status:  StatusExpired,
+		Version: 0, // Stale version
+	}
+	err = store.UpdatePayment(stalePayment)
+	if err != ErrVersionConflict {
+		t.Errorf("UpdatePayment() with stale version error = %v, want ErrVersionConflict", err)
+	}
+
+	// Verify stored payment unchanged
+	stored, _ = store.GetPayment("test-version")
+	if stored.Status != StatusConfirmed {
+		t.Errorf("Stored payment status = %v after failed update, want StatusConfirmed", stored.Status)
+	}
+	if stored.Version != 1 {
+		t.Errorf("Stored payment version = %d after failed update, want 1", stored.Version)
+	}
+
+	// Test 3: Update with current version succeeds
+	currentPayment := &Payment{
+		ID:      "test-version",
+		Status:  StatusExpired,
+		Version: 1, // Current version
+	}
+	err = store.UpdatePayment(currentPayment)
+	if err != nil {
+		t.Errorf("UpdatePayment() with current version error = %v", err)
+	}
+	if currentPayment.Version != 2 {
+		t.Errorf("UpdatePayment() version = %d, want 2", currentPayment.Version)
+	}
+}
+
+// TestMemoryStore_ConcurrentUpdatesWithVersioning tests concurrent modification detection
+func TestMemoryStore_ConcurrentUpdatesWithVersioning(t *testing.T) {
+	store := NewMemoryStore()
+
+	// Create initial payment
+	payment := &Payment{
+		ID:            "concurrent-test",
+		Status:        StatusPending,
+		Confirmations: 0,
+		Version:       0,
+	}
+	store.CreatePayment(payment)
+
+	// Try concurrent updates with coordinated start
+	const numGoroutines = 10
+	successCount := 0
+	conflictCount := 0
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var startSignal sync.WaitGroup
+	startSignal.Add(1) // Block all goroutines until we signal
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+
+			// Wait for all goroutines to be ready
+			startSignal.Wait()
+
+			// Get current payment
+			p, _ := store.GetPayment("concurrent-test")
+			if p == nil {
+				return
+			}
+
+			// Modify and try to update
+			p.Confirmations = goroutineID
+			err := store.UpdatePayment(p)
+
+			mu.Lock()
+			if err == ErrVersionConflict {
+				conflictCount++
+			} else if err == nil {
+				successCount++
+			}
+			mu.Unlock()
+		}(i)
+	}
+
+	// Release all goroutines at once to maximize contention
+	startSignal.Done()
+	wg.Wait()
+
+	// At least one update should succeed, others should conflict or succeed in sequence
+	// Due to concurrent access, we expect most to fail with version conflicts
+	if successCount < 1 {
+		t.Errorf("Concurrent updates: %d succeeded, want at least 1", successCount)
+	}
+	if successCount+conflictCount != numGoroutines {
+		t.Errorf("Concurrent updates: %d successes + %d conflicts = %d, want %d total",
+			successCount, conflictCount, successCount+conflictCount, numGoroutines)
+	}
+
+	// Verify final version matches number of successful updates
+	final, _ := store.GetPayment("concurrent-test")
+	if final.Version != successCount {
+		t.Errorf("Final version = %d, want %d (number of successful updates)", final.Version, successCount)
+	}
+}
+
 // Need to add fmt import for the concurrent test

@@ -42,17 +42,26 @@ func (m *MemoryStore) CreatePayment(p *Payment) error {
 }
 
 // GetPayment retrieves a payment record by ID.
+// Returns a defensive copy to prevent concurrent modification issues.
 //
 // Parameters:
 //   - id: Payment identifier
 //
 // Returns:
-//   - *Payment: Payment record if found, nil if not found
+//   - *Payment: Payment record copy if found, nil if not found
 //   - error: Always nil in this implementation
 func (m *MemoryStore) GetPayment(id string) (*Payment, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.payments[id], nil
+
+	p, exists := m.payments[id]
+	if !exists {
+		return nil, nil
+	}
+
+	// Return a copy to prevent concurrent modification of shared state
+	copy := *p
+	return &copy, nil
 }
 
 // UpdatePayment updates an existing payment record.
@@ -61,10 +70,25 @@ func (m *MemoryStore) GetPayment(id string) (*Payment, error) {
 //   - p: Payment record with updated fields
 //
 // Returns:
-//   - error: Always nil in this implementation
+//   - error: ErrVersionConflict if the payment was concurrently modified, nil otherwise
 func (m *MemoryStore) UpdatePayment(p *Payment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Optimistic locking: check that the version matches what's in storage
+	existingPayment, exists := m.payments[p.ID]
+	if !exists {
+		// Payment doesn't exist, cannot update
+		return nil
+	}
+
+	// Check version for concurrent modification detection
+	if existingPayment.Version != p.Version {
+		return ErrVersionConflict
+	}
+
+	// Increment version before storing the updated payment
+	p.Version++
 	m.payments[p.ID] = p
 	return nil
 }

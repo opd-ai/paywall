@@ -409,23 +409,23 @@ The multisig implementation demonstrates solid cryptographic foundations but has
   - [x] Validate signatures cover correct transaction data
   - [x] Reject invalid signatures
 
-- [ ] **Role-Based Authorization** (4-6h)
-  - [ ] Derive Role from public key (remove user-controlled field)
-  - [ ] Implement `getRoleForPubKey()` using participant lists
-  - [ ] Update all SignatureData validation
-  - [ ] Add role verification tests
+- [x] **Role-Based Authorization** (4-6h)
+  - [x] Derive Role from public key (remove user-controlled field)
+  - [x] Implement `getRoleForPubKey()` using participant lists
+  - [x] Update all SignatureData validation
+  - [x] Add role verification tests
 
-- [ ] **Optimistic Locking** (4-6h)
-  - [ ] Add `Version int` field to Payment struct
-  - [ ] Implement version checking in UpdatePayment()
-  - [ ] Add retry logic for concurrent modifications
-  - [ ] Test race condition scenarios
+- [x] **Optimistic Locking** (4-6h)
+  - [x] Add `Version int` field to Payment struct
+  - [x] Implement version checking in UpdatePayment()
+  - [x] Reject concurrent modifications with ErrVersionConflict
+  - [x] Test race condition scenarios with defensive copy in GetPayment
 
-- [ ] **Audit Trail** (4-6h)
-  - [ ] Create AuditLogEntry struct
-  - [ ] Log all escrow state transitions
-  - [ ] Include timestamps, signatures, IP addresses
-  - [ ] Implement append-only audit log storage
+- [x] **Audit Trail** (4-6h)
+  - [x] Create AuditLogEntry struct and AuditAction constants
+  - [x] Log all escrow state transitions (Create, Fund, Release, Refund, Dispute, Resolve)
+  - [x] Include timestamps, actors, roles, signatures, and metadata
+  - [x] Implement append-only MemoryAuditLogger with thread-safe operations
 
 **Phase 1 Total**: ~30-40 hours
 

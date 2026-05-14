@@ -1,9 +1,11 @@
 package paywall
 
 import (
+	"crypto/sha256"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -1173,6 +1175,236 @@ func TestEscrowManager_ValidateSignatureData(t *testing.T) {
 					t.Errorf("validateSignatureData() expected error containing %q, got nil", tt.errMsg)
 				} else if err.Error() != "" && !contains(err.Error(), tt.errMsg) {
 					t.Errorf("validateSignatureData() error = %q, want error containing %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+// TestEscrowManager_RoleBasedAuthorization verifies that roles are properly
+// derived from public key positions and prevents role spoofing
+func TestEscrowManager_RoleBasedAuthorization(t *testing.T) {
+	// Generate valid secp256k1 public keys for testing
+	buyerSeed := sha256.Sum256([]byte("buyer-role-test"))
+	sellerSeed := sha256.Sum256([]byte("seller-role-test"))
+	arbiterSeed := sha256.Sum256([]byte("arbiter-role-test"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+
+	buyerPubKey := buyerPrivKey.PubKey().SerializeCompressed()
+	sellerPubKey := sellerPrivKey.PubKey().SerializeCompressed()
+	arbiterPubKey := arbiterPrivKey.PubKey().SerializeCompressed()
+
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:           store,
+		HDWallets:       make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled: true,
+		participantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: {buyerPubKey, sellerPubKey, arbiterPubKey},
+		},
+		authorizedArbiters: [][]byte{arbiterPubKey},
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a test payment
+	payment := &Payment{
+		ID:              "test-role-auth",
+		MultisigEnabled: true,
+		EscrowState:     EscrowFunded,
+		Signatures: map[wallet.WalletType][]SignatureData{
+			wallet.Bitcoin: {},
+		},
+	}
+	store.CreatePayment(payment)
+
+	tests := []struct {
+		name        string
+		sigData     *SignatureData
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "buyer with correct role succeeds",
+			sigData: &SignatureData{
+				PublicKey: buyerPubKey,
+				Role:      RoleBuyer,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "buyer trying to spoof seller role fails",
+			sigData: &SignatureData{
+				PublicKey: buyerPubKey,
+				Role:      RoleSeller,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr:     true,
+			errContains: "does not match",
+		},
+		{
+			name: "buyer trying to spoof arbiter role fails",
+			sigData: &SignatureData{
+				PublicKey: buyerPubKey,
+				Role:      RoleArbiter,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr:     true,
+			errContains: "does not match",
+		},
+		{
+			name: "seller with correct role succeeds",
+			sigData: &SignatureData{
+				PublicKey: sellerPubKey,
+				Role:      RoleSeller,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "seller trying to spoof arbiter role fails",
+			sigData: &SignatureData{
+				PublicKey: sellerPubKey,
+				Role:      RoleArbiter,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr:     true,
+			errContains: "does not match",
+		},
+		{
+			name: "arbiter with correct role succeeds",
+			sigData: &SignatureData{
+				PublicKey: arbiterPubKey,
+				Role:      RoleArbiter,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "arbiter trying to spoof buyer role fails",
+			sigData: &SignatureData{
+				PublicKey: arbiterPubKey,
+				Role:      RoleBuyer,
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr:     true,
+			errContains: "does not match",
+		},
+		{
+			name: "empty role is allowed (role is optional for backward compatibility)",
+			sigData: &SignatureData{
+				PublicKey: buyerPubKey,
+				Role:      "",
+				Signature: []byte("mock-signature-12345678"),
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := em.validateSignatureData(tt.sigData, payment)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("validateSignatureData() expected error containing '%s', got nil", tt.errContains)
+					return
+				}
+				if !contains(err.Error(), tt.errContains) {
+					t.Errorf("validateSignatureData() error = %v, want error containing '%s'", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("validateSignatureData() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestPaywall_GetRoleForPubKey verifies role derivation from public key position
+func TestPaywall_GetRoleForPubKey(t *testing.T) {
+	// Generate valid secp256k1 public keys for testing
+	buyerSeed := sha256.Sum256([]byte("buyer-getrole-test"))
+	sellerSeed := sha256.Sum256([]byte("seller-getrole-test"))
+	arbiterSeed := sha256.Sum256([]byte("arbiter-getrole-test"))
+	unknownSeed := sha256.Sum256([]byte("unknown-getrole-test"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+	unknownPrivKey, _ := btcec.PrivKeyFromBytes(unknownSeed[:])
+
+	buyerPubKey := buyerPrivKey.PubKey().SerializeCompressed()
+	sellerPubKey := sellerPrivKey.PubKey().SerializeCompressed()
+	arbiterPubKey := arbiterPrivKey.PubKey().SerializeCompressed()
+	unknownPubKey := unknownPrivKey.PubKey().SerializeCompressed()
+
+	pw := &Paywall{
+		multisigEnabled: true,
+		participantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: {buyerPubKey, sellerPubKey, arbiterPubKey},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		pubKey     []byte
+		walletType wallet.WalletType
+		wantRole   MultisigRole
+		wantErr    bool
+	}{
+		{
+			name:       "buyer at index 0",
+			pubKey:     buyerPubKey,
+			walletType: wallet.Bitcoin,
+			wantRole:   RoleBuyer,
+			wantErr:    false,
+		},
+		{
+			name:       "seller at index 1",
+			pubKey:     sellerPubKey,
+			walletType: wallet.Bitcoin,
+			wantRole:   RoleSeller,
+			wantErr:    false,
+		},
+		{
+			name:       "arbiter at index 2",
+			pubKey:     arbiterPubKey,
+			walletType: wallet.Bitcoin,
+			wantRole:   RoleArbiter,
+			wantErr:    false,
+		},
+		{
+			name:       "unknown key returns error",
+			pubKey:     unknownPubKey,
+			walletType: wallet.Bitcoin,
+			wantRole:   "",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			role, err := pw.getRoleForPubKey(tt.pubKey, tt.walletType)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("getRoleForPubKey() expected error, got nil")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("getRoleForPubKey() unexpected error = %v", err)
+				}
+				if role != tt.wantRole {
+					t.Errorf("getRoleForPubKey() = %v, want %v", role, tt.wantRole)
 				}
 			}
 		})

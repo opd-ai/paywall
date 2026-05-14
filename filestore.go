@@ -110,12 +110,32 @@ func (m *FileStore) GetPayment(id string) (*Payment, error) {
 //   - p: Payment record with updated fields (must not be nil and must have valid ID)
 //
 // Returns:
-//   - error: File write errors or JSON marshaling errors
+//   - error: ErrVersionConflict if concurrent modification detected, file errors otherwise
 //
 // Thread-safety: Protected by write lock
 func (m *FileStore) UpdatePayment(p *Payment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Read existing payment within the write lock to prevent race conditions
+	filename := filepath.Join(m.baseDir, p.ID+".json")
+	data, err := os.ReadFile(filename)
+
+	// If file exists, check version for optimistic locking
+	if err == nil {
+		var existingPayment Payment
+		if unmarshalErr := json.Unmarshal(data, &existingPayment); unmarshalErr == nil {
+			// Version mismatch indicates concurrent modification
+			if existingPayment.Version != p.Version {
+				return ErrVersionConflict
+			}
+		}
+		// If unmarshal fails, proceed with write (corrupted file case)
+	}
+	// If file doesn't exist (os.IsNotExist(err)), proceed with creation
+
+	// Increment version before writing
+	p.Version++
 	return m.writePayment(p)
 }
 

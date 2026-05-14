@@ -561,6 +561,54 @@ func (p *Paywall) GetAuthorizedArbiters() [][]byte {
 	return result
 }
 
+// getRoleForPubKey derives a participant's role from their public key position
+// in the participant list. Returns the role based on key position:
+//   - Index 0: RoleBuyer (the party paying for goods/services)
+//   - Index 1: RoleSeller (the party providing goods/services)
+//   - Index 2: RoleArbiter (the neutral third party for disputes)
+//
+// This prevents role spoofing by verifying the role against the canonical
+// participant list rather than trusting user-provided role fields.
+//
+// Parameters:
+//   - pubKey: The public key to look up
+//   - walletType: The wallet type (Bitcoin/Monero) to search
+//
+// Returns:
+//   - MultisigRole: The derived role for the public key
+//   - error: If the key is not found in the participant list
+//
+// Related types: MultisigRole, SignatureData
+func (p *Paywall) getRoleForPubKey(pubKey []byte, walletType wallet.WalletType) (MultisigRole, error) {
+	if !p.multisigEnabled || p.participantPubKeys == nil {
+		return "", fmt.Errorf("multisig not enabled or participant keys not configured")
+	}
+
+	participants, ok := p.participantPubKeys[walletType]
+	if !ok {
+		return "", fmt.Errorf("no participants configured for wallet type %s", walletType)
+	}
+
+	// Find the public key in the participant list
+	for i, participantKey := range participants {
+		if bytesEqual(pubKey, participantKey) {
+			// Map index to role: 0=buyer, 1=seller, 2=arbiter
+			switch i {
+			case 0:
+				return RoleBuyer, nil
+			case 1:
+				return RoleSeller, nil
+			case 2:
+				return RoleArbiter, nil
+			default:
+				return "", fmt.Errorf("participant at index %d has no defined role", i)
+			}
+		}
+	}
+
+	return "", fmt.Errorf("public key not found in participant list for wallet type %s", walletType)
+}
+
 // bytesEqual performs a constant-time comparison of two byte slices
 // to prevent timing attacks when comparing sensitive data like keys
 func bytesEqual(a, b []byte) bool {

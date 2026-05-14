@@ -2,10 +2,17 @@
 package paywall
 
 import (
+	"errors"
 	"html/template"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
+)
+
+var (
+	// ErrVersionConflict indicates a payment was modified by another operation
+	// This error is returned when optimistic locking detects concurrent modifications
+	ErrVersionConflict = errors.New("payment version conflict: payment was modified by another operation")
 )
 
 // PaymentStatus represents the current state of a payment in the system
@@ -37,6 +44,9 @@ type Payment struct {
 	Status PaymentStatus `json:"status"`
 	// Confirmations is the number of blockchain confirmations received
 	Confirmations int `json:"confirmations"`
+	// Version is used for optimistic locking to prevent concurrent modifications
+	// This field is incremented on each update to detect race conditions
+	Version int `json:"version"`
 
 	// Multisig fields (optional - zero values indicate single-signature payment)
 
@@ -186,4 +196,48 @@ type SignatureData struct {
 	PublicKey []byte `json:"public_key"`
 	// SignedAt is the timestamp when the signature was created
 	SignedAt time.Time `json:"signed_at"`
+}
+
+// AuditAction represents a type of action in the audit log
+type AuditAction string
+
+const (
+	// AuditActionCreate indicates an escrow payment was created
+	AuditActionCreate AuditAction = "create"
+	// AuditActionFund indicates an escrow was funded by the buyer
+	AuditActionFund AuditAction = "fund"
+	// AuditActionRelease indicates funds were released to the seller
+	AuditActionRelease AuditAction = "release"
+	// AuditActionRefund indicates funds were refunded to the buyer
+	AuditActionRefund AuditAction = "refund"
+	// AuditActionDispute indicates a dispute was raised
+	AuditActionDispute AuditAction = "dispute"
+	// AuditActionResolve indicates an arbiter resolved a dispute
+	AuditActionResolve AuditAction = "resolve"
+)
+
+// AuditLogEntry represents a single immutable record in the audit trail
+// Used for forensics, compliance, and non-repudiation
+// Related types: Payment, EscrowState, MultisigRole
+type AuditLogEntry struct {
+	// ID uniquely identifies this audit log entry
+	ID string `json:"id"`
+	// PaymentID links this entry to a specific payment
+	PaymentID string `json:"payment_id"`
+	// Timestamp records when this action occurred
+	Timestamp time.Time `json:"timestamp"`
+	// Action describes what operation was performed
+	Action AuditAction `json:"action"`
+	// Actor is the public key of the entity performing the action
+	Actor []byte `json:"actor,omitempty"`
+	// ActorRole indicates the role of the actor (buyer, seller, arbiter)
+	ActorRole MultisigRole `json:"actor_role,omitempty"`
+	// PreviousState is the escrow state before this action
+	PreviousState EscrowState `json:"previous_state"`
+	// NewState is the escrow state after this action
+	NewState EscrowState `json:"new_state"`
+	// Signature is the cryptographic signature authorizing this action
+	Signature []byte `json:"signature,omitempty"`
+	// Metadata contains additional context (dispute reason, IP address, etc.)
+	Metadata map[string]string `json:"metadata,omitempty"`
 }

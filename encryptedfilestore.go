@@ -149,10 +149,33 @@ func (m *EncryptedFileStore) GetPayment(id string) (*Payment, error) {
 	return &payment, nil
 }
 
-// UpdatePayment updates an encrypted payment record
+// UpdatePayment updates an encrypted payment record with optimistic locking
 func (m *EncryptedFileStore) UpdatePayment(p *Payment) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// Read existing payment within the write lock to prevent race conditions
+	filename := filepath.Join(m.baseDir, p.ID+".enc")
+	encrypted, err := os.ReadFile(filename)
+
+	// If file exists, check version for optimistic locking
+	if err == nil {
+		data, decryptErr := m.decrypt(encrypted)
+		if decryptErr == nil {
+			var existingPayment Payment
+			if unmarshalErr := json.Unmarshal(data, &existingPayment); unmarshalErr == nil {
+				// Version mismatch indicates concurrent modification
+				if existingPayment.Version != p.Version {
+					return ErrVersionConflict
+				}
+			}
+		}
+		// If decrypt or unmarshal fails, proceed with write (corrupted file case)
+	}
+	// If file doesn't exist (os.IsNotExist(err)), proceed with creation
+
+	// Increment version before writing
+	p.Version++
 	return m.writeEncryptedPayment(p)
 }
 

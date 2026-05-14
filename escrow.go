@@ -4,6 +4,7 @@ package paywall
 import (
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -26,23 +27,43 @@ var (
 	ErrInvalidPublicKey = errors.New("invalid public key format or content")
 	// ErrUnknownParticipant indicates the signer is not a recognized participant
 	ErrUnknownParticipant = errors.New("signer is not a recognized participant")
+	// ErrRoleMismatch indicates the declared role does not match the derived role
+	ErrRoleMismatch = errors.New("signature role does not match participant role")
 )
 
 // EscrowManager manages escrow workflows for multisig payments
 // It coordinates state transitions and enforces escrow rules
-// Related types: Payment, Paywall, EscrowState
+// Related types: Payment, Paywall, EscrowState, AuditLogger
 type EscrowManager struct {
-	paywall *Paywall
+	paywall     *Paywall
+	auditLogger AuditLogger
 }
 
 // NewEscrowManager creates a new escrow manager for the given paywall
 // The paywall must have multisig enabled to use escrow features
+// If no audit logger is provided, creates a default MemoryAuditLogger
 func NewEscrowManager(pw *Paywall) (*EscrowManager, error) {
 	if pw == nil {
 		return nil, errors.New("paywall cannot be nil")
 	}
 	return &EscrowManager{
-		paywall: pw,
+		paywall:     pw,
+		auditLogger: NewMemoryAuditLogger(),
+	}, nil
+}
+
+// NewEscrowManagerWithAudit creates an escrow manager with a custom audit logger
+// Use this when you need persistent audit trail storage
+func NewEscrowManagerWithAudit(pw *Paywall, logger AuditLogger) (*EscrowManager, error) {
+	if pw == nil {
+		return nil, errors.New("paywall cannot be nil")
+	}
+	if logger == nil {
+		return nil, errors.New("audit logger cannot be nil")
+	}
+	return &EscrowManager{
+		paywall:     pw,
+		auditLogger: logger,
 	}, nil
 }
 
@@ -118,10 +139,14 @@ func (em *EscrowManager) validateSignatureData(sig *SignatureData, payment *Paym
 	if payment.MultisigEnabled && em.paywall.participantPubKeys != nil && len(em.paywall.participantPubKeys) > 0 {
 		// Check if public key appears in any of the participant lists
 		found := false
-		for _, walletParticipants := range em.paywall.participantPubKeys {
+		var derivedRole MultisigRole
+		var walletTypeForRole wallet.WalletType
+
+		for walletType, walletParticipants := range em.paywall.participantPubKeys {
 			for _, participantKey := range walletParticipants {
 				if bytesEqual(sig.PublicKey, participantKey) {
 					found = true
+					walletTypeForRole = walletType
 					break
 				}
 			}
@@ -132,6 +157,20 @@ func (em *EscrowManager) validateSignatureData(sig *SignatureData, payment *Paym
 
 		if !found {
 			return fmt.Errorf("%w: public key not found in participant list", ErrUnknownParticipant)
+		}
+
+		// Derive the role from the public key position in the participant list
+		// This prevents role spoofing by verifying against canonical role assignment
+		var err error
+		derivedRole, err = em.paywall.getRoleForPubKey(sig.PublicKey, walletTypeForRole)
+		if err != nil {
+			return fmt.Errorf("failed to derive role for public key: %w", err)
+		}
+
+		// Verify the declared role matches the derived role
+		if sig.Role != "" && sig.Role != derivedRole {
+			return fmt.Errorf("%w: declared role '%s' does not match derived role '%s'",
+				ErrRoleMismatch, sig.Role, derivedRole)
 		}
 	}
 
@@ -163,6 +202,23 @@ func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout tim
 		return "", fmt.Errorf("failed to update payment with escrow state: %w", err)
 	}
 
+	// Log escrow creation in audit trail
+	_, auditErr := em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     payment.ID,
+		Action:        AuditActionCreate,
+		PreviousState: EscrowNone,
+		NewState:      EscrowPending,
+		Metadata: map[string]string{
+			"timeout":          escrowTimeout.String(),
+			"price_multiplier": fmt.Sprintf("%.2f", priceMultiplier),
+		},
+	})
+	if auditErr != nil {
+		// Log audit failure but don't fail the operation
+		// Audit failures should be logged but not block escrow creation
+		log.Printf("WARNING: failed to log escrow creation: %v", auditErr)
+	}
+
 	return payment.ID, nil
 }
 
@@ -191,10 +247,14 @@ func (em *EscrowManager) FundEscrow(paymentID string) error {
 		return fmt.Errorf("payment not yet confirmed on blockchain")
 	}
 
+	prevState := payment.EscrowState
 	payment.EscrowState = EscrowFunded
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
+
+	// Log state transition in audit trail
+	em.logStateTransition(paymentID, AuditActionFund, prevState, EscrowFunded, nil, RoleBuyer, nil, nil)
 
 	return nil
 }
@@ -245,10 +305,15 @@ func (em *EscrowManager) ReleaseToSeller(paymentID string, buyerSig, sellerSig *
 		payment.Signatures[walletType] = append(payment.Signatures[walletType], *buyerSig, *sellerSig)
 	}
 
+	prevState := payment.EscrowState
 	payment.EscrowState = EscrowCompleted
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
+
+	// Log release to seller in audit trail
+	em.logStateTransition(paymentID, AuditActionRelease, prevState, EscrowCompleted,
+		buyerSig.PublicKey, RoleBuyer, buyerSig.Signature, nil)
 
 	return nil
 }
@@ -279,11 +344,16 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 		return fmt.Errorf("only buyer or seller can request disputes")
 	}
 
+	prevState := payment.EscrowState
 	payment.EscrowState = EscrowDisputed
 	payment.DisputeReason = reason
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
+
+	// Log dispute request in audit trail
+	em.logStateTransition(paymentID, AuditActionDispute, prevState, EscrowDisputed,
+		nil, requesterRole, nil, map[string]string{"reason": reason})
 
 	return nil
 }
@@ -439,6 +509,26 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 	}
 
 	return nil
+}
+
+// logStateTransition creates an audit log entry for an escrow state change
+// This is a helper method to ensure consistent audit logging across all state transitions
+func (em *EscrowManager) logStateTransition(paymentID string, action AuditAction, prevState, newState EscrowState, actor []byte, actorRole MultisigRole, signature []byte, metadata map[string]string) {
+	_, err := em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        action,
+		PreviousState: prevState,
+		NewState:      newState,
+		Actor:         actor,
+		ActorRole:     actorRole,
+		Signature:     signature,
+		Metadata:      metadata,
+	})
+	if err != nil {
+		// Log audit failure but don't fail the operation
+		// Audit failures should be logged but not block escrow operations
+		log.Printf("WARNING: failed to log state transition %s for payment %s: %v", action, paymentID, err)
+	}
 }
 
 // CheckEscrowTimeouts checks all escrowed payments for timeouts
