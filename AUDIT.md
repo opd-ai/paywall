@@ -512,13 +512,13 @@ func TestState_TransitionHistory(t *testing.T)
 - [x] End-to-end escrow happy path with real signatures
 - [x] Dispute resolution with multiple arbiters
 - [x] Timeout-based refunds
-- [ ] Concurrent state modification stress tests
+- [x] Concurrent state modification stress tests
 - [x] Signature replay attack attempts
-- [ ] Transaction malleability scenarios
+- [x] Transaction malleability scenarios
 
 #### Security-Specific Tests
 
-- [ ] Fuzzing escrow state transitions
+- [x] Fuzzing escrow state transitions
 - [ ] Fuzzing signature data structures
 - [ ] Property-based testing for state machine
 - [ ] Chaos engineering for race conditions

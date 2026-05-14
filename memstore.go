@@ -42,13 +42,13 @@ func (m *MemoryStore) CreatePayment(p *Payment) error {
 }
 
 // GetPayment retrieves a payment record by ID.
-// Returns a defensive copy to prevent concurrent modification issues.
+// Returns a deep copy to prevent concurrent modification issues.
 //
 // Parameters:
 //   - id: Payment identifier
 //
 // Returns:
-//   - *Payment: Payment record copy if found, nil if not found
+//   - *Payment: Payment record deep copy if found, nil if not found
 //   - error: Always nil in this implementation
 func (m *MemoryStore) GetPayment(id string) (*Payment, error) {
 	m.mu.RLock()
@@ -59,9 +59,97 @@ func (m *MemoryStore) GetPayment(id string) (*Payment, error) {
 		return nil, nil
 	}
 
-	// Return a copy to prevent concurrent modification of shared state
-	copy := *p
-	return &copy, nil
+	// Return a deep copy to prevent concurrent modification of shared state
+	return deepCopyPayment(p), nil
+}
+
+// deepCopyPayment creates a deep copy of a payment to prevent shared mutable state
+func deepCopyPayment(p *Payment) *Payment {
+	if p == nil {
+		return nil
+	}
+
+	// Copy the struct
+	paymentCopy := *p
+
+	// Deep copy maps and slices
+	if p.Addresses != nil {
+		paymentCopy.Addresses = make(map[wallet.WalletType]string, len(p.Addresses))
+		for k, v := range p.Addresses {
+			paymentCopy.Addresses[k] = v
+		}
+	}
+
+	if p.Amounts != nil {
+		paymentCopy.Amounts = make(map[wallet.WalletType]float64, len(p.Amounts))
+		for k, v := range p.Amounts {
+			paymentCopy.Amounts[k] = v
+		}
+	}
+
+	if p.MultisigMetadata != nil {
+		paymentCopy.MultisigMetadata = make(map[wallet.WalletType]*wallet.MultisigMetadata, len(p.MultisigMetadata))
+		for k, v := range p.MultisigMetadata {
+			if v != nil {
+				metaCopy := *v
+				// Deep copy nested slices in metadata
+				if v.RedeemScript != nil {
+					metaCopy.RedeemScript = make([]byte, len(v.RedeemScript))
+					copy(metaCopy.RedeemScript, v.RedeemScript)
+				}
+				if v.PublicKeys != nil {
+					metaCopy.PublicKeys = make([][]byte, len(v.PublicKeys))
+					for i, pk := range v.PublicKeys {
+						if pk != nil {
+							metaCopy.PublicKeys[i] = make([]byte, len(pk))
+							copy(metaCopy.PublicKeys[i], pk)
+						}
+					}
+				}
+				paymentCopy.MultisigMetadata[k] = &metaCopy
+			}
+		}
+	}
+
+	if p.RequiredSignatures != nil {
+		paymentCopy.RequiredSignatures = make(map[wallet.WalletType]int, len(p.RequiredSignatures))
+		for k, v := range p.RequiredSignatures {
+			paymentCopy.RequiredSignatures[k] = v
+		}
+	}
+
+	if p.Signatures != nil {
+		paymentCopy.Signatures = make(map[wallet.WalletType][]SignatureData, len(p.Signatures))
+		for k, sigs := range p.Signatures {
+			if sigs != nil {
+				sigsCopy := make([]SignatureData, len(sigs))
+				for i, sig := range sigs {
+					sigsCopy[i] = sig
+					// Deep copy byte slices in SignatureData
+					if sig.Signature != nil {
+						sigsCopy[i].Signature = make([]byte, len(sig.Signature))
+						copy(sigsCopy[i].Signature, sig.Signature)
+					}
+					if sig.PublicKey != nil {
+						sigsCopy[i].PublicKey = make([]byte, len(sig.PublicKey))
+						copy(sigsCopy[i].PublicKey, sig.PublicKey)
+					}
+					if sig.Nonce != nil {
+						sigsCopy[i].Nonce = make([]byte, len(sig.Nonce))
+						copy(sigsCopy[i].Nonce, sig.Nonce)
+					}
+				}
+				paymentCopy.Signatures[k] = sigsCopy
+			}
+		}
+	}
+
+	if p.StateTransitionHistory != nil {
+		paymentCopy.StateTransitionHistory = make([]StateTransitionHistory, len(p.StateTransitionHistory))
+		copy(paymentCopy.StateTransitionHistory, p.StateTransitionHistory)
+	}
+
+	return &paymentCopy
 }
 
 // UpdatePayment updates an existing payment record.
@@ -105,19 +193,20 @@ func (m *MemoryStore) ListPendingPayments() ([]*Payment, error) {
 	var payments []*Payment
 	for _, p := range m.payments {
 		if p.Confirmations <= 1 {
-			payments = append(payments, p)
+			payments = append(payments, deepCopyPayment(p))
 		}
 	}
 	return payments, nil
 }
 
 // GetPaymentByAddress retrieves a payment record by Bitcoin address.
+// Returns a deep copy to prevent concurrent modification.
 //
 // Parameters:
 //   - addr: Bitcoin address associated with the payment
 //
 // Returns:
-//   - *Payment: Payment record if found, nil if not found
+//   - *Payment: Payment record deep copy if found, nil if not found
 //   - error: Always nil in this implementation
 func (m *MemoryStore) GetPaymentByAddress(addr string) (*Payment, error) {
 	m.mu.RLock()
@@ -125,7 +214,7 @@ func (m *MemoryStore) GetPaymentByAddress(addr string) (*Payment, error) {
 
 	for _, p := range m.payments {
 		if p.Addresses[wallet.Bitcoin] == addr || p.Addresses[wallet.Monero] == addr {
-			return p, nil
+			return deepCopyPayment(p), nil
 		}
 	}
 	return nil, nil
@@ -143,7 +232,7 @@ func (m *MemoryStore) GetPendingMultisigPayments() ([]*Payment, error) {
 	var payments []*Payment
 	for _, p := range m.payments {
 		if p.MultisigEnabled && p.Status == StatusPending {
-			payments = append(payments, p)
+			payments = append(payments, deepCopyPayment(p))
 		}
 	}
 	return payments, nil
@@ -169,7 +258,7 @@ func (m *MemoryStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, 
 		// Check if any wallet address matches
 		for _, addr := range p.Addresses {
 			if addr == address {
-				payments = append(payments, p)
+				payments = append(payments, deepCopyPayment(p))
 				break
 			}
 		}
