@@ -539,7 +539,7 @@ func TestState_TransitionHistory(t *testing.T)
 - [ ] ✅ Backup and recovery procedures tested
 
 **For production operation**:
-- [ Monitor audit logs for suspicious patterns
+- [ ] Monitor audit logs for suspicious patterns
 - [ ] Track arbiter behavior for collusion detection
 - [ ] Alert on unusual state transition patterns
 - [ ] Implement circuit breakers for high-value escrows
