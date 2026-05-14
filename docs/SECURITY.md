@@ -1192,6 +1192,343 @@ The multisig metadata storage implementation is **secure and production-ready**.
 
 **No critical vulnerabilities identified**. The current implementation provides strong security guarantees appropriate for production multisig payment systems.
 
+---
+
+## Security Review: Escrow Timeout Handling
+
+This section documents the security audit of escrow timeout mechanisms (PLAN.md Phase 7.3).
+
+### Timeout Architecture (✅ Secure with Recommendations)
+
+**EscrowManager** (`escrow.go:23-340`):
+
+**Timeout Design**:
+- ✅ Timeout stored as absolute timestamp (`time.Time`)
+- ✅ Configurable timeout duration at escrow creation
+- ✅ Timeout applies to funded and disputed escrows
+- ✅ Timeout field optional (zero value = no timeout)
+
+**CreateEscrow()** (`escrow.go:44-68`):
+```go
+payment.EscrowTimeout = time.Now().Add(escrowTimeout)
+```
+- ✅ Sets absolute deadline at creation time
+- ✅ Uses `time.Now()` (monotonic clock for calculations)
+- ✅ Timeout starts when escrow is created (not when funded)
+
+**Security Properties**:
+- ✅ Timeout is tamper-evident (stored in payment record)
+- ✅ Absolute timestamp prevents time manipulation
+- ⚠️ Timeout starts at creation, not funding (design choice)
+  - Buyer has limited time to fund after creation
+  - May timeout before funding occurs
+  - **Recommendation**: Consider separate funding timeout
+
+### Timeout Detection (✅ Correct Implementation)
+
+**CheckEscrowTimeouts()** (`escrow.go:299-322`):
+
+**Logic**:
+```go
+if !payment.EscrowTimeout.IsZero() && now.After(payment.EscrowTimeout) {
+    timedOut = append(timedOut, payment.ID)
+}
+```
+
+**Security Properties**:
+- ✅ Validates timeout is set (`.IsZero()` check)
+- ✅ Uses `After()` for clear comparison semantics
+- ✅ Only checks funded/disputed escrows (correct states)
+- ✅ Returns payment IDs for external handling (separation of concerns)
+
+**State Filtering**:
+```go
+if payment.EscrowState == EscrowFunded || payment.EscrowState == EscrowDisputed {
+    // Only check timeout for these states
+}
+```
+- ✅ Ignores `EscrowPending` (not yet funded)
+- ✅ Ignores `EscrowCompleted` (already resolved)
+- ✅ Ignores `EscrowRefunded` (already refunded)
+- ✅ Checks both funded and disputed states (correct)
+
+### Timeout Enforcement (⚠️ Manual Process)
+
+**Current Implementation**:
+- ✅ `CheckEscrowTimeouts()` detects timed out escrows
+- ⚠️ Does **not** automatically refund (returns IDs only)
+- ⚠️ Caller responsible for refund execution
+- ⚠️ No background goroutine for automatic checking
+
+**Security Implications**:
+- ✅ **Pro**: Explicit control over refund transactions
+- ✅ **Pro**: Allows validation before refund
+- ⚠️ **Con**: Timeouts won't trigger without calling `CheckEscrowTimeouts()`
+- ⚠️ **Con**: Reliance on external monitoring/cron job
+
+**Recommendation**: Add optional automatic timeout processing:
+```go
+func (em *EscrowManager) StartTimeoutMonitor(interval time.Duration) {
+    ticker := time.NewTicker(interval)
+    go func() {
+        for range ticker.C {
+            timedOut, err := em.CheckEscrowTimeouts()
+            if err != nil {
+                // Log error
+                continue
+            }
+            for _, paymentID := range timedOut {
+                // Automatically refund or trigger refund workflow
+                if err := em.RefundBuyer(paymentID); err != nil {
+                    // Log error
+                }
+            }
+        }
+    }()
+}
+```
+
+### Race Conditions (✅ Mitigated by Design)
+
+**Potential Race: Timeout During Resolution**:
+- **Scenario**: Seller attempts to complete escrow while timeout check runs
+- **Mitigation**: Store-level synchronization (mutex in `memstore.go`, `filestore.go`)
+- ✅ `UpdatePayment()` is atomic per payment ID
+- ✅ State transitions validate current state before updating
+
+**Potential Race: Concurrent Timeout Checks**:
+- **Scenario**: Multiple `CheckEscrowTimeouts()` calls run simultaneously
+- **Impact**: Multiple threads may detect same timed out escrows
+- ✅ Read-only operation (no state modification)
+- ✅ Idempotent (returns same IDs repeatedly until resolved)
+- ⚠️ Caller must handle idempotency if processing refunds
+
+**Recommendation**: Add processing lock or deduplication:
+```go
+type EscrowManager struct {
+    processingTimeouts map[string]bool
+    mu                 sync.Mutex
+}
+
+func (em *EscrowManager) RefundBuyerIfNotProcessing(paymentID string) error {
+    em.mu.Lock()
+    if em.processingTimeouts[paymentID] {
+        em.mu.Unlock()
+        return nil // Already being processed
+    }
+    em.processingTimeouts[paymentID] = true
+    em.mu.Unlock()
+    
+    defer func() {
+        em.mu.Lock()
+        delete(em.processingTimeouts, paymentID)
+        em.mu.Unlock()
+    }()
+    
+    return em.RefundBuyer(paymentID)
+}
+```
+
+### Time Source Security (✅ Secure)
+
+**Clock Source** (`time.Now()`):
+- ✅ Uses system time (monotonic + wall clock)
+- ✅ Monotonic clock prevents backwards time jumps during calculations
+- ✅ Wall clock allows persistence across reboots
+
+**Clock Tampering**:
+- ⚠️ System time can be modified by root/admin
+- ⚠️ VM time can be manipulated by hypervisor
+- ⚠️ NTP time sync can introduce jumps
+
+**Mitigations**:
+- ✅ Monotonic clock (within process) prevents local manipulation
+- ⚠️ No protection against system-wide clock changes
+- **Recommendation**: Document requirement for NTP time sync
+- **Advanced**: Use blockchain timestamps as authoritative time source
+
+### Timeout Validation (⚠️ Minimal)
+
+**CreateEscrow()** Validation:
+```go
+payment.EscrowTimeout = time.Now().Add(escrowTimeout)
+```
+- ⚠️ No validation of `escrowTimeout` parameter
+- ⚠️ Negative durations allowed (timeout in past)
+- ⚠️ Zero duration allowed (immediate timeout)
+- ⚠️ Excessive durations allowed (timeout in far future)
+
+**Recommendation**: Add timeout validation:
+```go
+func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout time.Duration) (string, error) {
+    // Validate timeout duration
+    if escrowTimeout <= 0 {
+        return "", errors.New("escrow timeout must be positive")
+    }
+    if escrowTimeout < time.Hour {
+        return "", errors.New("escrow timeout must be at least 1 hour")
+    }
+    if escrowTimeout > 30*24*time.Hour {
+        return "", errors.New("escrow timeout cannot exceed 30 days")
+    }
+    // ... rest of function
+}
+```
+
+### Timeout Extension (❌ Not Implemented)
+
+**Current Limitation**:
+- ❌ No mechanism to extend timeout once set
+- ❌ Buyer/seller cannot mutually agree to extend deadline
+- ❌ Timeout modification requires manual database edit
+
+**Use Cases for Extension**:
+- Legitimate delay in goods delivery
+- Mutual agreement to extend resolution period
+- Arbiter requests more time for investigation
+
+**Recommendation**: Add timeout extension API:
+```go
+func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration, requiredSigners []string) error {
+    // Verify payment exists and is in escrow
+    // Verify required parties have agreed (2-of-3 multisig for agreement)
+    // Validate extension duration (e.g., max 7 days per extension)
+    // Update payment.EscrowTimeout
+    // Log extension event
+}
+```
+
+### Refund Transaction Safety (✅ Proper Authorization)
+
+**RefundBuyer()** (`escrow.go:240-297`):
+
+**Authorization**:
+- ✅ Validates payment exists and is in escrow
+- ✅ Checks escrow state (must be funded, completed, or disputed)
+- ✅ Requires 2-of-3 signatures for refund transaction
+- ✅ State transition to `EscrowRefunded` prevents double-refund
+
+**Security Properties**:
+- ✅ Cannot refund without proper signatures
+- ✅ Cannot refund already completed escrow
+- ✅ Idempotent (repeated calls to refunded escrow fail gracefully)
+
+**Timeout-Triggered Refund**:
+- ⚠️ Caller must sign refund transaction (not automatic)
+- ⚠️ Timeout detection does not auto-execute refund
+- **Design Choice**: Explicit signing required even for timeouts
+
+### Denial of Service Risks (⚠️ Moderate Risk)
+
+**Timeout Check Performance**:
+- ⚠️ `GetPendingMultisigPayments()` loads all pending payments
+- ⚠️ Linear scan through all payments to check timeouts
+- ⚠️ No index on `EscrowTimeout` field
+- **Impact**: Performance degrades with many pending escrows
+
+**Mitigation Options**:
+1. **Add timeout index**: Store payments sorted by timeout
+2. **Pagination**: Process timeouts in batches
+3. **Early exit**: Stop checking once past earliest timeout
+4. **Separate timeout queue**: Dedicated priority queue for timeouts
+
+**Recommendation**:
+```go
+// Add to PaymentStore interface
+GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error)
+
+// Implementation uses index or efficient query
+// Returns only escrows with timeout <= deadline
+```
+
+### Risk Assessment
+
+| Component | Status | Risk Level | Notes |
+|-----------|--------|------------|-------|
+| Timeout storage | ✅ Secure | Low | Absolute timestamp, tamper-evident |
+| Timeout detection | ✅ Correct | Low | Proper state filtering and comparison |
+| Timeout enforcement | ⚠️ Manual | Medium | Requires external process to trigger refunds |
+| Timeout validation | ⚠️ Missing | Medium | No bounds checking on timeout duration |
+| Timeout extension | ❌ Not implemented | Medium | Cannot extend once set |
+| Race conditions | ✅ Mitigated | Low | Store-level locking protects state |
+| Clock security | ⚠️ System-dependent | Low | Relies on system time accuracy |
+| Performance (scaling) | ⚠️ Linear scan | Medium | May not scale to many concurrent escrows |
+| Refund authorization | ✅ Secure | Low | Proper multisig signature requirement |
+
+### Recommendations
+
+**High Priority**:
+1. **Add timeout validation**: Enforce minimum/maximum timeout durations
+   ```go
+   const (
+       MinEscrowTimeout = 1 * time.Hour
+       MaxEscrowTimeout = 30 * 24 * time.Hour
+   )
+   ```
+
+2. **Add automatic timeout monitoring**: Optional background goroutine
+   ```go
+   func (em *EscrowManager) StartTimeoutMonitor(interval time.Duration)
+   ```
+
+3. **Add timeout extension API**: Allow mutual agreement to extend deadlines
+   ```go
+   func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration, signatures []Signature) error
+   ```
+
+**Medium Priority**:
+4. **Optimize timeout checking**: Add `GetEscrowsExpiringBefore()` to store interface
+5. **Add processing deduplication**: Prevent concurrent refund processing
+6. **Document time sync requirements**: NTP requirement in operations docs
+
+**Low Priority**:
+7. **Add timeout event logging**: Log when timeouts are detected/processed
+8. **Add timeout metrics**: Monitor timeout frequency and processing latency
+9. **Consider blockchain time**: Use block timestamps for authoritative time
+
+### Test Coverage Analysis
+
+**Escrow Tests** (`escrow_test.go`):
+- ✅ Tests timeout detection for funded escrows
+- ✅ Tests timeout ignored for non-funded escrows
+- ✅ Tests timeout field is set correctly
+- ⚠️ Missing: Timeout boundary tests (zero, negative, excessive)
+- ⚠️ Missing: Concurrent timeout processing tests
+- ⚠️ Missing: Timeout during state transition tests
+
+**Recommended Tests**:
+```go
+func TestCheckEscrowTimeouts_NegativeTimeout(t *testing.T)
+func TestCheckEscrowTimeouts_ZeroTimeout(t *testing.T)
+func TestCheckEscrowTimeouts_FarFutureTimeout(t *testing.T)
+func TestRefundBuyer_ConcurrentCalls(t *testing.T)
+func TestExtendTimeout_MutualAgreement(t *testing.T)
+```
+
+### Audit Conclusion
+
+The escrow timeout handling is **secure but incomplete** for production use. Key findings:
+
+**Strengths**:
+- Correct timeout detection logic
+- Proper state filtering (funded/disputed only)
+- Tamper-evident storage (absolute timestamps)
+- Thread-safe through store-level locking
+- Proper refund authorization (multisig)
+
+**Areas Requiring Attention**:
+1. **No automatic timeout enforcement**: Requires external monitoring
+2. **No timeout validation**: Accepts any duration (including negative)
+3. **No timeout extension mechanism**: Cannot modify once set
+4. **Performance concerns**: Linear scan doesn't scale well
+5. **Missing background processing**: No built-in timeout monitor
+
+**Risk Level**: **MEDIUM**
+
+While not critically insecure, production deployments should address the automatic enforcement and validation gaps. The current design is safe but requires careful operational procedures.
+
+
+
 
 
 
