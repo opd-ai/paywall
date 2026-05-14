@@ -397,11 +397,11 @@ The multisig implementation demonstrates solid cryptographic foundations but has
 
 #### Phase 1: Critical Fixes (Week 1)
 
-- [ ] **Arbiter Authorization System** (8-12h)
-  - [ ] Implement `Config.AuthorizedArbiters` allowlist
-  - [ ] Add arbiter public key validation in `ResolveDispute()`
-  - [ ] Reject unauthorized arbiter signatures
-  - [ ] Add arbiter management API
+- [x] **Arbiter Authorization System** (8-12h)
+  - [x] Implement `Config.AuthorizedArbiters` allowlist
+  - [x] Add arbiter public key validation in `ResolveDispute()`
+  - [x] Reject unauthorized arbiter signatures
+  - [x] Add arbiter management API
 
 - [ ] **Cryptographic Signature Verification** (6-8h)
   - [ ] Implement `verifySignatureAgainstTx()` function

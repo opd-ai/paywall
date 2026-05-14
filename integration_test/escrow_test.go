@@ -166,7 +166,8 @@ func TestEscrowDisputeResolutionFlow(t *testing.T) {
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{
 			wallet.Bitcoin: publicKeys,
 		},
-		MultisigRole: paywall.RoleBuyer,
+		MultisigRole:       paywall.RoleBuyer,
+		AuthorizedArbiters: [][]byte{arbiterPubKey},
 	}
 
 	pw, err := paywall.NewPaywall(config)
@@ -252,7 +253,8 @@ func TestEscrowDisputeResolutionInFavorOfSeller(t *testing.T) {
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{
 			wallet.Bitcoin: publicKeys,
 		},
-		MultisigRole: paywall.RoleSeller,
+		MultisigRole:       paywall.RoleSeller,
+		AuthorizedArbiters: [][]byte{arbiterPubKey}, // Add arbiter to authorized list
 	}
 
 	pw, err := paywall.NewPaywall(config)
@@ -618,7 +620,8 @@ func TestFailureRecoveryAndRollback(t *testing.T) {
 		ParticipantPubKeys: map[wallet.WalletType][][]byte{
 			wallet.Bitcoin: publicKeys,
 		},
-		MultisigRole: paywall.RoleBuyer,
+		MultisigRole:       paywall.RoleBuyer,
+		AuthorizedArbiters: [][]byte{arbiterPubKey},
 	}
 
 	pw, err := paywall.NewPaywall(config)

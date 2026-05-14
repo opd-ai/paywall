@@ -521,8 +521,9 @@ func TestEscrowManager_ResolveDispute(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := NewMemoryStore()
 			pw := &Paywall{
-				Store:     store,
-				HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
+				Store:              store,
+				HDWallets:          make(map[wallet.WalletType]wallet.HDWallet),
+				authorizedArbiters: [][]byte{arbiterSig.PublicKey}, // Add arbiter to authorized list
 			}
 
 			em, err := NewEscrowManager(pw)
@@ -631,8 +632,9 @@ func TestEscrowManager_RefundBuyer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			store := NewMemoryStore()
 			pw := &Paywall{
-				Store:     store,
-				HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
+				Store:              store,
+				HDWallets:          make(map[wallet.WalletType]wallet.HDWallet),
+				authorizedArbiters: [][]byte{arbiterSig.PublicKey}, // Add arbiter to authorized list
 			}
 
 			em, err := NewEscrowManager(pw)
@@ -763,5 +765,238 @@ func TestEscrowManager_GetEscrowState(t *testing.T) {
 	_, err = em.GetEscrowState("nonexistent")
 	if err == nil {
 		t.Error("GetEscrowState() expected error for nonexistent payment")
+	}
+}
+
+// TestEscrowManager_ResolveDispute_UnauthorizedArbiter tests that unauthorized arbiters are rejected
+func TestEscrowManager_ResolveDispute_UnauthorizedArbiter(t *testing.T) {
+	authorizedArbiterKey := []byte("authorized-arbiter-pubkey")
+	unauthorizedArbiterKey := []byte("unauthorized-arbiter-pubkey")
+
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:              store,
+		HDWallets:          make(map[wallet.WalletType]wallet.HDWallet),
+		authorizedArbiters: [][]byte{authorizedArbiterKey},
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create disputed payment
+	payment := &Payment{
+		ID:          "test-dispute",
+		EscrowState: EscrowDisputed,
+		Addresses:   map[wallet.WalletType]string{wallet.Bitcoin: "test-addr"},
+	}
+	store.CreatePayment(payment)
+
+	// Test with unauthorized arbiter
+	unauthorizedArbiterSig := &SignatureData{
+		SignerID:  "unauthorized-arbiter",
+		Role:      RoleArbiter,
+		Signature: []byte("arbiter-sig"),
+		PublicKey: unauthorizedArbiterKey,
+		SignedAt:  time.Now(),
+	}
+
+	buyerSig := &SignatureData{
+		SignerID:  "buyer-1",
+		Role:      RoleBuyer,
+		Signature: []byte("buyer-sig"),
+		PublicKey: []byte("buyer-pubkey"),
+		SignedAt:  time.Now(),
+	}
+
+	err = em.ResolveDispute(payment.ID, unauthorizedArbiterSig, buyerSig)
+	if err == nil {
+		t.Error("ResolveDispute() should reject unauthorized arbiter")
+	}
+	if err != nil && err.Error() != "arbiter is not authorized: public key not in authorized list" {
+		t.Errorf("ResolveDispute() wrong error message: %v", err)
+	}
+
+	// Test with authorized arbiter
+	authorizedArbiterSig := &SignatureData{
+		SignerID:  "authorized-arbiter",
+		Role:      RoleArbiter,
+		Signature: []byte("arbiter-sig"),
+		PublicKey: authorizedArbiterKey,
+		SignedAt:  time.Now(),
+	}
+
+	err = em.ResolveDispute(payment.ID, authorizedArbiterSig, buyerSig)
+	if err != nil {
+		t.Errorf("ResolveDispute() should accept authorized arbiter: %v", err)
+	}
+
+	// Verify state changed
+	updatedPayment, _ := store.GetPayment(payment.ID)
+	if updatedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("ResolveDispute() state = %v, want %v", updatedPayment.EscrowState, EscrowRefunded)
+	}
+}
+
+// TestEscrowManager_RefundBuyer_UnauthorizedArbiter tests arbiter validation in refunds
+func TestEscrowManager_RefundBuyer_UnauthorizedArbiter(t *testing.T) {
+	authorizedArbiterKey := []byte("authorized-arbiter-pubkey")
+	unauthorizedArbiterKey := []byte("unauthorized-arbiter-pubkey")
+
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:              store,
+		HDWallets:          make(map[wallet.WalletType]wallet.HDWallet),
+		authorizedArbiters: [][]byte{authorizedArbiterKey},
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create funded payment
+	payment := &Payment{
+		ID:          "test-refund",
+		EscrowState: EscrowFunded,
+		Addresses:   map[wallet.WalletType]string{wallet.Bitcoin: "test-addr"},
+	}
+	store.CreatePayment(payment)
+
+	buyerSig := &SignatureData{
+		SignerID:  "buyer-1",
+		Role:      RoleBuyer,
+		Signature: []byte("buyer-sig"),
+		PublicKey: []byte("buyer-pubkey"),
+		SignedAt:  time.Now(),
+	}
+
+	// Test with unauthorized arbiter
+	unauthorizedArbiterSig := &SignatureData{
+		SignerID:  "unauthorized-arbiter",
+		Role:      RoleArbiter,
+		Signature: []byte("arbiter-sig"),
+		PublicKey: unauthorizedArbiterKey,
+		SignedAt:  time.Now(),
+	}
+
+	err = em.RefundBuyer(payment.ID, buyerSig, unauthorizedArbiterSig)
+	if err == nil {
+		t.Error("RefundBuyer() should reject unauthorized arbiter")
+	}
+	if err != nil && err.Error() != "arbiter is not authorized: public key not in authorized list" {
+		t.Errorf("RefundBuyer() wrong error message: %v", err)
+	}
+
+	// Test with authorized arbiter
+	authorizedArbiterSig := &SignatureData{
+		SignerID:  "authorized-arbiter",
+		Role:      RoleArbiter,
+		Signature: []byte("arbiter-sig"),
+		PublicKey: authorizedArbiterKey,
+		SignedAt:  time.Now(),
+	}
+
+	err = em.RefundBuyer(payment.ID, buyerSig, authorizedArbiterSig)
+	if err != nil {
+		t.Errorf("RefundBuyer() should accept authorized arbiter: %v", err)
+	}
+
+	// Verify state changed
+	updatedPayment, _ := store.GetPayment(payment.ID)
+	if updatedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("RefundBuyer() state = %v, want %v", updatedPayment.EscrowState, EscrowRefunded)
+	}
+}
+
+// TestPaywall_ArbiterManagement tests arbiter authorization management
+func TestPaywall_ArbiterManagement(t *testing.T) {
+	pw := &Paywall{
+		authorizedArbiters: [][]byte{},
+	}
+
+	arbiter1 := []byte("arbiter-1-pubkey")
+	arbiter2 := []byte("arbiter-2-pubkey")
+	arbiter3 := []byte("arbiter-3-pubkey")
+
+	// Test IsAuthorizedArbiter with empty list
+	if pw.IsAuthorizedArbiter(arbiter1) {
+		t.Error("IsAuthorizedArbiter() should return false for empty list")
+	}
+
+	// Test AddAuthorizedArbiter
+	err := pw.AddAuthorizedArbiter(arbiter1)
+	if err != nil {
+		t.Errorf("AddAuthorizedArbiter() error = %v", err)
+	}
+
+	if !pw.IsAuthorizedArbiter(arbiter1) {
+		t.Error("IsAuthorizedArbiter() should return true after adding")
+	}
+
+	// Test adding duplicate
+	err = pw.AddAuthorizedArbiter(arbiter1)
+	if err == nil {
+		t.Error("AddAuthorizedArbiter() should reject duplicate")
+	}
+
+	// Test adding empty key
+	err = pw.AddAuthorizedArbiter([]byte{})
+	if err == nil {
+		t.Error("AddAuthorizedArbiter() should reject empty key")
+	}
+
+	// Add more arbiters
+	pw.AddAuthorizedArbiter(arbiter2)
+	pw.AddAuthorizedArbiter(arbiter3)
+
+	// Test GetAuthorizedArbiters
+	arbiters := pw.GetAuthorizedArbiters()
+	if len(arbiters) != 3 {
+		t.Errorf("GetAuthorizedArbiters() returned %d arbiters, want 3", len(arbiters))
+	}
+
+	// Test defensive copy (modifying result should not affect internal state)
+	arbiters[0] = []byte("modified")
+	if !pw.IsAuthorizedArbiter(arbiter1) {
+		t.Error("GetAuthorizedArbiters() did not return defensive copy")
+	}
+
+	// Test RemoveAuthorizedArbiter
+	err = pw.RemoveAuthorizedArbiter(arbiter2)
+	if err != nil {
+		t.Errorf("RemoveAuthorizedArbiter() error = %v", err)
+	}
+
+	if pw.IsAuthorizedArbiter(arbiter2) {
+		t.Error("IsAuthorizedArbiter() should return false after removal")
+	}
+
+	// Test removing non-existent arbiter
+	err = pw.RemoveAuthorizedArbiter([]byte("nonexistent"))
+	if err == nil {
+		t.Error("RemoveAuthorizedArbiter() should error for non-existent arbiter")
+	}
+
+	// Verify remaining arbiters
+	arbiters = pw.GetAuthorizedArbiters()
+	if len(arbiters) != 2 {
+		t.Errorf("GetAuthorizedArbiters() returned %d arbiters, want 2", len(arbiters))
+	}
+}
+
+// TestPaywall_ArbiterManagement_EmptyList tests behavior with no authorized arbiters
+func TestPaywall_ArbiterManagement_EmptyList(t *testing.T) {
+	pw := &Paywall{}
+
+	// Test with nil list
+	if pw.IsAuthorizedArbiter([]byte("any-key")) {
+		t.Error("IsAuthorizedArbiter() should return false with nil list")
+	}
+
+	arbiters := pw.GetAuthorizedArbiters()
+	if arbiters != nil {
+		t.Error("GetAuthorizedArbiters() should return nil for empty list")
 	}
 }
