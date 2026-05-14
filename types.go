@@ -79,6 +79,12 @@ type Payment struct {
 	// BroadcastAttempts counts how many times broadcast has been attempted
 	// Used to prevent repeated broadcast attempts and detect issues
 	BroadcastAttempts int `json:"broadcast_attempts,omitempty"`
+
+	// State transition tracking (optional - for escrow state machine audit trail)
+
+	// StateTransitionHistory records all state changes for this payment
+	// Provides an audit trail of escrow state transitions
+	StateTransitionHistory []StateTransitionHistory `json:"state_transition_history,omitempty"`
 }
 
 // EscrowState represents the current state of an escrow transaction

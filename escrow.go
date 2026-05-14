@@ -35,8 +35,9 @@ var (
 // It coordinates state transitions and enforces escrow rules
 // Related types: Payment, Paywall, EscrowState, AuditLogger
 type EscrowManager struct {
-	paywall     *Paywall
-	auditLogger AuditLogger
+	paywall        *Paywall
+	auditLogger    AuditLogger
+	stateValidator *EscrowStateValidator
 }
 
 // NewEscrowManager creates a new escrow manager for the given paywall
@@ -47,8 +48,9 @@ func NewEscrowManager(pw *Paywall) (*EscrowManager, error) {
 		return nil, errors.New("paywall cannot be nil")
 	}
 	return &EscrowManager{
-		paywall:     pw,
-		auditLogger: NewMemoryAuditLogger(),
+		paywall:        pw,
+		auditLogger:    NewMemoryAuditLogger(),
+		stateValidator: NewEscrowStateValidator(),
 	}, nil
 }
 
@@ -62,8 +64,9 @@ func NewEscrowManagerWithAudit(pw *Paywall, logger AuditLogger) (*EscrowManager,
 		return nil, errors.New("audit logger cannot be nil")
 	}
 	return &EscrowManager{
-		paywall:     pw,
-		auditLogger: logger,
+		paywall:        pw,
+		auditLogger:    logger,
+		stateValidator: NewEscrowStateValidator(),
 	}, nil
 }
 

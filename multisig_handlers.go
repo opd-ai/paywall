@@ -132,6 +132,7 @@ type MultisigCoordinator struct {
 	authenticator  MultisigAuthenticator
 	notifier       MultisigWebhookNotifier
 	btcBroadcaster *BTCBroadcaster // Optional Bitcoin transaction broadcaster
+	xmrBroadcaster *XMRBroadcaster // Optional Monero transaction broadcaster
 }
 
 // NewMultisigCoordinator creates a new coordinator with optional authenticator and notifier
@@ -147,6 +148,12 @@ func NewMultisigCoordinator(pw *Paywall, auth MultisigAuthenticator, notifier Mu
 // This enables transaction broadcasting functionality for Bitcoin multisig payments
 func (mc *MultisigCoordinator) SetBTCBroadcaster(broadcaster *BTCBroadcaster) {
 	mc.btcBroadcaster = broadcaster
+}
+
+// SetXMRBroadcaster configures the Monero transaction broadcaster
+// This enables transaction broadcasting functionality for Monero multisig payments
+func (mc *MultisigCoordinator) SetXMRBroadcaster(broadcaster *XMRBroadcaster) {
+	mc.xmrBroadcaster = broadcaster
 }
 
 // HandleInitiate processes POST /multisig/initiate requests
@@ -461,8 +468,51 @@ func (mc *MultisigCoordinator) HandleBroadcast(w http.ResponseWriter, r *http.Re
 		json.NewEncoder(w).Encode(resp)
 		return
 	} else if req.WalletType == wallet.Monero {
-		// TODO: Implement Monero broadcast support
-		http.Error(w, "Monero broadcasting not yet implemented", http.StatusNotImplemented)
+		if mc.xmrBroadcaster == nil {
+			http.Error(w, "Monero broadcasting not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		// Validate transaction before broadcasting
+		if err := mc.xmrBroadcaster.ValidateTransaction(string(req.Transaction), payment); err != nil {
+			http.Error(w, fmt.Sprintf("Transaction validation failed: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Broadcast transaction to Monero network
+		txID, err := mc.xmrBroadcaster.Broadcast(string(req.Transaction))
+		if err != nil {
+			// Increment broadcast attempt counter even on failure
+			payment.BroadcastAttempts++
+			_ = mc.paywall.Store.UpdatePayment(payment)
+
+			http.Error(w, fmt.Sprintf("Broadcast failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Update payment with broadcast information
+		payment.TransactionID = txID
+		payment.BroadcastedAt = time.Now()
+		payment.BroadcastAttempts++
+
+		if err := mc.paywall.Store.UpdatePayment(payment); err != nil {
+			log.Printf("WARNING: Transaction broadcast succeeded but failed to update payment: %v", err)
+			// Continue anyway - transaction is on the blockchain
+		}
+
+		// Send webhook notification
+		if mc.notifier != nil {
+			go mc.notifier.NotifyBroadcastComplete(req.PaymentID, txID)
+		}
+
+		resp := MultisigBroadcastResponse{
+			Success:       true,
+			TransactionID: txID,
+			Message:       "Transaction broadcast successful",
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 		return
 	} else {
 		http.Error(w, "Unsupported wallet type", http.StatusBadRequest)
