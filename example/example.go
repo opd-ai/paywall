@@ -1,4 +1,9 @@
 // Package main provides an example implementation of a Bitcoin paywall-protected HTTP server
+//
+// This example demonstrates a dual-currency configuration (Bitcoin + Monero).
+// For simpler single-currency examples, see:
+//   - example/bitcoin-only/main.go - Bitcoin-only paywall
+//   - example/monero-only/main.go - Monero-only paywall (privacy-focused)
 package main
 
 import (

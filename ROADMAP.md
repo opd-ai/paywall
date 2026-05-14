@@ -319,10 +319,10 @@ func TestStoreImplementationsConsistency(t *testing.T) {
 **Files**: `example/` directory
 
 **Validation Criteria**:
-- [ ] Create `example/bitcoin-only/main.go` showing Config with only BTC fields
-- [ ] Create `example/monero-only/main.go` showing Config with only XMR fields
-- [ ] Update `example/example.go` godoc to reference the simpler examples
-- [ ] Test: `go run example/bitcoin-only/main.go` works without XMR env vars
+- [x] Create `example/bitcoin-only/main.go` showing Config with only BTC fields
+- [x] Create `example/monero-only/main.go` showing Config with only XMR fields
+- [x] Update `example/example.go` godoc to reference the simpler examples
+- [x] Test: `go run example/bitcoin-only/main.go` works without XMR env vars
 
 **Estimated Effort**: 2-3 hours  
 **Blocking**: None (enhancement)
