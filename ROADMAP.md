@@ -125,7 +125,7 @@ func Intn(n int) int {
 **Option A (Remove)**: If wallet recovery not a claimed feature
 - [x] Remove `RecoverNextIndex()` or make private (rename to `recoverNextIndex`)
 - [x] Add godoc: `// Note: Wallet recovery from seed not supported. Backup wallet files instead.`
-- [ ] Update README to clarify: "Wallet persistence via encrypted file storage, not seed recovery"
+- [x] Update README to clarify: "Wallet persistence via encrypted file storage, not seed recovery"
 
 **Option B (Implement)**: If wallet recovery is intended
 - [ ] Call `RecoverNextIndex()` in `LoadFromFile()` after loading wallet from backup

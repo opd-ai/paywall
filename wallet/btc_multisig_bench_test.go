@@ -150,10 +150,13 @@ func BenchmarkMultisig_SignatureCreation(b *testing.B) {
 
 	// Create test transaction
 	outputs := map[string]int64{
-		"tb1qw508d6qejxtdg4y5r3zarvaryvhxl9z": 90000, // SegWit testnet address
+		"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx": 90000, // Valid SegWit testnet address
 	}
 
-	tx, _ := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+	tx, err := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+	if err != nil {
+		b.Fatalf("Failed to create transaction: %v", err)
+	}
 
 	b.Run("SignSingleInput", func(b *testing.B) {
 		b.ResetTimer()
@@ -167,7 +170,10 @@ func BenchmarkMultisig_SignatureCreation(b *testing.B) {
 
 	b.Run("SignMultipleInputs_3Inputs", func(b *testing.B) {
 		// Create transaction with 3 inputs
-		tx3, _ := CreateMultisigPaymentTx([]UTXO{utxo, utxo, utxo}, outputs, network)
+		tx3, err := CreateMultisigPaymentTx([]UTXO{utxo, utxo, utxo}, outputs, network)
+		if err != nil {
+			b.Fatalf("Failed to create transaction: %v", err)
+		}
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for inputIdx := 0; inputIdx < 3; inputIdx++ {
@@ -201,11 +207,17 @@ func BenchmarkMultisig_SignatureVerification(b *testing.B) {
 	}
 
 	outputs := map[string]int64{
-		"tb1qw508d6qejxtdg4y5r3zarvaryvhxl9z": 90000,
+		"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx": 90000,
 	}
 
-	tx, _ := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
-	tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
+	tx, err := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+	if err != nil {
+		b.Fatalf("Failed to create transaction: %v", err)
+	}
+	err = tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
+	if err != nil {
+		b.Fatalf("Failed to sign transaction: %v", err)
+	}
 
 	// Get the signature we just created
 	sig := tx.Signatures[0][0]
@@ -297,10 +309,13 @@ func BenchmarkMultisig_TransactionSerialization(b *testing.B) {
 	}
 
 	outputs := map[string]int64{
-		"tb1qw508d6qejxtdg4y5r3zarvaryvhxl9z": 90000,
+		"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx": 90000,
 	}
 
-	tx, _ := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+	tx, err := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+	if err != nil {
+		b.Fatalf("Failed to create transaction: %v", err)
+	}
 
 	b.Run("SerializeUnsigned", func(b *testing.B) {
 		b.ResetTimer()
@@ -357,14 +372,17 @@ func BenchmarkMultisig_CombineSignatures(b *testing.B) {
 	}
 
 	outputs := map[string]int64{
-		"tb1qw508d6qejxtdg4y5r3zarvaryvhxl9z": 90000,
+		"tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx": 90000,
 	}
 
 	b.Run("Combine3of5Signatures", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			// Create fresh transaction for each iteration
-			tx, _ := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+			tx, err := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
+			if err != nil {
+				b.Fatalf("Failed to create transaction: %v", err)
+			}
 
 			// Collect signatures from 3 participants
 			tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
