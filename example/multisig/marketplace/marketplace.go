@@ -94,7 +94,7 @@ func NewMarketplace() (*Marketplace, error) {
 // marketplaceNotifier implements webhook notifications
 type marketplaceNotifier struct{}
 
-func (n *marketplaceNotifier) NotifySignatureReceived(paymentID string, signerID string, role paywall.MultisigRole) error {
+func (n *marketplaceNotifier) NotifySignatureReceived(paymentID, signerID string, role paywall.MultisigRole) error {
 	fmt.Printf("[WEBHOOK] Signature received from %s (%s) for payment %s\n", signerID, role, paymentID)
 	return nil
 }
@@ -104,7 +104,7 @@ func (n *marketplaceNotifier) NotifyReadyToBroadcast(paymentID string) error {
 	return nil
 }
 
-func (n *marketplaceNotifier) NotifyBroadcastComplete(paymentID string, txID string) error {
+func (n *marketplaceNotifier) NotifyBroadcastComplete(paymentID, txID string) error {
 	fmt.Printf("[WEBHOOK] Transaction %s broadcast for payment %s\n", txID, paymentID)
 	return nil
 }

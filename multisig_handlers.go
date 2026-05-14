@@ -119,11 +119,11 @@ type MultisigAuthenticator interface {
 // MultisigWebhookNotifier sends webhook notifications for multisig events
 type MultisigWebhookNotifier interface {
 	// NotifySignatureReceived sends notification when a signature is collected
-	NotifySignatureReceived(paymentID string, signerID string, role MultisigRole) error
+	NotifySignatureReceived(paymentID, signerID string, role MultisigRole) error
 	// NotifyReadyToBroadcast sends notification when all signatures are collected
 	NotifyReadyToBroadcast(paymentID string) error
 	// NotifyBroadcastComplete sends notification when transaction is broadcast
-	NotifyBroadcastComplete(paymentID string, txID string) error
+	NotifyBroadcastComplete(paymentID, txID string) error
 }
 
 // MultisigCoordinator manages signature coordination for multisig payments

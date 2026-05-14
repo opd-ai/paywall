@@ -141,8 +141,8 @@ func FuzzEscrowStateTransitions(f *testing.F) {
 // This function doesn't validate the transition is legal - it just attempts it
 func attemptStateTransition(t *testing.T, em *EscrowManager, store PaymentStore,
 	paymentID string, from, to EscrowState,
-	buyerPubKey, sellerPubKey, arbiterPubKey []byte) {
-
+	buyerPubKey, sellerPubKey, arbiterPubKey []byte,
+) {
 	// Helper to create signature data
 	makeSig := func(role MultisigRole, pubKey []byte, suffix string) *SignatureData {
 		return &SignatureData{

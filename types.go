@@ -9,11 +9,9 @@ import (
 	"github.com/opd-ai/paywall/wallet"
 )
 
-var (
-	// ErrVersionConflict indicates a payment was modified by another operation
-	// This error is returned when optimistic locking detects concurrent modifications
-	ErrVersionConflict = errors.New("payment version conflict: payment was modified by another operation")
-)
+// ErrVersionConflict indicates a payment was modified by another operation
+// This error is returned when optimistic locking detects concurrent modifications
+var ErrVersionConflict = errors.New("payment version conflict: payment was modified by another operation")
 
 // PaymentStatus represents the current state of a payment in the system
 type PaymentStatus string

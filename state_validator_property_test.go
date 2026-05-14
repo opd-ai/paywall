@@ -327,6 +327,9 @@ func TestStateValidatorConcurrency(t *testing.T) {
 func TestPaymentTransitionConcurrency(t *testing.T) {
 	// Skip if running with race detector since we're intentionally testing racy behavior
 	// The actual store implementations (MemoryStore, FileStore) use proper locking
+	if raceDetectorEnabled {
+		t.Skip("Skipping race demonstration test when race detector is enabled")
+	}
 	if testing.Short() {
 		t.Skip("Skipping race demonstration test in short mode")
 	}

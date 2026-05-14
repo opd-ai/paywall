@@ -26,7 +26,7 @@ type MultisigClient struct {
 //
 // Returns:
 //   - *MultisigClient: Configured client instance
-func NewMultisigClient(baseURL string, authToken string) *MultisigClient {
+func NewMultisigClient(baseURL, authToken string) *MultisigClient {
 	return &MultisigClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
@@ -239,7 +239,7 @@ func (mc *MultisigClient) WaitForSignatures(
 }
 
 // doRequest performs an HTTP request with JSON encoding/decoding
-func (mc *MultisigClient) doRequest(method, endpoint string, reqBody interface{}, respBody interface{}) error {
+func (mc *MultisigClient) doRequest(method, endpoint string, reqBody, respBody interface{}) error {
 	url := mc.baseURL + endpoint
 
 	var body io.Reader

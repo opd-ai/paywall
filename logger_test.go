@@ -57,7 +57,7 @@ func TestStructuredLogger_JSONOutput(t *testing.T) {
 	logger.LogPaymentCreated(paymentID, 0.001, wallet.Bitcoin, true)
 
 	output := buf.String()
-	
+
 	// Verify it's valid JSON
 	var entry LogEntry
 	err := json.Unmarshal([]byte(strings.TrimSpace(output)), &entry)
@@ -67,7 +67,7 @@ func TestStructuredLogger_JSONOutput(t *testing.T) {
 
 	// Verify fields
 	if entry.Event != "payment_created" {
-		t.Errorf("expected event 'payment_created', got '%s'", entry. Event)
+		t.Errorf("expected event 'payment_created', got '%s'", entry.Event)
 	}
 	if entry.PaymentID != paymentID {
 		t.Errorf("expected payment_id '%s', got '%s'", paymentID, entry.PaymentID)
@@ -109,7 +109,7 @@ func TestStructuredLogger_MultisigEvents(t *testing.T) {
 	logger := NewStructuredLogger(&buf, LogLevelInfo, true)
 
 	paymentID := "test-payment-123"
-	
+
 	// Log various multisig events
 	logger.LogMultisigAddressGenerated(paymentID, "2MzQw...", wallet.Bitcoin, 2, 3)
 	logger.LogPartialSignatureSubmitted(paymentID, RoleBuyer, 0)
@@ -145,7 +145,7 @@ func TestStructuredLogger_EscrowEvents(t *testing.T) {
 	logger := NewStructuredLogger(&buf, LogLevelInfo, true)
 
 	paymentID := "test-payment-123"
-	
+
 	// Log escrow lifecycle
 	logger.LogEscrowCreated(paymentID, 0.001, wallet.Bitcoin, []MultisigRole{RoleBuyer, RoleSeller, RoleArbiter})
 	logger.LogEscrowStateTransition(paymentID, EscrowPending, EscrowFunded, RoleBuyer)
@@ -179,7 +179,7 @@ func TestStructuredLogger_DisputeEvents(t *testing.T) {
 	logger := NewStructuredLogger(&buf, LogLevelInfo, true)
 
 	paymentID := "test-payment-123"
-	
+
 	logger.LogDisputeInitiated(paymentID, RoleBuyer, "Product not delivered")
 	logger.LogArbiterVoteSubmitted(paymentID, 0, RoleSeller)
 	logger.LogArbiterVoteSubmitted(paymentID, 1, RoleSeller)
@@ -215,7 +215,7 @@ func TestStructuredLogger_ErrorEvents(t *testing.T) {
 	logger := NewStructuredLogger(&buf, LogLevelError, true)
 
 	paymentID := "test-payment-123"
-	
+
 	logger.LogSignatureVerificationFailed(paymentID, RoleBuyer, "invalid signature format")
 	logger.LogTransactionBroadcastFailed(paymentID, "tx123", fmt.Errorf("network error"))
 	logger.LogInvalidStateTransition(paymentID, EscrowCompleted, EscrowPending)
@@ -245,7 +245,7 @@ func TestStructuredLogger_TimeoutEvents(t *testing.T) {
 	logger := NewStructuredLogger(&buf, LogLevelInfo, true)
 
 	paymentID := "test-payment-123"
-	
+
 	logger.LogEscrowTimeout(paymentID, EscrowFunded, 86400000)
 	logger.LogTimeoutAutomation(paymentID, "auto_refund_to_buyer")
 
@@ -282,7 +282,7 @@ func TestStructuredLogger_PaymentEvents(t *testing.T) {
 	logger := NewStructuredLogger(&buf, LogLevelInfo, true)
 
 	paymentID := "test-payment-123"
-	
+
 	logger.LogPaymentCreated(paymentID, 0.001, wallet.Bitcoin, true)
 	logger.LogPaymentConfirmed(paymentID, 6, "tx123")
 	logger.LogPaymentExpired(paymentID, time.Now().Add(-25*time.Hour))

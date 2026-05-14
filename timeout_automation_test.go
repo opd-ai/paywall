@@ -127,7 +127,6 @@ func TestTimeoutMonitor_GetCurrentTime_Blockchain(t *testing.T) {
 
 	// Should fall back to system time since blockchain provider not implemented
 	currentTime, err := monitor.getCurrentTime()
-
 	if err != nil {
 		t.Errorf("getCurrentTime() error = %v", err)
 	}

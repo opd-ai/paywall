@@ -302,7 +302,7 @@ func (l *StructuredLogger) LogEscrowTimeout(paymentID string, state EscrowState,
 	})
 }
 
-func (l *StructuredLogger) LogTimeoutAutomation(paymentID string, actionTaken string) {
+func (l *StructuredLogger) LogTimeoutAutomation(paymentID, actionTaken string) {
 	l.log(LogEntry{
 		Level:     LogLevelInfo,
 		Event:     "timeout_automation",

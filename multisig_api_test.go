@@ -62,7 +62,6 @@ func TestMultisigClient_InitiateMultisig(t *testing.T) {
 		RoleBuyer,
 		1.0,
 	)
-
 	if err != nil {
 		t.Fatalf("InitiateMultisig failed: %v", err)
 	}
@@ -126,7 +125,6 @@ func TestMultisigClient_SubmitSignature(t *testing.T) {
 		[]byte("signature-bytes"),
 		[]byte("pubkey-bytes"),
 	)
-
 	if err != nil {
 		t.Fatalf("SubmitSignature failed: %v", err)
 	}
@@ -171,7 +169,6 @@ func TestMultisigClient_GetStatus(t *testing.T) {
 	client := NewMultisigClient(server.URL, "test-token")
 
 	resp, err := client.GetStatus("payment123")
-
 	if err != nil {
 		t.Fatalf("GetStatus failed: %v", err)
 	}
@@ -228,7 +225,6 @@ func TestMultisigClient_BroadcastTransaction(t *testing.T) {
 		wallet.Bitcoin,
 		[]byte("signed-tx-bytes"),
 	)
-
 	if err != nil {
 		t.Fatalf("BroadcastTransaction failed: %v", err)
 	}
@@ -264,7 +260,6 @@ func TestMultisigClient_WaitForSignatures(t *testing.T) {
 	client := NewMultisigClient(server.URL, "test-token")
 
 	resp, err := client.WaitForSignatures("payment123", 5*time.Second, 100*time.Millisecond)
-
 	if err != nil {
 		t.Fatalf("WaitForSignatures failed: %v", err)
 	}

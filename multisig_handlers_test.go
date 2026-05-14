@@ -55,7 +55,7 @@ type mockNotifier struct {
 	lastTxID          string
 }
 
-func (m *mockNotifier) NotifySignatureReceived(paymentID string, signerID string, role MultisigRole) error {
+func (m *mockNotifier) NotifySignatureReceived(paymentID, signerID string, role MultisigRole) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.signatureReceived++
@@ -71,7 +71,7 @@ func (m *mockNotifier) NotifyReadyToBroadcast(paymentID string) error {
 	return nil
 }
 
-func (m *mockNotifier) NotifyBroadcastComplete(paymentID string, txID string) error {
+func (m *mockNotifier) NotifyBroadcastComplete(paymentID, txID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.broadcastComplete++
