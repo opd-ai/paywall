@@ -184,7 +184,7 @@ func TestEscrowManager_FundEscrow(t *testing.T) {
 
 			if tt.expectedError != nil && err != nil && err != tt.expectedError {
 				// Check if the error wraps the expected error
-				if err.Error() == "" || err == nil {
+				if err.Error() != "" && err.Error() != tt.expectedError.Error() {
 					t.Errorf("FundEscrow() error = %v, want %v", err, tt.expectedError)
 				}
 			}

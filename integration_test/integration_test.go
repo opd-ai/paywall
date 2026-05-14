@@ -201,7 +201,7 @@ func TestMixedEnvironment(t *testing.T) {
 	if singleSigPayment.Addresses[wallet.Bitcoin] == "" {
 		t.Error("Single-sig payment should have Bitcoin address")
 	}
-	if singleSigPayment.MultisigMetadata != nil && len(singleSigPayment.MultisigMetadata) > 0 {
+	if len(singleSigPayment.MultisigMetadata) > 0 {
 		t.Error("Single-sig payment should not have multisig metadata")
 	}
 

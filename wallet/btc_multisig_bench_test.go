@@ -240,12 +240,14 @@ func BenchmarkMultisig_SignatureVerification(b *testing.B) {
 // BenchmarkMultisig_KeyDerivation benchmarks public key derivation for multisig participants
 func BenchmarkMultisig_KeyDerivation(b *testing.B) {
 	privKey, _ := btcec.NewPrivateKey()
-	pubKey := privKey.PubKey().SerializeCompressed()
+	masterKey := privKey.Serialize()
+	chainCode := make([]byte, 32)
+	copy(chainCode, []byte("test_chain_code_32_bytes_long___"))
 
 	b.Run("DeriveIndex1", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, err := DeriveChildPublicKey(pubKey, 1)
+			_, err := DeriveParticipantKey(masterKey, chainCode, 1)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -255,7 +257,7 @@ func BenchmarkMultisig_KeyDerivation(b *testing.B) {
 	b.Run("DeriveIndex1000", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, err := DeriveChildPublicKey(pubKey, 1000)
+			_, err := DeriveParticipantKey(masterKey, chainCode, 1000)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -266,7 +268,7 @@ func BenchmarkMultisig_KeyDerivation(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for idx := uint32(0); idx < 100; idx++ {
-				_, err := DeriveChildPublicKey(pubKey, idx)
+				_, err := DeriveParticipantKey(masterKey, chainCode, idx)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -311,8 +313,8 @@ func BenchmarkMultisig_TransactionSerialization(b *testing.B) {
 	})
 
 	// Sign transaction
-	tx.SignMultisigTx(0, privKeys[0], redeemScript, false)
-	tx.SignMultisigTx(0, privKeys[1], redeemScript, false)
+	tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
+	tx.SignMultisigTx(0, privKeys[1], txscript.SigHashAll)
 
 	b.Run("SerializeSigned", func(b *testing.B) {
 		b.ResetTimer()
@@ -365,9 +367,9 @@ func BenchmarkMultisig_CombineSignatures(b *testing.B) {
 			tx, _ := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
 
 			// Collect signatures from 3 participants
-			tx.SignMultisigTx(0, privKeys[0], redeemScript, false)
-			tx.SignMultisigTx(0, privKeys[2], redeemScript, false)
-			tx.SignMultisigTx(0, privKeys[4], redeemScript, false)
+			tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
+			tx.SignMultisigTx(0, privKeys[2], txscript.SigHashAll)
+			tx.SignMultisigTx(0, privKeys[4], txscript.SigHashAll)
 
 			// Verify we have required signatures
 			required, collected, _ := tx.GetRequiredSignatures(0)
