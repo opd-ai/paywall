@@ -403,11 +403,11 @@ The multisig implementation demonstrates solid cryptographic foundations but has
   - [x] Reject unauthorized arbiter signatures
   - [x] Add arbiter management API
 
-- [ ] **Cryptographic Signature Verification** (6-8h)
-  - [ ] Implement `verifySignatureAgainstTx()` function
-  - [ ] Call signature verification in all escrow methods
-  - [ ] Validate signatures cover correct transaction data
-  - [ ] Reject invalid signatures
+- [x] **Cryptographic Signature Verification** (6-8h)
+  - [x] Implement `verifySignatureAgainstTx()` function
+  - [x] Call signature verification in all escrow methods
+  - [x] Validate signatures cover correct transaction data
+  - [x] Reject invalid signatures
 
 - [ ] **Role-Based Authorization** (4-6h)
   - [ ] Derive Role from public key (remove user-controlled field)

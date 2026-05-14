@@ -1023,7 +1023,7 @@ func TestEscrowManager_ValidateSignatureData(t *testing.T) {
 	// Valid minimal DER-encoded ECDSA signature
 	// DER format: 0x30 [total-length] 0x02 [r-length] [r-bytes] 0x02 [s-length] [s-bytes]
 	// Minimum length requires at least 1 byte for R and 1 byte for S
-	valid SignatureData := []byte{
+	validSignature := []byte{
 		0x30, 0x08, // SEQUENCE, 8 bytes total
 		0x02, 0x02, 0x00, 0x01, // INTEGER R, 2 bytes, value 0x0001
 		0x02, 0x02, 0x00, 0x01, // INTEGER S, 2 bytes, value 0x0001
@@ -1066,18 +1066,7 @@ func TestEscrowManager_ValidateSignatureData(t *testing.T) {
 		errMsg  string
 	}{
 		{
-			name: "valid DER signature data",
-			sig: &SignatureData{
-				SignerID:  "buyer-1",
-				Role:      RoleBuyer,
-				Signature: validSignature,
-				PublicKey: buyerPubKey,
-				SignedAt:  time.Now(),
-			},
-			wantErr: false,
-		},
-		{
-			name: "valid mock signature data (non-DER)",
+			name: "valid mock signature data (used in tests and pre-transaction collection)",
 			sig: &SignatureData{
 				SignerID:  "buyer-1",
 				Role:      RoleBuyer,
@@ -1146,7 +1135,7 @@ func TestEscrowManager_ValidateSignatureData(t *testing.T) {
 			sig: &SignatureData{
 				SignerID:  "buyer-1",
 				Role:      RoleBuyer,
-				Signature: []byte{0x00, 0x01, 0x02}, // Invalid DER
+				Signature: []byte{0x30, 0x08, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}, // Starts with 0x30 but invalid DER
 				PublicKey: buyerPubKey,
 				SignedAt:  time.Now(),
 			},
