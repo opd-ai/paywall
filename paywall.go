@@ -75,6 +75,13 @@ type Config struct {
 	// Common values: RoleBuyer, RoleSeller, RoleArbiter.
 	// Optional: only needed for escrow/dispute resolution workflows.
 	MultisigRole MultisigRole
+
+	// AuthorizedArbiters contains the public keys of arbiters authorized to resolve disputes.
+	// Each arbiter's public key (in compressed or uncompressed format) grants them
+	// permission to participate in dispute resolution.
+	// Optional: only required for escrow workflows with dispute resolution.
+	// If nil or empty, any arbiter signature will be rejected (no arbitration possible).
+	AuthorizedArbiters [][]byte
 }
 
 // Paywall manages Bitcoin payment processing and verification
@@ -112,6 +119,8 @@ type Paywall struct {
 	participantPubKeys map[wallet.WalletType][][]byte
 	// multisigRole identifies this instance's role in multisig transactions (buyer/seller/arbiter)
 	multisigRole MultisigRole
+	// authorizedArbiters contains public keys of arbiters authorized for dispute resolution
+	authorizedArbiters [][]byte
 }
 
 // NewPaywall creates and initializes a new Paywall instance
@@ -272,6 +281,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 		multisigTotal:      config.MultisigTotal,
 		participantPubKeys: config.ParticipantPubKeys,
 		multisigRole:       config.MultisigRole,
+		authorizedArbiters: config.AuthorizedArbiters,
 	}
 	// Initialize monitor
 	monitor := &CryptoChainMonitor{
@@ -458,4 +468,108 @@ func generatePaymentID() (string, error) {
 		return "", fmt.Errorf("failed to generate secure random payment ID: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// IsAuthorizedArbiter checks if a public key is in the authorized arbiters list
+// Parameters:
+//   - pubKey: The public key to check (compressed or uncompressed format)
+//
+// Returns:
+//   - bool: true if the public key is authorized, false otherwise
+//
+// This method performs a byte-wise comparison of the provided public key
+// against all authorized arbiter keys. Used for validating arbiter signatures
+// in dispute resolution workflows.
+//
+// Related types: SignatureData, MultisigRole
+func (p *Paywall) IsAuthorizedArbiter(pubKey []byte) bool {
+	if len(p.authorizedArbiters) == 0 {
+		return false
+	}
+	for _, authorizedKey := range p.authorizedArbiters {
+		if bytesEqual(pubKey, authorizedKey) {
+			return true
+		}
+	}
+	return false
+}
+
+// AddAuthorizedArbiter adds a public key to the list of authorized arbiters
+// Parameters:
+//   - pubKey: The public key to authorize (compressed or uncompressed format)
+//
+// Returns:
+//   - error: If the public key is invalid or already exists
+//
+// This method validates that the public key is not empty and not already
+// in the authorized list before adding it. The public key should be in
+// the same format as used in multisig participant keys.
+//
+// Related types: SignatureData, MultisigRole
+func (p *Paywall) AddAuthorizedArbiter(pubKey []byte) error {
+	if len(pubKey) == 0 {
+		return fmt.Errorf("public key cannot be empty")
+	}
+	if p.IsAuthorizedArbiter(pubKey) {
+		return fmt.Errorf("arbiter already authorized")
+	}
+	p.authorizedArbiters = append(p.authorizedArbiters, pubKey)
+	return nil
+}
+
+// RemoveAuthorizedArbiter removes a public key from the authorized arbiters list
+// Parameters:
+//   - pubKey: The public key to remove
+//
+// Returns:
+//   - error: If the public key is not found in the authorized list
+//
+// This method searches for the public key in the authorized arbiters list
+// and removes it if found. Returns an error if the key is not authorized.
+//
+// Related types: SignatureData, MultisigRole
+func (p *Paywall) RemoveAuthorizedArbiter(pubKey []byte) error {
+	for i, authorizedKey := range p.authorizedArbiters {
+		if bytesEqual(pubKey, authorizedKey) {
+			// Remove by swapping with last element and truncating
+			p.authorizedArbiters[i] = p.authorizedArbiters[len(p.authorizedArbiters)-1]
+			p.authorizedArbiters = p.authorizedArbiters[:len(p.authorizedArbiters)-1]
+			return nil
+		}
+	}
+	return fmt.Errorf("arbiter not found in authorized list")
+}
+
+// GetAuthorizedArbiters returns a copy of the authorized arbiters list
+// Returns:
+//   - [][]byte: A slice containing copies of all authorized arbiter public keys
+//
+// This method returns a defensive copy to prevent external modification
+// of the internal authorized arbiters list.
+//
+// Related types: SignatureData, MultisigRole
+func (p *Paywall) GetAuthorizedArbiters() [][]byte {
+	if len(p.authorizedArbiters) == 0 {
+		return nil
+	}
+	// Return defensive copy
+	result := make([][]byte, len(p.authorizedArbiters))
+	for i, key := range p.authorizedArbiters {
+		result[i] = make([]byte, len(key))
+		copy(result[i], key)
+	}
+	return result
+}
+
+// bytesEqual performs a constant-time comparison of two byte slices
+// to prevent timing attacks when comparing sensitive data like keys
+func bytesEqual(a, b []byte) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	result := byte(0)
+	for i := 0; i < len(a); i++ {
+		result |= a[i] ^ b[i]
+	}
+	return result == 0
 }

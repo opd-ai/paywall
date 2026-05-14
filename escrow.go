@@ -210,6 +210,11 @@ func (em *EscrowManager) ResolveDispute(paymentID string, arbiterSig, winnerSig 
 		return fmt.Errorf("first signature must be from arbiter")
 	}
 
+	// Validate arbiter is authorized
+	if !em.paywall.IsAuthorizedArbiter(arbiterSig.PublicKey) {
+		return fmt.Errorf("arbiter is not authorized: public key not in authorized list")
+	}
+
 	if winnerSig.Role != RoleBuyer && winnerSig.Role != RoleSeller {
 		return fmt.Errorf("second signature must be from buyer or seller")
 	}
@@ -267,6 +272,9 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 	// 1. Buyer + Seller (mutual agreement)
 	// 2. Buyer + Arbiter (timeout or arbiter decision)
 	validRefund := false
+	arbiterInvolved := false
+	var arbiterSig *SignatureData
+
 	if (sig1.Role == RoleBuyer && sig2.Role == RoleSeller) ||
 		(sig1.Role == RoleSeller && sig2.Role == RoleBuyer) {
 		validRefund = true
@@ -274,10 +282,21 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 	if (sig1.Role == RoleBuyer && sig2.Role == RoleArbiter) ||
 		(sig1.Role == RoleArbiter && sig2.Role == RoleBuyer) {
 		validRefund = true
+		arbiterInvolved = true
+		if sig1.Role == RoleArbiter {
+			arbiterSig = sig1
+		} else {
+			arbiterSig = sig2
+		}
 	}
 
 	if !validRefund {
 		return fmt.Errorf("refund requires signatures from buyer+seller or buyer+arbiter")
+	}
+
+	// Validate arbiter is authorized if arbiter is involved
+	if arbiterInvolved && !em.paywall.IsAuthorizedArbiter(arbiterSig.PublicKey) {
+		return fmt.Errorf("arbiter is not authorized: public key not in authorized list")
 	}
 
 	// Add signatures to the payment
