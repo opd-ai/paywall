@@ -136,7 +136,7 @@ func Intn(n int) int {
 **Validation Criteria**:
 - [x] If removed: grep for `RecoverNextIndex` returns zero matches in `*.go` (excluding `_test.go`)
 - [ ] If implemented: Test case confirms address reuse prevented after recovery
-- [ ] Documentation updated to match chosen approach
+- [x] Documentation updated to match chosen approach
 
 **Estimated Effort**: 3-4 hours (removal) or 1-2 days (implementation)  
 **Blocking**: Wallet backup/recovery feature claims
