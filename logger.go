@@ -280,8 +280,8 @@ func (l *StructuredLogger) LogDisputeResolved(paymentID string, winner Role, con
 		PaymentID: paymentID,
 		Role:      winner,
 		Data: map[string]interface{}{
-			"winner":            winner,
-			"consensus_reached": consensusReached,
+			"winner":             winner,
+			"consensus_reached":  consensusReached,
 			"resolution_time_ms": resolutionTimeMs,
 		},
 	})

@@ -12,40 +12,40 @@ type MetricsCollector struct {
 	mu sync.RWMutex
 
 	// Multisig operation counters
-	multisigAddressGenerated      int64
-	partialSignatureSubmitted     int64
-	partialSignatureVerified      int64
-	multisigTransactionCompleted  int64
-	multisigTransactionBroadcast  int64
+	multisigAddressGenerated     int64
+	partialSignatureSubmitted    int64
+	partialSignatureVerified     int64
+	multisigTransactionCompleted int64
+	multisigTransactionBroadcast int64
 
 	// Escrow state transition counters
-	escrowCreated                 int64
-	escrowFunded                  int64
-	escrowCompleted               int64
-	escrowRefunded                int64
-	escrowDisputed                int64
-	escrowDisputeResolved         int64
+	escrowCreated         int64
+	escrowFunded          int64
+	escrowCompleted       int64
+	escrowRefunded        int64
+	escrowDisputed        int64
+	escrowDisputeResolved int64
 
 	// Dispute resolution timing
-	disputeResolutionDurations    []time.Duration
-	disputeResolutionCount        int64
-	disputeResolutionTotalMs      int64
+	disputeResolutionDurations []time.Duration
+	disputeResolutionCount     int64
+	disputeResolutionTotalMs   int64
 
 	// Payment operations
-	paymentCreated                int64
-	paymentConfirmed              int64
-	paymentExpired                int64
+	paymentCreated   int64
+	paymentConfirmed int64
+	paymentExpired   int64
 
 	// Error counters
-	signatureVerificationFailed   int64
-	transactionBroadcastFailed    int64
-	escrowTimeoutTriggered        int64
-	arbiterConsensusRequired      int64
+	signatureVerificationFailed int64
+	transactionBroadcastFailed  int64
+	escrowTimeoutTriggered      int64
+	arbiterConsensusRequired    int64
 
 	// Performance metrics
-	addressGenerationDurationMs   int64
+	addressGenerationDurationMs     int64
 	signatureVerificationDurationMs int64
-	stateTransitionDurationMs     int64
+	stateTransitionDurationMs       int64
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -130,11 +130,11 @@ func (m *MetricsCollector) IncrementEscrowDisputeResolved() {
 func (m *MetricsCollector) RecordDisputeResolutionDuration(duration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.disputeResolutionCount++
 	durationMs := duration.Milliseconds()
 	m.disputeResolutionTotalMs += durationMs
-	
+
 	// Keep last 100 durations for percentile calculations
 	if len(m.disputeResolutionDurations) < 100 {
 		m.disputeResolutionDurations = append(m.disputeResolutionDurations, duration)
@@ -229,9 +229,9 @@ type MetricsSnapshot struct {
 	EscrowDisputeResolved int64
 
 	// Dispute resolution
-	DisputeResolutionCount    int64
-	DisputeResolutionAvgMs    int64
-	DisputeResolutionTotalMs  int64
+	DisputeResolutionCount   int64
+	DisputeResolutionAvgMs   int64
+	DisputeResolutionTotalMs int64
 
 	// Payment operations
 	PaymentCreated   int64
@@ -245,9 +245,9 @@ type MetricsSnapshot struct {
 	ArbiterConsensusRequired    int64
 
 	// Performance
-	AddressGenerationDurationMs      int64
-	SignatureVerificationDurationMs  int64
-	StateTransitionDurationMs        int64
+	AddressGenerationDurationMs     int64
+	SignatureVerificationDurationMs int64
+	StateTransitionDurationMs       int64
 }
 
 func (m *MetricsCollector) Snapshot() MetricsSnapshot {
