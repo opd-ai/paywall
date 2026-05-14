@@ -446,11 +446,11 @@ The multisig implementation demonstrates solid cryptographic foundations but has
   - [x] Add state transition history to Payment
   - [x] Log invalid transition attempts
 
-- [ ] **Signature Replay Protection** (4-5h)
-  - [ ] Add nonce to signature data
-  - [ ] Bind signatures to payment ID
-  - [ ] Implement signature deduplication
-  - [ ] Add replay attack tests
+- [x] **Signature Replay Protection** (4-5h)
+  - [x] Add nonce to signature data
+  - [x] Bind signatures to payment ID
+  - [x] Implement signature deduplication
+  - [x] Add replay attack tests
 
 **Phase 2 Total**: ~37-54 hours
 
@@ -513,7 +513,7 @@ func TestState_TransitionHistory(t *testing.T)
 - [ ] Dispute resolution with multiple arbiters
 - [ ] Timeout-based refunds
 - [ ] Concurrent state modification stress tests
-- [ ] Signature replay attack attempts
+- [x] Signature replay attack attempts
 - [ ] Transaction malleability scenarios
 
 #### Security-Specific Tests
