@@ -2,12 +2,15 @@
 package integration_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/opd-ai/paywall"
 	"github.com/opd-ai/paywall/wallet"
 )
@@ -771,4 +774,199 @@ func TestFailureRecoveryAndRollback(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected successful fund after multiple retries: %v", err)
 	}
+}
+
+// TestEndToEndEscrowWithRealSignatures tests the complete escrow workflow using real cryptographic signatures
+// instead of mock data. This validates that the signature verification logic works correctly with actual
+// Bitcoin ECDSA signatures over transaction data.
+func TestEndToEndEscrowWithRealSignatures(t *testing.T) {
+	// Generate deterministic private keys for reproducible tests
+	buyerSeed := sha256.Sum256([]byte("buyer-real-sig-seed"))
+	sellerSeed := sha256.Sum256([]byte("seller-real-sig-seed"))
+	arbiterSeed := sha256.Sum256([]byte("arbiter-real-sig-seed"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+
+	buyerPubKey := buyerPrivKey.PubKey().SerializeCompressed()
+	sellerPubKey := sellerPrivKey.PubKey().SerializeCompressed()
+	arbiterPubKey := arbiterPrivKey.PubKey().SerializeCompressed()
+
+	publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+	// Configure paywall with 2-of-3 multisig
+	store := paywall.NewMemoryStore()
+	config := paywall.Config{
+		PriceInBTC:     0.001,
+		TestNet:        true,
+		Store:          store,
+		PaymentTimeout: time.Hour * 24,
+
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: publicKeys,
+		},
+		MultisigRole:       paywall.RoleBuyer,
+		AuthorizedArbiters: [][]byte{arbiterPubKey},
+	}
+
+	pw, err := paywall.NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	escrowMgr, err := paywall.NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	// Step 1: Create escrow payment
+	paymentID, err := escrowMgr.CreateEscrow(1.0, time.Hour*72)
+	if err != nil {
+		t.Fatalf("Failed to create escrow: %v", err)
+	}
+
+	// Step 2: Simulate blockchain confirmation and fund escrow
+	payment, _ := store.GetPayment(paymentID)
+	payment.Status = paywall.StatusConfirmed
+	payment.Confirmations = 3
+	store.UpdatePayment(payment)
+
+	err = escrowMgr.FundEscrow(paymentID)
+	if err != nil {
+		t.Fatalf("Failed to fund escrow: %v", err)
+	}
+
+	// Verify escrow is funded
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowFunded {
+		t.Errorf("Expected escrow state EscrowFunded, got %s", payment.EscrowState)
+	}
+
+	// Step 3: Create a real multisig transaction for the escrow release
+	// Build 2-of-3 redeem script (pubKeys first, then requiredSigs)
+	// Using P2SH for simplicity (legacy format works without PrevOutFetcher)
+	multisigAddr, redeemScript, err := wallet.CreateMultisigAddress(
+		publicKeys,
+		2,
+		wallet.P2SH,
+		&chaincfg.TestNet3Params,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create multisig address: %v", err)
+	}
+
+	// Create a mock UTXO representing the escrowed funds
+	// In a real system, this would come from blockchain monitoring
+	mockTxID := "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+	utxo := wallet.UTXO{
+		TxID:         mockTxID,
+		Vout:         0,
+		Amount:       100000,       // 0.001 BTC in satoshis
+		ScriptPubKey: []byte{},     // Would be the actual P2SH script
+		RedeemScript: redeemScript, // P2SH uses RedeemScript
+	}
+
+	// Create transaction to release funds to seller (happy path)
+	// Generate a testnet address for the seller
+	sellerAddr := "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx" // Example testnet address
+
+	outputs := map[string]int64{
+		sellerAddr: 99000, // 99k satoshis (1k for fee)
+	}
+
+	tx, err := wallet.CreateMultisigPaymentTx(
+		[]wallet.UTXO{utxo},
+		outputs,
+		&chaincfg.TestNet3Params,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create multisig transaction: %v", err)
+	}
+
+	// Sign the transaction with buyer's key (happy path: buyer agrees to release)
+	err = tx.SignMultisigTx(0, buyerPrivKey, txscript.SigHashAll)
+	if err != nil {
+		t.Fatalf("Failed to sign transaction with buyer key: %v", err)
+	}
+
+	// Sign the transaction with seller's key
+	err = tx.SignMultisigTx(0, sellerPrivKey, txscript.SigHashAll)
+	if err != nil {
+		t.Fatalf("Failed to sign transaction with seller key: %v", err)
+	}
+
+	// Extract the real signatures
+	if len(tx.Signatures[0]) != 2 {
+		t.Fatalf("Expected 2 signatures, got %d", len(tx.Signatures[0]))
+	}
+
+	// Create SignatureData structs with real signatures
+	var buyerSig, sellerSig *paywall.SignatureData
+	for _, sig := range tx.Signatures[0] {
+		if bytes.Equal(sig.PublicKey, buyerPubKey) {
+			buyerSig = &paywall.SignatureData{
+				SignerID:  "buyer-real-sig",
+				Role:      paywall.RoleBuyer,
+				Signature: sig.Signature,
+				PublicKey: sig.PublicKey,
+				SignedAt:  time.Now(),
+				Nonce:     []byte(paymentID + "-buyer-nonce"),
+			}
+		} else if bytes.Equal(sig.PublicKey, sellerPubKey) {
+			sellerSig = &paywall.SignatureData{
+				SignerID:  "seller-real-sig",
+				Role:      paywall.RoleSeller,
+				Signature: sig.Signature,
+				PublicKey: sig.PublicKey,
+				SignedAt:  time.Now(),
+				Nonce:     []byte(paymentID + "-seller-nonce"),
+			}
+		}
+	}
+
+	if buyerSig == nil || sellerSig == nil {
+		t.Fatal("Failed to extract buyer or seller signature")
+	}
+
+	_ = multisigAddr // Suppress unused variable warning
+
+	// Step 4: Release to seller using real signatures
+	err = escrowMgr.ReleaseToSeller(paymentID, buyerSig, sellerSig)
+	if err != nil {
+		t.Fatalf("Failed to release to seller with real signatures: %v", err)
+	}
+
+	// Verify escrow completed successfully
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowCompleted {
+		t.Errorf("Expected escrow state EscrowCompleted, got %s", payment.EscrowState)
+	}
+
+	// Verify signatures were stored
+	if len(payment.Signatures[wallet.Bitcoin]) < 2 {
+		t.Errorf("Expected at least 2 signatures stored, got %d", len(payment.Signatures[wallet.Bitcoin]))
+	}
+
+	// Verify the stored signatures are the real ones (not mock data)
+	storedBuyerSig := false
+	storedSellerSig := false
+	for _, sig := range payment.Signatures[wallet.Bitcoin] {
+		if bytes.Equal(sig.PublicKey, buyerPubKey) && len(sig.Signature) > 10 {
+			storedBuyerSig = true
+		}
+		if bytes.Equal(sig.PublicKey, sellerPubKey) && len(sig.Signature) > 10 {
+			storedSellerSig = true
+		}
+	}
+
+	if !storedBuyerSig || !storedSellerSig {
+		t.Error("Real signatures were not properly stored in payment record")
+	}
+
+	t.Log("✓ End-to-end escrow with real cryptographic signatures completed successfully")
 }
