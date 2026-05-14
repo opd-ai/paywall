@@ -462,11 +462,11 @@ The multisig implementation demonstrates solid cryptographic foundations but has
   - [x] Add fallback arbiter support
   - [x] Create arbiter reputation tracking
 
-- [ ] **Dispute Improvements** (5-7h)
-  - [ ] Implement dispute fees
-  - [ ] Add dispute rate limiting
-  - [ ] Extend timeouts on disputes
-  - [ ] Add evidence size limits
+- [x] **Dispute Improvements** (5-7h)
+  - [x] Implement dispute fees
+  - [x] Add dispute rate limiting
+  - [x] Extend timeouts on disputes
+  - [x] Add evidence size limits
 
 - [ ] **Timeout Enhancements** (4-6h)
   - [ ] Automatic timeout resolution
