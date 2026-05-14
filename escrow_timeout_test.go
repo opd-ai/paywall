@@ -1,0 +1,271 @@
+package paywall
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"testing"
+	"time"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/opd-ai/paywall/wallet"
+)
+
+// generateTestPublicKeys creates valid compressed public keys for testing timeout bounds
+func generateTestPublicKeysTimeout() ([]byte, []byte, []byte) {
+	buyerSeed := sha256.Sum256([]byte("buyer-timeout-test"))
+	sellerSeed := sha256.Sum256([]byte("seller-timeout-test"))
+	arbiterSeed := sha256.Sum256([]byte("arbiter-timeout-test"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+
+	return buyerPrivKey.PubKey().SerializeCompressed(),
+		sellerPrivKey.PubKey().SerializeCompressed(),
+		arbiterPrivKey.PubKey().SerializeCompressed()
+}
+
+// TestEscrowTimeoutBounds verifies that escrow creation enforces timeout bounds
+func TestEscrowTimeoutBounds(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+
+	tests := []struct {
+		name             string
+		escrowTimeout    time.Duration
+		minEscrowTimeout time.Duration
+		maxEscrowTimeout time.Duration
+		wantErr          bool
+		errContains      string
+	}{
+		{
+			name:             "valid timeout within bounds",
+			escrowTimeout:    48 * time.Hour,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          false,
+		},
+		{
+			name:             "timeout exactly at minimum",
+			escrowTimeout:    24 * time.Hour,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          false,
+		},
+		{
+			name:             "timeout exactly at maximum",
+			escrowTimeout:    90 * 24 * time.Hour,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          false,
+		},
+		{
+			name:             "timeout below minimum",
+			escrowTimeout:    1 * time.Hour,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          true,
+			errContains:      "below minimum",
+		},
+		{
+			name:             "timeout above maximum",
+			escrowTimeout:    100 * 24 * time.Hour,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          true,
+			errContains:      "exceeds maximum",
+		},
+		{
+			name:             "negative timeout",
+			escrowTimeout:    -1 * time.Hour,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          true,
+			errContains:      "below minimum",
+		},
+		{
+			name:             "zero timeout",
+			escrowTimeout:    0,
+			minEscrowTimeout: 24 * time.Hour,
+			maxEscrowTimeout: 90 * 24 * time.Hour,
+			wantErr:          true,
+			errContains:      "below minimum",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewMemoryStore()
+
+			// Create a proper HD wallet for testing
+			seed := make([]byte, 32)
+			if _, err := rand.Read(seed); err != nil {
+				t.Fatalf("Failed to generate seed: %v", err)
+			}
+			hdWallet, err := wallet.NewBTCHDWallet(seed, true, 1)
+			if err != nil {
+				t.Fatalf("Failed to create HD wallet: %v", err)
+			}
+
+			pw := &Paywall{
+				Store:     store,
+				HDWallets: map[wallet.WalletType]wallet.HDWallet{wallet.Bitcoin: hdWallet},
+				prices:    map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
+				participantPubKeys: map[wallet.WalletType][][]byte{
+					wallet.Bitcoin: {buyerPubKey, sellerPubKey, arbiterPubKey},
+				},
+				multisigEnabled:  true,
+				multisigRequired: 2,
+				multisigTotal:    3,
+				minEscrowTimeout: tt.minEscrowTimeout,
+				maxEscrowTimeout: tt.maxEscrowTimeout,
+			}
+
+			em, err := NewEscrowManager(pw)
+			if err != nil {
+				t.Fatalf("NewEscrowManager() error = %v", err)
+			}
+
+			_, err = em.CreateEscrow(1.0, tt.escrowTimeout)
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("CreateEscrow() expected error, got nil")
+					return
+				}
+				if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+					t.Errorf("CreateEscrow() error = %v, want error containing %q", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("CreateEscrow() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestEscrowTimeoutDefaultBounds verifies that default timeout bounds are applied when not configured
+func TestEscrowTimeoutDefaultBounds(t *testing.T) {
+	store := NewMemoryStore()
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+
+	// Create paywall with zero timeout bounds (should use defaults)
+	config := Config{
+		PriceInBTC:       0.001,
+		TestNet:          true,
+		Store:            store,
+		PaymentTimeout:   time.Hour * 24,
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: {buyerPubKey, sellerPubKey, arbiterPubKey},
+		},
+		MultisigRole:     RoleBuyer,
+		MinEscrowTimeout: 0, // Zero - should use default
+		MaxEscrowTimeout: 0, // Zero - should use default
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("NewPaywall() error = %v", err)
+	}
+	defer pw.Close()
+
+	// Verify defaults were applied
+	expectedMin := 24 * time.Hour
+	expectedMax := 90 * 24 * time.Hour
+
+	if pw.minEscrowTimeout != expectedMin {
+		t.Errorf("minEscrowTimeout = %v, want %v", pw.minEscrowTimeout, expectedMin)
+	}
+	if pw.maxEscrowTimeout != expectedMax {
+		t.Errorf("maxEscrowTimeout = %v, want %v", pw.maxEscrowTimeout, expectedMax)
+	}
+
+	// Test that timeout below default minimum is rejected
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	_, err = em.CreateEscrow(1.0, 1*time.Hour) // Below 24h default
+	if err == nil {
+		t.Error("CreateEscrow() expected error for timeout below default minimum, got nil")
+	}
+
+	// Test that timeout within default bounds is accepted
+	_, err = em.CreateEscrow(1.0, 48*time.Hour) // Within default bounds
+	if err != nil {
+		t.Errorf("CreateEscrow() unexpected error for valid timeout: %v", err)
+	}
+
+	// Test that timeout above default maximum is rejected
+	_, err = em.CreateEscrow(1.0, 100*24*time.Hour) // Above 90 days default
+	if err == nil {
+		t.Error("CreateEscrow() expected error for timeout above default maximum, got nil")
+	}
+}
+
+// TestEscrowTimeoutCustomBounds verifies that custom timeout bounds are respected
+func TestEscrowTimeoutCustomBounds(t *testing.T) {
+	store := NewMemoryStore()
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+
+	// Create paywall with custom timeout bounds
+	customMin := 12 * time.Hour
+	customMax := 30 * 24 * time.Hour
+
+	config := Config{
+		PriceInBTC:       0.001,
+		TestNet:          true,
+		Store:            store,
+		PaymentTimeout:   time.Hour * 24,
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: {buyerPubKey, sellerPubKey, arbiterPubKey},
+		},
+		MultisigRole:     RoleBuyer,
+		MinEscrowTimeout: customMin,
+		MaxEscrowTimeout: customMax,
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("NewPaywall() error = %v", err)
+	}
+	defer pw.Close()
+
+	// Verify custom bounds were applied
+	if pw.minEscrowTimeout != customMin {
+		t.Errorf("minEscrowTimeout = %v, want %v", pw.minEscrowTimeout, customMin)
+	}
+	if pw.maxEscrowTimeout != customMax {
+		t.Errorf("maxEscrowTimeout = %v, want %v", pw.maxEscrowTimeout, customMax)
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Test below custom minimum
+	_, err = em.CreateEscrow(1.0, 6*time.Hour)
+	if err == nil {
+		t.Error("CreateEscrow() expected error for timeout below custom minimum, got nil")
+	}
+
+	// Test within custom bounds
+	_, err = em.CreateEscrow(1.0, 24*time.Hour)
+	if err != nil {
+		t.Errorf("CreateEscrow() unexpected error for valid timeout: %v", err)
+	}
+
+	// Test above custom maximum
+	_, err = em.CreateEscrow(1.0, 60*24*time.Hour)
+	if err == nil {
+		t.Error("CreateEscrow() expected error for timeout above custom maximum, got nil")
+	}
+}

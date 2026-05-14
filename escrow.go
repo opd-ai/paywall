@@ -204,6 +204,14 @@ func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout tim
 		return "", ErrMultisigRequired
 	}
 
+	// Validate escrow timeout is within acceptable bounds
+	if escrowTimeout < em.paywall.minEscrowTimeout {
+		return "", fmt.Errorf("escrow timeout %s is below minimum %s", escrowTimeout, em.paywall.minEscrowTimeout)
+	}
+	if escrowTimeout > em.paywall.maxEscrowTimeout {
+		return "", fmt.Errorf("escrow timeout %s exceeds maximum %s", escrowTimeout, em.paywall.maxEscrowTimeout)
+	}
+
 	// Create a new payment using the standard paywall mechanism
 	payment, err := em.paywall.CreatePayment()
 	if err != nil {

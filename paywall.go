@@ -94,6 +94,18 @@ type Config struct {
 	// Optional: only required for escrow workflows with dispute resolution.
 	// If nil or empty, any arbiter signature will be rejected (no arbitration possible).
 	AuthorizedArbiters [][]byte
+
+	// Escrow timeout configuration (optional - for escrow workflows)
+
+	// MinEscrowTimeout is the minimum allowed escrow timeout duration.
+	// Prevents creating escrows with unreasonably short timeouts that could
+	// bypass proper dispute resolution. Defaults to 24 hours if zero.
+	MinEscrowTimeout time.Duration
+
+	// MaxEscrowTimeout is the maximum allowed escrow timeout duration.
+	// Prevents creating escrows with unreasonably long timeouts that could
+	// lock funds indefinitely. Defaults to 90 days if zero.
+	MaxEscrowTimeout time.Duration
 }
 
 // Paywall manages Bitcoin payment processing and verification
@@ -133,6 +145,13 @@ type Paywall struct {
 	multisigRole MultisigRole
 	// authorizedArbiters contains public keys of arbiters authorized for dispute resolution
 	authorizedArbiters [][]byte
+
+	// Escrow timeout configuration (optional - for escrow workflows)
+
+	// minEscrowTimeout is the minimum allowed escrow timeout duration
+	minEscrowTimeout time.Duration
+	// maxEscrowTimeout is the maximum allowed escrow timeout duration
+	maxEscrowTimeout time.Duration
 }
 
 // NewPaywall creates and initializes a new Paywall instance
@@ -279,6 +298,17 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 	// Create context with cancellation
 	pctx, pcancel := context.WithCancel(context.Background())
+
+	// Set default escrow timeout bounds if not provided
+	minEscrowTimeout := config.MinEscrowTimeout
+	if minEscrowTimeout <= 0 {
+		minEscrowTimeout = 24 * time.Hour // Default minimum: 24 hours
+	}
+	maxEscrowTimeout := config.MaxEscrowTimeout
+	if maxEscrowTimeout <= 0 {
+		maxEscrowTimeout = 90 * 24 * time.Hour // Default maximum: 90 days
+	}
+
 	p := &Paywall{
 		HDWallets:          hdWallets,
 		Store:              config.Store,
@@ -294,6 +324,8 @@ func NewPaywall(config Config) (*Paywall, error) {
 		participantPubKeys: config.ParticipantPubKeys,
 		multisigRole:       config.MultisigRole,
 		authorizedArbiters: config.AuthorizedArbiters,
+		minEscrowTimeout:   minEscrowTimeout,
+		maxEscrowTimeout:   maxEscrowTimeout,
 	}
 	// Initialize monitor
 	monitor := &CryptoChainMonitor{

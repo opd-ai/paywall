@@ -441,17 +441,29 @@ func TestEscrowTimeoutHandling(t *testing.T) {
 		t.Fatalf("Failed to create escrow manager: %v", err)
 	}
 
-	// Create escrow with very short timeout
-	paymentID, _ := escrowMgr.CreateEscrow(1.0, time.Millisecond)
+	// Create escrow with short timeout (but above minimum bounds)
+	// Default minimum is 24 hours, so use 25 hours
+	shortTimeout := 25 * time.Hour
+	paymentID, err := escrowMgr.CreateEscrow(1.0, shortTimeout)
+	if err != nil {
+		t.Fatalf("Failed to create escrow: %v", err)
+	}
 
-	payment, _ := store.GetPayment(paymentID)
+	payment, err := store.GetPayment(paymentID)
+	if err != nil {
+		t.Fatalf("Failed to get payment: %v", err)
+	}
 
-	// Wait for timeout
-	time.Sleep(10 * time.Millisecond)
+	// Verify timeout field is set correctly and in the future
+	expectedTimeout := time.Now().Add(shortTimeout)
+	// Allow 1 second tolerance for test execution time
+	if payment.EscrowTimeout.Before(expectedTimeout.Add(-1*time.Second)) || payment.EscrowTimeout.After(expectedTimeout.Add(1*time.Second)) {
+		t.Errorf("Expected escrow timeout around %v, got %v", expectedTimeout, payment.EscrowTimeout)
+	}
 
-	// Verify timeout field is in the past
-	if time.Now().Before(payment.EscrowTimeout) {
-		t.Error("Expected escrow timeout to be in the past")
+	// Verify the timeout is in the future initially
+	if time.Now().After(payment.EscrowTimeout) {
+		t.Error("Expected escrow timeout to be in the future")
 	}
 
 	// In a real implementation, a background goroutine would handle timeouts
@@ -715,13 +727,22 @@ func TestFailureRecoveryAndRollback(t *testing.T) {
 		t.Error("Expected error when disputing completed escrow, got nil")
 	}
 
-	// Test 7: Test timeout handling
-	shortTimeoutID, _ := escrowMgr.CreateEscrow(1.0, time.Millisecond)
-	time.Sleep(10 * time.Millisecond)
+	// Test 7: Test timeout validation (new in timeout bounds enforcement)
+	// Attempt to create escrow with timeout below minimum (should fail)
+	_, err = escrowMgr.CreateEscrow(1.0, time.Millisecond)
+	if err == nil {
+		t.Error("Expected error when creating escrow with timeout below minimum")
+	}
 
-	shortPayment, _ := store.GetPayment(shortTimeoutID)
-	if time.Now().Before(shortPayment.EscrowTimeout) {
-		t.Error("Expected timeout to be in the past")
+	// Create escrow with valid timeout
+	validTimeoutID, err := escrowMgr.CreateEscrow(1.0, 25*time.Hour)
+	if err != nil {
+		t.Fatalf("Failed to create escrow with valid timeout: %v", err)
+	}
+
+	validPayment, _ := store.GetPayment(validTimeoutID)
+	if validPayment.EscrowTimeout.Before(time.Now()) {
+		t.Error("Expected timeout to be in the future")
 	}
 
 	// Test 8: Multiple failure-recovery cycles
