@@ -70,12 +70,21 @@ func main() {
 
 ```go
 type Config struct {
-    PriceInBTC     float64
-    TestNet        bool
-    Store          Store
-    PaymentTimeout time.Duration
+    PriceInBTC       float64           // Price in Bitcoin
+    PriceInXMR       float64           // Price in Monero (optional)
+    TestNet          bool              // Use testnet networks
+    Store            PaymentStore      // Storage backend
+    PaymentTimeout   time.Duration     // Payment expiration time
+    MinConfirmations int               // Required blockchain confirmations
+    XMRUser          string            // Monero wallet RPC username (optional)
+    XMRPassword      string            // Monero wallet RPC password (optional)
+    XMRRPC           string            // Monero RPC endpoint URL (optional)
 }
 ```
+
+**Bitcoin-Only vs Multi-Currency Configuration**:
+- **Bitcoin-only**: Only `PriceInBTC` is required. XMR fields (XMRUser, XMRPassword, XMRRPC, PriceInXMR) are optional and can be omitted.
+- **Multi-currency**: To enable Monero support, provide all XMR fields. The paywall will automatically fail over to Bitcoin-only mode if Monero RPC connection fails, with a warning logged.
 
 ### Storage Options
 
@@ -101,6 +110,8 @@ err = btcWallet.SaveToFile(config)
 // Load wallet from file
 loadedWallet, err := wallet.LoadFromFile(config)
 ```
+
+**Note on Wallet Recovery**: This implementation uses encrypted file persistence for wallet backups. **Seed-based wallet recovery is not supported**. To ensure wallet continuity, back up the encrypted wallet files (created by `SaveToFile()`) rather than just the seed phrase. If you lose the wallet file, addresses will be regenerated from the seed but the `nextIndex` counter will reset, potentially causing address reuse (BIP44 privacy violation).
 
 ### Storage Backends
 
