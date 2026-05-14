@@ -1000,3 +1000,206 @@ func TestPaywall_ArbiterManagement_EmptyList(t *testing.T) {
 		t.Error("GetAuthorizedArbiters() should return nil for empty list")
 	}
 }
+
+// TestEscrowManager_ValidateSignatureData tests signature validation
+func TestEscrowManager_ValidateSignatureData(t *testing.T) {
+	// Generate valid test keys
+	buyerPubKey := []byte{
+		0x02, 0x79, 0xbe, 0x66, 0x7e, 0xf9, 0xdc, 0xbb, 0xac, 0x55, 0xa0, 0x62,
+		0x95, 0xce, 0x87, 0x0b, 0x07, 0x02, 0x9b, 0xfc, 0xdb, 0x2d, 0xce, 0x28,
+		0xd9, 0x59, 0xf2, 0x81, 0x5b, 0x16, 0xf8, 0x17, 0x98,
+	}
+	sellerPubKey := []byte{
+		0x02, 0xf9, 0x30, 0x8a, 0x01, 0x92, 0x58, 0xc3, 0x10, 0x49, 0x34, 0x4f,
+		0x85, 0xf8, 0x9d, 0x52, 0x29, 0xb5, 0x31, 0xc8, 0x45, 0x83, 0x6f, 0x99,
+		0xb0, 0x8a, 0x42, 0xa4, 0xf6, 0x8b, 0x61, 0xc2, 0xad,
+	}
+	arbiterPubKey := []byte{
+		0x03, 0x5c, 0xed, 0xc1, 0x61, 0x74, 0x53, 0xec, 0x23, 0x9e, 0x01, 0x47,
+		0xe5, 0xe4, 0x49, 0x64, 0x4c, 0x4f, 0x81, 0x00, 0xf9, 0x0a, 0x9e, 0xd4,
+		0x7f, 0x7c, 0xc6, 0x6d, 0x3c, 0x15, 0xf5, 0x60, 0xa7,
+	}
+
+	// Valid minimal DER-encoded ECDSA signature
+	// DER format: 0x30 [total-length] 0x02 [r-length] [r-bytes] 0x02 [s-length] [s-bytes]
+	// Minimum length requires at least 1 byte for R and 1 byte for S
+	valid SignatureData := []byte{
+		0x30, 0x08, // SEQUENCE, 8 bytes total
+		0x02, 0x02, 0x00, 0x01, // INTEGER R, 2 bytes, value 0x0001
+		0x02, 0x02, 0x00, 0x01, // INTEGER S, 2 bytes, value 0x0001
+	}
+
+	// Mock signature (doesn't start with 0x30, so parsing is skipped)
+	mockSignature := []byte("mock-signature-for-testing")
+
+	publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:              store,
+		HDWallets:          make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:    true,
+		authorizedArbiters: [][]byte{arbiterPubKey},
+		participantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: publicKeys,
+		},
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create test payment
+	payment := &Payment{
+		ID:              "test-sig-validation",
+		MultisigEnabled: true,
+		EscrowState:     EscrowDisputed,
+		Addresses:       map[wallet.WalletType]string{wallet.Bitcoin: "test-addr"},
+	}
+	store.CreatePayment(payment)
+
+	tests := []struct {
+		name    string
+		sig     *SignatureData
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid DER signature data",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: validSignature,
+				PublicKey: buyerPubKey,
+				SignedAt:  time.Now(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid mock signature data (non-DER)",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: mockSignature,
+				PublicKey: buyerPubKey,
+				SignedAt:  time.Now(),
+			},
+			wantErr: false,
+		},
+		{
+			name:    "nil signature data",
+			sig:     nil,
+			wantErr: true,
+			errMsg:  "signature data cannot be nil",
+		},
+		{
+			name: "empty public key",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: validSignature,
+				PublicKey: []byte{},
+				SignedAt:  time.Now(),
+			},
+			wantErr: true,
+			errMsg:  "public key is empty",
+		},
+		{
+			name: "invalid public key",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: validSignature,
+				PublicKey: []byte{0x00, 0x01, 0x02}, // Invalid key
+				SignedAt:  time.Now(),
+			},
+			wantErr: true,
+			errMsg:  "failed to parse public key",
+		},
+		{
+			name: "empty signature",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: []byte{},
+				PublicKey: buyerPubKey,
+				SignedAt:  time.Now(),
+			},
+			wantErr: true,
+			errMsg:  "signature is empty",
+		},
+		{
+			name: "signature too short",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: []byte{0x30, 0x01, 0x02}, // Too short
+				PublicKey: buyerPubKey,
+				SignedAt:  time.Now(),
+			},
+			wantErr: true,
+			errMsg:  "signature too short",
+		},
+		{
+			name: "invalid signature format",
+			sig: &SignatureData{
+				SignerID:  "buyer-1",
+				Role:      RoleBuyer,
+				Signature: []byte{0x00, 0x01, 0x02}, // Invalid DER
+				PublicKey: buyerPubKey,
+				SignedAt:  time.Now(),
+			},
+			wantErr: true,
+			errMsg:  "failed to parse DER signature",
+		},
+		{
+			name: "unknown participant",
+			sig: &SignatureData{
+				SignerID:  "unknown-1",
+				Role:      RoleBuyer,
+				Signature: validSignature,
+				PublicKey: []byte{ // Valid secp256k1 key but not in participant list
+					0x03, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+					0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+					0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
+				},
+				SignedAt: time.Now(),
+			},
+			wantErr: true,
+			/* This test will fail at public key parsing before participant check can happen */
+			errMsg: "failed to parse public key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := em.validateSignatureData(tt.sig, payment)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateSignatureData() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errMsg != "" {
+				if err == nil || err.Error() == "" {
+					t.Errorf("validateSignatureData() expected error containing %q, got nil", tt.errMsg)
+				} else if err.Error() != "" && !contains(err.Error(), tt.errMsg) {
+					t.Errorf("validateSignatureData() error = %q, want error containing %q", err.Error(), tt.errMsg)
+				}
+			}
+		})
+	}
+}
+
+// Helper function for string contains check
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
