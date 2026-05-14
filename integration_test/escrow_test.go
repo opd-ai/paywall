@@ -4,6 +4,7 @@ package integration_test
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -969,4 +970,413 @@ func TestEndToEndEscrowWithRealSignatures(t *testing.T) {
 	}
 
 	t.Log("✓ End-to-end escrow with real cryptographic signatures completed successfully")
+}
+
+// TestDisputeResolutionWithMultipleArbiters tests dispute resolution using multi-arbiter consensus (3-of-5)
+func TestDisputeResolutionWithMultipleArbiters(t *testing.T) {
+	// Generate 5 arbiter keys for 3-of-5 consensus
+	arbiterPrivKeys := make([]*btcec.PrivateKey, 5)
+	arbiterPubKeys := make([][]byte, 5)
+	for i := 0; i < 5; i++ {
+		seed := sha256.Sum256([]byte(fmt.Sprintf("arbiter-%d-seed", i)))
+		arbiterPrivKeys[i], _ = btcec.PrivKeyFromBytes(seed[:])
+		arbiterPubKeys[i] = arbiterPrivKeys[i].PubKey().SerializeCompressed()
+	}
+
+	// Generate buyer and seller keys
+	buyerSeed := sha256.Sum256([]byte("buyer-multi-arbiter"))
+	sellerSeed := sha256.Sum256([]byte("seller-multi-arbiter"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+
+	buyerPubKey := buyerPrivKey.PubKey().SerializeCompressed()
+	sellerPubKey := sellerPrivKey.PubKey().SerializeCompressed()
+
+	// Note: For multi-arbiter, we'd need buyer, seller, and multiple arbiters in the multisig
+	// For simplicity, we'll use 2-of-3 with buyer, seller, and one arbiter representative
+	publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKeys[0]}
+
+	// Configure paywall with multi-arbiter consensus
+	store := paywall.NewMemoryStore()
+	config := paywall.Config{
+		PriceInBTC:     0.001,
+		TestNet:        true,
+		Store:          store,
+		PaymentTimeout: time.Hour * 24,
+
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: publicKeys,
+		},
+		MultisigRole:       paywall.RoleBuyer,
+		AuthorizedArbiters: arbiterPubKeys, // All 5 arbiters authorized
+	}
+
+	pw, err := paywall.NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	escrowMgr, err := paywall.NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	// Create arbiter consensus manager
+	arbiterConfig := &paywall.ArbiterConfig{
+		RequiredArbiterVotes: 3, // 3-of-5
+		TotalArbiters:        5,
+		PrimaryArbiters:      arbiterPubKeys,
+		VotingTimeout:        24 * time.Hour,
+	}
+
+	consensusMgr, err := paywall.NewArbiterConsensusManager(arbiterConfig, nil)
+	if err != nil {
+		t.Fatalf("Failed to create consensus manager: %v", err)
+	}
+
+	// Step 1: Create and fund escrow
+	paymentID, err := escrowMgr.CreateEscrow(1.0, time.Hour*72)
+	if err != nil {
+		t.Fatalf("Failed to create escrow: %v", err)
+	}
+
+	payment, _ := store.GetPayment(paymentID)
+	payment.Status = paywall.StatusConfirmed
+	payment.Confirmations = 3
+	store.UpdatePayment(payment)
+
+	err = escrowMgr.FundEscrow(paymentID)
+	if err != nil {
+		t.Fatalf("Failed to fund escrow: %v", err)
+	}
+
+	// Verify escrow funded
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowFunded {
+		t.Errorf("Expected escrow state EscrowFunded, got %s", payment.EscrowState)
+	}
+
+	// Step 2: Buyer raises dispute
+	err = escrowMgr.RequestDispute(paymentID, paywall.RoleBuyer, "Product not as described - color is wrong")
+	if err != nil {
+		t.Fatalf("Failed to request dispute: %v", err)
+	}
+
+	// Verify disputed state
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowDisputed {
+		t.Errorf("Expected escrow state EscrowDisputed, got %s", payment.EscrowState)
+	}
+
+	// Step 3: Initiate multi-arbiter consensus
+	_, err = consensusMgr.InitiateConsensus(paymentID)
+	if err != nil {
+		t.Fatalf("Failed to initiate consensus: %v", err)
+	}
+
+	// Step 4: Arbiters cast votes (3 vote for buyer, 2 for seller - buyer wins)
+	// Arbiter 0 votes for buyer
+	vote0 := &paywall.ArbiterVote{
+		ArbiterPubKey: arbiterPubKeys[0],
+		ArbiterID:     "arbiter-0",
+		Decision:      paywall.RoleBuyer,
+		Reason:        "Evidence supports buyer's claim - product photos show incorrect color",
+		Signature: &paywall.SignatureData{
+			SignerID:  "arbiter-0",
+			Role:      paywall.RoleArbiter,
+			Signature: []byte("arbiter-0-signature"),
+			PublicKey: arbiterPubKeys[0],
+			SignedAt:  time.Now(),
+		},
+		VotedAt: time.Now(),
+	}
+
+	err = consensusMgr.CastVote(paymentID, vote0)
+	if err != nil {
+		t.Fatalf("Arbiter 0 failed to cast vote: %v", err)
+	}
+
+	// Arbiter 1 votes for seller
+	vote1 := &paywall.ArbiterVote{
+		ArbiterPubKey: arbiterPubKeys[1],
+		ArbiterID:     "arbiter-1",
+		Decision:      paywall.RoleSeller,
+		Reason:        "Seller provided tracking and delivery confirmation",
+		Signature: &paywall.SignatureData{
+			SignerID:  "arbiter-1",
+			Role:      paywall.RoleArbiter,
+			Signature: []byte("arbiter-1-signature"),
+			PublicKey: arbiterPubKeys[1],
+			SignedAt:  time.Now(),
+		},
+		VotedAt: time.Now(),
+	}
+
+	err = consensusMgr.CastVote(paymentID, vote1)
+	if err != nil {
+		t.Fatalf("Arbiter 1 failed to cast vote: %v", err)
+	}
+
+	// Arbiter 2 votes for buyer
+	vote2 := &paywall.ArbiterVote{
+		ArbiterPubKey: arbiterPubKeys[2],
+		ArbiterID:     "arbiter-2",
+		Decision:      paywall.RoleBuyer,
+		Reason:        "Product description mismatch confirmed",
+		Signature: &paywall.SignatureData{
+			SignerID:  "arbiter-2",
+			Role:      paywall.RoleArbiter,
+			Signature: []byte("arbiter-2-signature"),
+			PublicKey: arbiterPubKeys[2],
+			SignedAt:  time.Now(),
+		},
+		VotedAt: time.Now(),
+	}
+
+	err = consensusMgr.CastVote(paymentID, vote2)
+	if err != nil {
+		t.Fatalf("Arbiter 2 failed to cast vote: %v", err)
+	}
+
+	// Arbiter 3 votes for buyer (this reaches consensus: 3 votes for buyer)
+	vote3 := &paywall.ArbiterVote{
+		ArbiterPubKey: arbiterPubKeys[3],
+		ArbiterID:     "arbiter-3",
+		Decision:      paywall.RoleBuyer,
+		Reason:        "Buyer's evidence is credible and well-documented",
+		Signature: &paywall.SignatureData{
+			SignerID:  "arbiter-3",
+			Role:      paywall.RoleArbiter,
+			Signature: []byte("arbiter-3-signature"),
+			PublicKey: arbiterPubKeys[3],
+			SignedAt:  time.Now(),
+		},
+		VotedAt: time.Now(),
+	}
+
+	err = consensusMgr.CastVote(paymentID, vote3)
+	if err != nil {
+		t.Fatalf("Arbiter 3 failed to cast vote: %v", err)
+	}
+
+	// Step 5: Check consensus reached
+	consensus, err := consensusMgr.GetConsensus(paymentID)
+	if err != nil {
+		t.Fatalf("Failed to get consensus: %v", err)
+	}
+
+	if !consensus.ConsensusReached {
+		t.Error("Expected consensus to be reached after 3 votes for buyer")
+	}
+
+	if consensus.FinalDecision != paywall.RoleBuyer {
+		t.Errorf("Expected final decision RoleBuyer, got %s", consensus.FinalDecision)
+	}
+
+	if consensus.Status != paywall.ConsensusReached {
+		t.Errorf("Expected status ConsensusReached, got %s", consensus.Status)
+	}
+
+	// Verify vote count
+	if len(consensus.Votes) != 4 {
+		t.Errorf("Expected 4 votes recorded, got %d", len(consensus.Votes))
+	}
+
+	// Step 6: Execute consensus decision (refund to buyer)
+	// Create mock signatures for arbiter + buyer (winner)
+	arbiterSig := &paywall.SignatureData{
+		SignerID:  "lead-arbiter",
+		Role:      paywall.RoleArbiter,
+		Signature: []byte("arbiter-consensus-signature"),
+		PublicKey: arbiterPubKeys[0],
+		SignedAt:  time.Now(),
+	}
+
+	buyerSig := &paywall.SignatureData{
+		SignerID:  "buyer-multi-arbiter",
+		Role:      paywall.RoleBuyer,
+		Signature: []byte("buyer-consensus-signature"),
+		PublicKey: buyerPubKey,
+		SignedAt:  time.Now(),
+	}
+
+	err = escrowMgr.ResolveDispute(paymentID, arbiterSig, buyerSig)
+	if err != nil {
+		t.Fatalf("Failed to resolve dispute with consensus: %v", err)
+	}
+
+	// Step 7: Verify final escrow state (refunded to buyer)
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowRefunded {
+		t.Errorf("Expected escrow state EscrowRefunded, got %s", payment.EscrowState)
+	}
+
+	t.Logf("✓ Multi-arbiter dispute resolution completed: 3-of-5 consensus reached in favor of buyer")
+	t.Logf("  - Total votes: %d", len(consensus.Votes))
+	t.Logf("  - Buyer votes: 3, Seller votes: 1")
+	t.Logf("  - Final decision: Refund to buyer")
+}
+
+// TestTimeoutBasedRefund tests automatic refund when escrow times out
+func TestTimeoutBasedRefund(t *testing.T) {
+	// Generate test keys
+	buyerSeed := sha256.Sum256([]byte("buyer-timeout-test"))
+	sellerSeed := sha256.Sum256([]byte("seller-timeout-test"))
+	arbiterSeed := sha256.Sum256([]byte("arbiter-timeout-test"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+
+	buyerPubKey := buyerPrivKey.PubKey().SerializeCompressed()
+	sellerPubKey := sellerPrivKey.PubKey().SerializeCompressed()
+	arbiterPubKey := arbiterPrivKey.PubKey().SerializeCompressed()
+
+	publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+	// Configure paywall
+	store := paywall.NewMemoryStore()
+	config := paywall.Config{
+		PriceInBTC:     0.001,
+		TestNet:        true,
+		Store:          store,
+		PaymentTimeout: time.Hour * 24,
+
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: publicKeys,
+		},
+		MultisigRole:       paywall.RoleBuyer,
+		AuthorizedArbiters: [][]byte{arbiterPubKey},
+	}
+
+	pw, err := paywall.NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	escrowMgr, err := paywall.NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	// Step 1: Create escrow with 25 hour timeout (minimum is 24h)
+	timeoutDuration := 25 * time.Hour
+	paymentID, err := escrowMgr.CreateEscrow(1.0, timeoutDuration)
+	if err != nil {
+		t.Fatalf("Failed to create escrow: %v", err)
+	}
+
+	// Step 2: Fund the escrow
+	payment, _ := store.GetPayment(paymentID)
+	payment.Status = paywall.StatusConfirmed
+	payment.Confirmations = 3
+	store.UpdatePayment(payment)
+
+	err = escrowMgr.FundEscrow(paymentID)
+	if err != nil {
+		t.Fatalf("Failed to fund escrow: %v", err)
+	}
+
+	// Verify escrow funded with timeout set
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowFunded {
+		t.Errorf("Expected escrow state EscrowFunded, got %s", payment.EscrowState)
+	}
+
+	if payment.EscrowTimeout.IsZero() {
+		t.Error("Expected escrow timeout to be set")
+	}
+
+	originalTimeout := payment.EscrowTimeout
+	t.Logf("Escrow created with timeout at: %s", originalTimeout.Format(time.RFC3339))
+
+	// Step 3: Create timeout monitor
+	monitorConfig := paywall.DefaultTimeoutMonitorConfig()
+	monitorConfig.CheckInterval = 100 * time.Millisecond // Fast checks for testing
+	monitorConfig.UseBlockchainTime = false              // Use system time
+	monitorConfig.AutoRefund = false                     // Manual for testing
+
+	monitor := paywall.NewTimeoutMonitor(escrowMgr, monitorConfig)
+
+	// Step 4: Manually set payment timeout to past time (simulates time passing)
+	payment.EscrowTimeout = time.Now().Add(-1 * time.Minute) // 1 minute ago
+	if err := store.UpdatePayment(payment); err != nil {
+		t.Fatalf("Failed to update payment timeout: %v", err)
+	}
+
+	t.Logf("Simulated timeout: set escrow timeout to %s (past)", payment.EscrowTimeout.Format(time.RFC3339))
+
+	// Step 5: Check for timeouts
+	currentTime := time.Now()
+	timedOutIDs, err := escrowMgr.CheckEscrowTimeoutsWithTime(currentTime)
+	if err != nil {
+		t.Fatalf("Failed to check timeouts: %v", err)
+	}
+
+	if len(timedOutIDs) == 0 {
+		t.Error("Expected timeout to be detected")
+	}
+
+	found := false
+	for _, id := range timedOutIDs {
+		if id == paymentID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("Expected payment %s to be in timed-out list", paymentID)
+	}
+
+	t.Logf("✓ Timeout detected for payment %s", paymentID)
+
+	// Step 6: Process timeout refund (requires buyer + arbiter signatures)
+	// Create mock signatures for refund
+	buyerSig := &paywall.SignatureData{
+		SignerID:  "buyer-timeout",
+		Role:      paywall.RoleBuyer,
+		Signature: []byte("buyer-timeout-signature"),
+		PublicKey: buyerPubKey,
+		SignedAt:  time.Now(),
+		Nonce:     []byte(paymentID + "-buyer-refund"),
+	}
+
+	arbiterSig := &paywall.SignatureData{
+		SignerID:  "arbiter-timeout",
+		Role:      paywall.RoleArbiter,
+		Signature: []byte("arbiter-timeout-signature"),
+		PublicKey: arbiterPubKey,
+		SignedAt:  time.Now(),
+		Nonce:     []byte(paymentID + "-arbiter-refund"),
+	}
+
+	// Execute refund
+	err = escrowMgr.RefundBuyer(paymentID, buyerSig, arbiterSig)
+	if err != nil {
+		t.Fatalf("Failed to refund buyer after timeout: %v", err)
+	}
+
+	// Step 7: Verify refund completed
+	payment, _ = store.GetPayment(paymentID)
+	if payment.EscrowState != paywall.EscrowRefunded {
+		t.Errorf("Expected escrow state EscrowRefunded, got %s", payment.EscrowState)
+	}
+
+	// Stop monitor
+	monitor.Stop()
+
+	t.Logf("✓ Timeout-based refund completed successfully")
+	t.Logf("  - Original timeout: %s", originalTimeout.Format(time.RFC3339))
+	t.Logf("  - Timeout detected at: %s", currentTime.Format(time.RFC3339))
+	t.Logf("  - Refund executed: buyer + arbiter signatures")
 }

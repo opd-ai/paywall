@@ -5,6 +5,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 )
 
 // BenchmarkMultisig_AddressGeneration_P2SH compares multisig P2SH address generation to single-sig
@@ -40,7 +41,7 @@ func BenchmarkMultisig_AddressGeneration_P2SH(b *testing.B) {
 	b.Run("Multisig_2of3", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, _, err := CreateMultisigAddress(pubKeys, 2, MultisigP2SH, network)
+			_, _, err := CreateMultisigAddress(pubKeys, 2, P2SH, network)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -81,7 +82,7 @@ func BenchmarkMultisig_AddressGeneration_P2WSH(b *testing.B) {
 	b.Run("Multisig_2of3_SegWit", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, _, err := CreateMultisigAddress(pubKeys, 2, MultisigP2WSH, network)
+			_, _, err := CreateMultisigAddress(pubKeys, 2, P2WSH, network)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -117,7 +118,7 @@ func BenchmarkMultisig_RedeemScriptGeneration(b *testing.B) {
 			keys := pubKeys[:config.n]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := CreateRedeemScript(config.m, keys)
+				_, err := BuildRedeemScript(keys, config.m)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -137,7 +138,7 @@ func BenchmarkMultisig_SignatureCreation(b *testing.B) {
 	}
 
 	network := &chaincfg.TestNet3Params
-	redeemScript, _ := CreateRedeemScript(2, pubKeys)
+	redeemScript, _ := BuildRedeemScript(pubKeys, 2)
 
 	// Create a simple test UTXO
 	utxo := UTXO{
@@ -157,7 +158,7 @@ func BenchmarkMultisig_SignatureCreation(b *testing.B) {
 	b.Run("SignSingleInput", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			err := tx.SignMultisigTx(0, privKeys[0], redeemScript, false)
+			err := tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -170,7 +171,7 @@ func BenchmarkMultisig_SignatureCreation(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			for inputIdx := 0; inputIdx < 3; inputIdx++ {
-				err := tx3.SignMultisigTx(inputIdx, privKeys[0], redeemScript, false)
+				err := tx3.SignMultisigTx(inputIdx, privKeys[0], txscript.SigHashAll)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -190,7 +191,7 @@ func BenchmarkMultisig_SignatureVerification(b *testing.B) {
 	}
 
 	network := &chaincfg.TestNet3Params
-	redeemScript, _ := CreateRedeemScript(2, pubKeys)
+	redeemScript, _ := BuildRedeemScript(pubKeys, 2)
 
 	utxo := UTXO{
 		TxID:         "0000000000000000000000000000000000000000000000000000000000000000",
@@ -204,7 +205,7 @@ func BenchmarkMultisig_SignatureVerification(b *testing.B) {
 	}
 
 	tx, _ := CreateMultisigPaymentTx([]UTXO{utxo}, outputs, network)
-	tx.SignMultisigTx(0, privKeys[0], redeemScript, false)
+	tx.SignMultisigTx(0, privKeys[0], txscript.SigHashAll)
 
 	// Get the signature we just created
 	sig := tx.Signatures[0][0]
@@ -221,8 +222,8 @@ func BenchmarkMultisig_SignatureVerification(b *testing.B) {
 
 	b.Run("VerifyMultipleSignatures_3Sigs", func(b *testing.B) {
 		// Sign with all 3 keys
-		tx.SignMultisigTx(0, privKeys[1], redeemScript, false)
-		tx.SignMultisigTx(0, privKeys[2], redeemScript, false)
+		tx.SignMultisigTx(0, privKeys[1], txscript.SigHashAll)
+		tx.SignMultisigTx(0, privKeys[2], txscript.SigHashAll)
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -284,7 +285,7 @@ func BenchmarkMultisig_TransactionSerialization(b *testing.B) {
 	}
 
 	network := &chaincfg.TestNet3Params
-	redeemScript, _ := CreateRedeemScript(2, pubKeys)
+	redeemScript, _ := BuildRedeemScript(pubKeys, 2)
 
 	utxo := UTXO{
 		TxID:         "0000000000000000000000000000000000000000000000000000000000000000",
@@ -344,7 +345,7 @@ func BenchmarkMultisig_CombineSignatures(b *testing.B) {
 	}
 
 	network := &chaincfg.TestNet3Params
-	redeemScript, _ := CreateRedeemScript(3, pubKeys)
+	redeemScript, _ := BuildRedeemScript(pubKeys, 3)
 
 	utxo := UTXO{
 		TxID:         "0000000000000000000000000000000000000000000000000000000000000000",
@@ -385,7 +386,7 @@ func BenchmarkMultisig_ValidateRedeemScript(b *testing.B) {
 		pubKeys[i] = privKey.PubKey().SerializeCompressed()
 	}
 
-	redeemScript, _ := CreateRedeemScript(2, pubKeys)
+	redeemScript, _ := BuildRedeemScript(pubKeys, 2)
 
 	b.Run("Validate2of3", func(b *testing.B) {
 		b.ResetTimer()
@@ -403,7 +404,7 @@ func BenchmarkMultisig_ValidateRedeemScript(b *testing.B) {
 		privKey, _ := btcec.NewPrivateKey()
 		pubKeys10[i] = privKey.PubKey().SerializeCompressed()
 	}
-	redeemScript10, _ := CreateRedeemScript(7, pubKeys10)
+	redeemScript10, _ := BuildRedeemScript(pubKeys10, 7)
 
 	b.Run("Validate7of10", func(b *testing.B) {
 		b.ResetTimer()

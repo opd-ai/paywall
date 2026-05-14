@@ -223,9 +223,9 @@ func TestEscrowManager_CheckEscrowTimeoutsWithTime(t *testing.T) {
 	store.CreatePayment(payment4)
 
 	// Check timeouts
-	timedOut, err := em.checkEscrowTimeoutsWithTime(now)
+	timedOut, err := em.CheckEscrowTimeoutsWithTime(now)
 	if err != nil {
-		t.Fatalf("checkEscrowTimeoutsWithTime() error = %v", err)
+		t.Fatalf("CheckEscrowTimeoutsWithTime() error = %v", err)
 	}
 
 	// Should find payment-1 and payment-3
@@ -261,9 +261,9 @@ func TestEscrowManager_CheckEscrowTimeoutsWithTime_EmptyStore(t *testing.T) {
 
 	em := &EscrowManager{paywall: pw}
 
-	timedOut, err := em.checkEscrowTimeoutsWithTime(time.Now())
+	timedOut, err := em.CheckEscrowTimeoutsWithTime(time.Now())
 	if err != nil {
-		t.Fatalf("checkEscrowTimeoutsWithTime() error = %v", err)
+		t.Fatalf("CheckEscrowTimeoutsWithTime() error = %v", err)
 	}
 
 	if len(timedOut) != 0 {

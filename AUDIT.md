@@ -509,9 +509,9 @@ func TestState_TransitionHistory(t *testing.T)
 
 #### Integration Tests
 
-- [ ] End-to-end escrow happy path with real signatures
-- [ ] Dispute resolution with multiple arbiters
-- [ ] Timeout-based refunds
+- [x] End-to-end escrow happy path with real signatures
+- [x] Dispute resolution with multiple arbiters
+- [x] Timeout-based refunds
 - [ ] Concurrent state modification stress tests
 - [x] Signature replay attack attempts
 - [ ] Transaction malleability scenarios
