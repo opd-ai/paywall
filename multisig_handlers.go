@@ -128,9 +128,10 @@ type MultisigWebhookNotifier interface {
 
 // MultisigCoordinator manages signature coordination for multisig payments
 type MultisigCoordinator struct {
-	paywall       *Paywall
-	authenticator MultisigAuthenticator
-	notifier      MultisigWebhookNotifier
+	paywall        *Paywall
+	authenticator  MultisigAuthenticator
+	notifier       MultisigWebhookNotifier
+	btcBroadcaster *BTCBroadcaster // Optional Bitcoin transaction broadcaster
 }
 
 // NewMultisigCoordinator creates a new coordinator with optional authenticator and notifier
@@ -140,6 +141,12 @@ func NewMultisigCoordinator(pw *Paywall, auth MultisigAuthenticator, notifier Mu
 		authenticator: auth,
 		notifier:      notifier,
 	}
+}
+
+// SetBTCBroadcaster configures the Bitcoin transaction broadcaster
+// This enables transaction broadcasting functionality for Bitcoin multisig payments
+func (mc *MultisigCoordinator) SetBTCBroadcaster(broadcaster *BTCBroadcaster) {
+	mc.btcBroadcaster = broadcaster
 }
 
 // HandleInitiate processes POST /multisig/initiate requests
@@ -392,24 +399,75 @@ func (mc *MultisigCoordinator) HandleBroadcast(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// TODO: Broadcast transaction to blockchain
-	// This would use the wallet's broadcast functionality
-	// For now, return a placeholder response
-	txID := fmt.Sprintf("tx_%s_%d", req.PaymentID, time.Now().Unix())
-
-	// Send webhook notification
-	if mc.notifier != nil {
-		go mc.notifier.NotifyBroadcastComplete(req.PaymentID, txID)
+	// Check if already broadcast (double-broadcast prevention)
+	if payment.TransactionID != "" {
+		// Already broadcast, return existing transaction ID (idempotent)
+		resp := MultisigBroadcastResponse{
+			Success:       true,
+			TransactionID: payment.TransactionID,
+			Message:       fmt.Sprintf("Transaction already broadcast (broadcast count: %d)", payment.BroadcastAttempts),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
 	}
 
-	resp := MultisigBroadcastResponse{
-		Success:       true,
-		TransactionID: txID,
-		Message:       "Transaction broadcast successful (placeholder)",
-	}
+	// Validate wallet type and broadcaster availability
+	if req.WalletType == wallet.Bitcoin {
+		if mc.btcBroadcaster == nil {
+			http.Error(w, "Bitcoin broadcasting not configured", http.StatusServiceUnavailable)
+			return
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+		// Validate transaction before broadcasting
+		if err := mc.btcBroadcaster.ValidateTransaction(req.Transaction, payment); err != nil {
+			http.Error(w, fmt.Sprintf("Transaction validation failed: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		// Broadcast transaction to Bitcoin network
+		txID, err := mc.btcBroadcaster.Broadcast(req.Transaction)
+		if err != nil {
+			// Increment broadcast attempt counter even on failure
+			payment.BroadcastAttempts++
+			_ = mc.paywall.Store.UpdatePayment(payment)
+
+			http.Error(w, fmt.Sprintf("Broadcast failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Update payment with broadcast information
+		payment.TransactionID = txID
+		payment.BroadcastedAt = time.Now()
+		payment.BroadcastAttempts++
+
+		if err := mc.paywall.Store.UpdatePayment(payment); err != nil {
+			log.Printf("WARNING: Transaction broadcast succeeded but failed to update payment: %v", err)
+			// Continue anyway - transaction is on the blockchain
+		}
+
+		// Send webhook notification
+		if mc.notifier != nil {
+			go mc.notifier.NotifyBroadcastComplete(req.PaymentID, txID)
+		}
+
+		resp := MultisigBroadcastResponse{
+			Success:       true,
+			TransactionID: txID,
+			Message:       "Transaction broadcast successful",
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	} else if req.WalletType == wallet.Monero {
+		// TODO: Implement Monero broadcast support
+		http.Error(w, "Monero broadcasting not yet implemented", http.StatusNotImplemented)
+		return
+	} else {
+		http.Error(w, "Unsupported wallet type", http.StatusBadRequest)
+		return
+	}
 }
 
 // validateInitiateRequest validates the multisig initiate request

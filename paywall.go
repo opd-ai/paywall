@@ -47,6 +47,18 @@ type Config struct {
 	// XMRRPC is the monero-rpc URL
 	XMRRPC string
 
+	// Bitcoin RPC configuration (optional - for transaction broadcasting)
+
+	// BTCRPCHost is the Bitcoin RPC server address (e.g., "localhost:18332" for testnet)
+	// If empty, transaction broadcasting will be disabled
+	BTCRPCHost string
+	// BTCRPCUser is the Bitcoin RPC username for authentication
+	BTCRPCUser string
+	// BTCRPCPass is the Bitcoin RPC password for authentication
+	BTCRPCPass string
+	// BTCDisableTLS disables TLS verification for Bitcoin RPC (testnet only, insecure)
+	BTCDisableTLS bool
+
 	// Multisig configuration (optional - defaults to single-signature mode)
 
 	// MultisigEnabled enables multisig address generation for payments.

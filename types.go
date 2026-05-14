@@ -67,6 +67,18 @@ type Payment struct {
 	EscrowTimeout time.Time `json:"escrow_timeout,omitempty"`
 	// DisputeReason contains the reason provided when a dispute is requested
 	DisputeReason string `json:"dispute_reason,omitempty"`
+
+	// Broadcast tracking (optional - for multisig transaction broadcasting)
+
+	// TransactionID stores the blockchain transaction hash after successful broadcast
+	// Empty string indicates transaction has not been broadcast yet
+	TransactionID string `json:"transaction_id,omitempty"`
+	// BroadcastedAt is the timestamp when the transaction was broadcast to the network
+	// Zero value indicates transaction has not been broadcast
+	BroadcastedAt time.Time `json:"broadcasted_at,omitempty"`
+	// BroadcastAttempts counts how many times broadcast has been attempted
+	// Used to prevent repeated broadcast attempts and detect issues
+	BroadcastAttempts int `json:"broadcast_attempts,omitempty"`
 }
 
 // EscrowState represents the current state of an escrow transaction

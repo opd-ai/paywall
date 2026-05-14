@@ -486,6 +486,12 @@ func TestMultisigCoordinator_HandleBroadcast(t *testing.T) {
 				{SignerID: "signer2", Signature: []byte("sig2")},
 			},
 		},
+		Addresses: map[wallet.WalletType]string{
+			wallet.Bitcoin: "test-address",
+		},
+		Amounts: map[wallet.WalletType]float64{
+			wallet.Bitcoin: 0.001,
+		},
 		Status:    StatusPending,
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
@@ -507,30 +513,9 @@ func TestMultisigCoordinator_HandleBroadcast(t *testing.T) {
 
 	coordinator.HandleBroadcast(w, httpReq)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", w.Code)
-	}
-
-	var resp MultisigBroadcastResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
-	}
-
-	if !resp.Success {
-		t.Error("Expected successful broadcast")
-	}
-	if resp.TransactionID == "" {
-		t.Error("Expected transaction ID in response")
-	}
-
-	// Check notification
-	time.Sleep(100 * time.Millisecond)
-	notifier.mu.Lock()
-	broadcastCount := notifier.broadcastComplete
-	notifier.mu.Unlock()
-
-	if broadcastCount != 1 {
-		t.Errorf("Expected 1 broadcast notification, got %d", broadcastCount)
+	// Without a broadcaster configured, should get 503
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("Expected status 503 (no broadcaster configured), got %d", w.Code)
 	}
 }
 
