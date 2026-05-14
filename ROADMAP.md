@@ -196,8 +196,8 @@ pw, err := paywall.NewPaywall(paywall.Config{
 **Validation Criteria**:
 - [x] Wrap XMR password loading in conditional: `if config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "" || config.PriceInXMR > 0`
 - [x] Test case: Bitcoin-only config (no XMR fields, no env vars) creates paywall successfully
-- [ ] Update `TestPaywall_CreatePayment_RaceConditionFix` to remove XMR env dependency
-- [ ] Document: "XMR fields required only if any XMR config provided (user/pass/RPC/price)"
+- [x] Update `TestPaywall_CreatePayment_RaceConditionFix` to remove XMR env dependency
+- [x] Document: "XMR fields required only if any XMR config provided (user/pass/RPC/price)"
 - [x] Verify with: Run README Quick Start example without XMR_WALLET_PASS set
 
 **Estimated Effort**: 2-3 hours  
