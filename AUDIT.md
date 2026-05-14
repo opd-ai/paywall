@@ -522,7 +522,7 @@ func TestState_TransitionHistory(t *testing.T)
 - [x] Fuzzing signature data structures
 - [x] Property-based testing for state machine
 - [x] Chaos engineering for race conditions
-- [ ] Load testing concurrent escrows
+- [x] Load testing concurrent escrows
 
 ### Operational Security Recommendations
 
