@@ -37,7 +37,7 @@
 
 **Context**: AUDIT.md documents that multisig escrow system is "NOT READY FOR PRODUCTION" with critical vulnerabilities enabling fund theft. These must be resolved before any production deployment.
 
-- [ ] **Implement arbiter authorization validation** (escrow.go:ResolveDispute)
+- [x] **Implement arbiter authorization validation** (escrow.go:ResolveDispute)
   - Add `Config.AuthorizedArbiters [][]byte` field for allowlist of arbiter public keys
   - Implement `isAuthorizedArbiter(pubKey []byte) bool` to validate arbiter identity
   - Reject unauthorized arbiter signatures with clear error
@@ -45,7 +45,7 @@
   - **Risk**: Without this, any attacker can impersonate arbiters and steal escrowed funds
   - **Reference**: AUDIT.md lines 3556-3625, 3807-3820
 
-- [ ] **Add cryptographic signature verification** (escrow.go:ResolveDispute, escrow.go:RefundBuyer, escrow.go:ReleaseToSeller)
+- [x] **Add cryptographic signature verification** (escrow.go:ResolveDispute, escrow.go:RefundBuyer, escrow.go:ReleaseToSeller)
   - Implement `verifySignatureAgainstTx(sig *SignatureData, payment *Payment, walletType) (bool, error)` 
   - Verify all signatures against actual transaction data before accepting
   - Reject invalid, mismatched, or tampered signatures
@@ -53,7 +53,7 @@
   - **Risk**: Currently signatures are stored without verification - attacker can provide fake signatures
   - **Reference**: AUDIT.md lines 3635-3665, 3796-3806
 
-- [ ] **Remove attacker-controlled Role field** (types.go:SignatureData, escrow.go validation)
+- [x] **Remove attacker-controlled Role field** (types.go:SignatureData, escrow.go validation)
   - Derive `Role` from public key match against participant lists, not from user input
   - Implement `getRoleForPubKey(pubKey []byte, payment *Payment) MultisigRole`
   - Update all signature validation to compute role instead of trusting user-provided value
@@ -61,7 +61,7 @@
   - **Risk**: Attacker can set Role="arbiter" to bypass authorization checks
   - **Reference**: AUDIT.md lines 3577-3599, 3860-3873
 
-- [ ] **Implement optimistic locking for payment updates** (types.go:Payment, filestore.go, memstore.go)
+- [x] **Implement optimistic locking for payment updates** (types.go:Payment, filestore.go, memstore.go)
   - Add version checking in `UpdatePayment()` - reject if version changed
   - Return `ErrVersionConflict` when concurrent modification detected
   - Increment version on successful update
@@ -70,7 +70,7 @@
   - **Risk**: Race conditions allow double-spend via simultaneous release and refund
   - **Reference**: AUDIT.md lines 2766-2785, 3277-3339
 
-- [ ] **Implement audit trail for escrow operations** (types.go:Payment, escrow.go all methods)
+- [x] **Implement audit trail for escrow operations** (types.go:Payment, escrow.go all methods)
   - Add `AuditLogEntry` struct with timestamp, actor, action, signatures, metadata
   - Log all state transitions: CreateEscrow, FundEscrow, ReleaseToSeller, RefundBuyer, RequestDispute, ResolveDispute
   - Make audit log append-only and immutable
