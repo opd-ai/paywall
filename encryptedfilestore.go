@@ -147,6 +147,11 @@ func (m *EncryptedFileStore) GetPayment(id string) (*Payment, error) {
 		return nil, fmt.Errorf("unmarshal payment: %w", err)
 	}
 
+	// Migrate payment to ensure compatibility with current schema
+	if err := MigratePayment(&payment); err != nil {
+		return nil, fmt.Errorf("migrate payment: %w", err)
+	}
+
 	return &payment, nil
 }
 
@@ -284,46 +289,6 @@ func (m *EncryptedFileStore) GetPendingMultisigPayments() ([]*Payment, error) {
 
 		if payment.MultisigEnabled && payment.Status == StatusPending {
 			payments = append(payments, payment)
-		}
-	}
-
-	return payments, nil
-}
-
-// GetPaymentsByMultisigAddress finds payments by multisig address.
-//
-// Parameters:
-//   - address: The multisig address to search for
-//
-// Returns:
-//   - []*Payment: Slice of payments associated with the address
-//   - error: Directory read or decryption errors
-func (m *EncryptedFileStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	files, err := os.ReadDir(m.baseDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var payments []*Payment
-	for _, file := range files {
-		payment, err := m.readAndDecryptPayment(file.Name())
-		if err != nil || payment == nil {
-			continue
-		}
-
-		if !payment.MultisigEnabled {
-			continue
-		}
-
-		// Check if any wallet address matches
-		for _, addr := range payment.Addresses {
-			if addr == address {
-				payments = append(payments, payment)
-				break
-			}
 		}
 	}
 

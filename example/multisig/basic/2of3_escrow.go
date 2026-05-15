@@ -1,18 +1,14 @@
 // Package main demonstrates a basic 2-of-3 multisig escrow workflow
 //
-// NOTE: This example demonstrates the multisig coordination API and escrow state machine.
-// Full Bitcoin multisig address generation is pending implementation in the wallet layer.
-// The example shows the intended workflow and API patterns that will be used once
-// wallet multisig support is complete.
+// NOTE: This example demonstrates the multisig coordination API and escrow state machine
+// using fully implemented Bitcoin multisig address generation.
 //
 // Current implementation status:
+//   - ✓ Bitcoin HD wallet multisig (P2WSH/P2SH)
 //   - ✓ Multisig coordination HTTP API (signature collection)
 //   - ✓ Escrow state machine (pending, funded, completed, disputed, refunded)
 //   - ✓ 2-of-3 signature coordination with roles (buyer, seller, arbiter)
-//   - ⧗ Bitcoin HD wallet multisig address generation (in progress)
 //   - ⧗ Monero multisig support (planned)
-//
-// This example will run successfully once BTCHDWallet.GenerateMultisigAddress() is implemented.
 package main
 
 import (

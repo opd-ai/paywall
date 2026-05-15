@@ -159,11 +159,6 @@ type PaymentStore interface {
 	// Returns error if retrieval fails. Returns empty slice if no multisig payments pending.
 	GetPendingMultisigPayments() ([]*Payment, error)
 
-	// GetPaymentsByMultisigAddress finds payments by multisig address.
-	// Useful for identifying payments associated with a specific multisig address.
-	// Returns error if retrieval fails. Returns empty slice if no matching payments.
-	GetPaymentsByMultisigAddress(address string) ([]*Payment, error)
-
 	// Escrow timeout operations (optional - implementations may return empty results)
 
 	// GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.

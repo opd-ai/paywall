@@ -239,34 +239,6 @@ func (m *MemoryStore) GetPendingMultisigPayments() ([]*Payment, error) {
 	return payments, nil
 }
 
-// GetPaymentsByMultisigAddress finds payments by multisig address.
-//
-// Parameters:
-//   - address: The multisig address to search for
-//
-// Returns:
-//   - []*Payment: Slice of payments associated with the address
-//   - error: Always nil in this implementation
-func (m *MemoryStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var payments []*Payment
-	for _, p := range m.payments {
-		if !p.MultisigEnabled {
-			continue
-		}
-		// Check if any wallet address matches
-		for _, addr := range p.Addresses {
-			if addr == address {
-				payments = append(payments, deepCopyPayment(p))
-				break
-			}
-		}
-	}
-	return payments, nil
-}
-
 // GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
 // This enables efficient timeout checking without scanning all payments.
 // Note: In MemoryStore this still does a linear scan, but the interface

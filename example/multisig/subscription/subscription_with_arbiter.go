@@ -1,17 +1,15 @@
 // Package main demonstrates a subscription service with arbiter-backed escrow
 //
-// NOTE: This example demonstrates the multisig coordination API and escrow workflows.
-// Full Bitcoin multisig address generation is pending implementation in the wallet layer.
-// The example shows production patterns for recurring payment escrow.
+// NOTE: This example demonstrates the multisig coordination API and escrow workflows
+// using fully implemented Bitcoin multisig address generation.
 //
 // Current implementation status:
+//   - ✓ Bitcoin HD wallet multisig (P2WSH/P2SH)
 //   - ✓ EscrowManager for subscription lifecycle
 //   - ✓ Pro-rated refund logic
 //   - ✓ Service quality dispute resolution
 //   - ✓ Multi-party signature coordination
-//   - ⧗ Bitcoin HD wallet multisig address generation (in progress)
-//
-// This example will run successfully once BTCHDWallet.GenerateMultisigAddress() is implemented.
+//   - ⧗ Monero multisig support (planned)
 package main
 
 import (

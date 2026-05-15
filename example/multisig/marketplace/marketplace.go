@@ -1,17 +1,15 @@
 // Package main demonstrates a marketplace platform with multisig escrow and dispute resolution
 //
-// NOTE: This example demonstrates the multisig coordination API and escrow state machine.
-// Full Bitcoin multisig address generation is pending implementation in the wallet layer.
-// The example shows production patterns for marketplace escrow workflows.
+// NOTE: This example demonstrates the multisig coordination API and escrow state machine
+// using fully implemented Bitcoin multisig address generation.
 //
 // Current implementation status:
+//   - ✓ Bitcoin HD wallet multisig (P2WSH/P2SH)
 //   - ✓ MultisigCoordinator HTTP API for signature collection
 //   - ✓ EscrowManager for payment lifecycle
 //   - ✓ Webhook notifications for signature events
 //   - ✓ Dispute resolution with arbiter
-//   - ⧗ Bitcoin HD wallet multisig address generation (in progress)
-//
-// This example will run successfully once BTCHDWallet.GenerateMultisigAddress() is implemented.
+//   - ⧗ Monero multisig support (planned)
 package main
 
 import (

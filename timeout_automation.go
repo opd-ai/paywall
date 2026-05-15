@@ -367,13 +367,54 @@ func (btp *BitcoinTimestampProvider) GetLatestBlockTime() (time.Time, error) {
 		return time.Time{}, fmt.Errorf("rpc url not configured")
 	}
 
-	// Use blockchain.info public API for mainnet
-	// For testnet, would need a different API or local node
-	url := "https://blockchain.info/latestblock"
 	if btp.testnet {
-		url = "https://blockstream.info/testnet/api/blocks/tip/height"
+		// Use blockstream.info testnet API for testnet block times
+		// Step 1: Get latest block hash
+		tipHashURL := "https://blockstream.info/testnet/api/blocks/tip/hash"
+		resp, err := http.Get(tipHashURL)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("query testnet blockchain api for tip hash: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != 200 {
+			return time.Time{}, fmt.Errorf("testnet blockchain api returned status %d for tip hash", resp.StatusCode)
+		}
+
+		tipHash, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("read testnet tip hash response: %w", err)
+		}
+
+		// Step 2: Get block details including timestamp
+		blockURL := fmt.Sprintf("https://blockstream.info/testnet/api/block/%s", string(tipHash))
+		resp2, err := http.Get(blockURL)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("query testnet blockchain api for block: %w", err)
+		}
+		defer resp2.Body.Close()
+
+		if resp2.StatusCode != 200 {
+			return time.Time{}, fmt.Errorf("testnet blockchain api returned status %d for block", resp2.StatusCode)
+		}
+
+		body, err := io.ReadAll(resp2.Body)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("read testnet block response: %w", err)
+		}
+
+		var blockData struct {
+			Timestamp int64 `json:"timestamp"`
+		}
+		if err := json.Unmarshal(body, &blockData); err != nil {
+			return time.Time{}, fmt.Errorf("parse testnet block response: %w", err)
+		}
+
+		return time.Unix(blockData.Timestamp, 0), nil
 	}
 
+	// Use blockchain.info public API for mainnet
+	url := "https://blockchain.info/latestblock"
 	resp, err := http.Get(url)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("query blockchain api: %w", err)
@@ -387,13 +428,6 @@ func (btp *BitcoinTimestampProvider) GetLatestBlockTime() (time.Time, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read response body: %w", err)
-	}
-
-	if btp.testnet {
-		// For testnet, we get block height, need another call for timestamp
-		// For simplicity, use system time with logged warning
-		log.Printf("testnet block timestamp estimation not fully implemented, using system time")
-		return time.Now(), nil
 	}
 
 	// Parse blockchain.info response
