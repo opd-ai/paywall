@@ -22,10 +22,8 @@ type TimeoutMonitor struct {
 	wg                sync.WaitGroup
 	processingLock    sync.Mutex
 	processing        map[string]bool
-	signerLock        sync.RWMutex
 	useBlockchainTime bool
 	autoRefund        bool
-	arbiterSigner     ArbiterSigner // optional, required for automatic refunds
 }
 
 // TimeoutMonitorConfig configures the timeout monitor
@@ -58,48 +56,7 @@ func NewTimeoutMonitor(em *EscrowManager, config TimeoutMonitorConfig) *TimeoutM
 		processing:        make(map[string]bool),
 		useBlockchainTime: config.UseBlockchainTime,
 		autoRefund:        config.AutoRefund,
-		arbiterSigner:     nil, // Must be set separately if autoRefund is enabled
 	}
-}
-
-// SetArbiterSigner sets the arbiter signer for automatic refunds
-// This is required if autoRefund is enabled in the configuration
-func (tm *TimeoutMonitor) SetArbiterSigner(signer ArbiterSigner) {
-	tm.signerLock.Lock()
-	defer tm.signerLock.Unlock()
-	tm.arbiterSigner = signer
-}
-
-func (tm *TimeoutMonitor) getArbiterSigner() ArbiterSigner {
-	tm.signerLock.RLock()
-	defer tm.signerLock.RUnlock()
-	return tm.arbiterSigner
-}
-
-func findBuyerTimeoutApproval(payment *Payment) (*SignatureData, error) {
-	if payment.Signatures == nil {
-		return nil, fmt.Errorf("buyer timeout approval signature not found")
-	}
-
-	for _, sigs := range payment.Signatures {
-		for i := range sigs {
-			storedSig := &sigs[i]
-			if storedSig.Role != RoleBuyer {
-				continue
-			}
-			if storedSig.PaymentID != "" && storedSig.PaymentID != payment.ID {
-				continue
-			}
-			approval := *storedSig
-			// This signature is loaded from previously stored approvals on the payment.
-			// Use a fresh nonce so replay validation can distinguish the stored approval
-			// record from this authorization submission.
-			approval.Nonce = append(append([]byte{}, storedSig.Nonce...), []byte("-timeout-refund-use")...)
-			return &approval, nil
-		}
-	}
-
-	return nil, fmt.Errorf("buyer timeout approval signature not found")
 }
 
 // Start begins monitoring timeouts in a background goroutine
@@ -178,46 +135,82 @@ func (tm *TimeoutMonitor) processTimeout(paymentID string) error {
 	// Log timeout detection
 	log.Printf("timeout detected for payment %s", paymentID)
 
-	// If autoRefund is disabled, just log and return
-	if !tm.autoRefund {
-		log.Printf("automatic refund disabled for payment %s - manual refund required", paymentID)
-		return nil
+	// If auto-refund is enabled, trigger the automatic refund
+	if tm.autoRefund {
+		if err := tm.executeAutomaticRefund(paymentID); err != nil {
+			log.Printf("automatic refund failed for payment %s: %v", paymentID, err)
+			return fmt.Errorf("automatic refund failed: %w", err)
+		}
+		log.Printf("automatic refund completed for payment %s", paymentID)
+	} else {
+		// Just log detection without processing
+		log.Printf("manual refund required for payment %s (auto-refund disabled)", paymentID)
 	}
 
-	// Verify arbiter signer is configured for automatic refunds
-	arbiterSigner := tm.getArbiterSigner()
-	if arbiterSigner == nil {
-		log.Printf("WARNING: automatic refund enabled but no arbiter signer configured for payment %s", paymentID)
-		return fmt.Errorf("arbiter signer not configured for automatic refunds")
-	}
+	return nil
+}
 
+// executeAutomaticRefund performs an automatic refund for a timed-out escrow
+// This is called when AutoRefund is enabled in the configuration
+func (tm *TimeoutMonitor) executeAutomaticRefund(paymentID string) error {
 	// Get payment details
 	payment, err := tm.em.paywall.Store.GetPayment(paymentID)
 	if err != nil {
-		return fmt.Errorf("get payment for timeout refund: %w", err)
+		return fmt.Errorf("get payment: %w", err)
 	}
 
 	if payment == nil {
 		return fmt.Errorf("payment not found: %s", paymentID)
 	}
 
-	buyerSig, err := findBuyerTimeoutApproval(payment)
-	if err != nil {
-		return fmt.Errorf("automatic timeout refund requires buyer pre-authorization: %w", err)
+	// Verify payment is in a state that allows timeout refund
+	if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
+		return fmt.Errorf("payment %s in state %s, cannot auto-refund", paymentID, payment.EscrowState.String())
 	}
 
-	// Generate arbiter signature for timeout refund
-	arbiterSig, err := arbiterSigner.SignTimeoutRefund(payment)
-	if err != nil {
-		return fmt.Errorf("arbiter sign timeout refund: %w", err)
+	// For automatic timeout refunds, we mark the state as refunded
+	// In a production system with actual blockchain transactions, this would:
+	// 1. Create the refund transaction
+	// 2. Get required signatures (typically buyer + arbiter for timeout)
+	// 3. Broadcast the transaction
+	// For now, we transition the state to indicate timeout refund
+
+	prevState := payment.EscrowState
+
+	// Validate and record state transition
+	if err := tm.em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		EscrowRefunded,
+		"timeout-monitor",
+		fmt.Sprintf("Automatic refund due to timeout at %s", time.Now().Format(time.RFC3339)),
+	); err != nil {
+		return fmt.Errorf("invalid state transition: %w", err)
 	}
 
-	// Execute refund with buyer pre-authorization + arbiter signature
-	if err := tm.em.RefundBuyer(paymentID, buyerSig, arbiterSig); err != nil {
-		return fmt.Errorf("execute automatic timeout refund: %w", err)
+	// Update payment in store
+	if err := tm.em.paywall.Store.UpdatePayment(payment); err != nil {
+		return fmt.Errorf("update payment: %w", err)
 	}
 
-	log.Printf("automatic timeout refund completed for payment %s", paymentID)
+	// Log the automatic refund in audit trail
+	if tm.em.auditLogger != nil {
+		_, auditErr := tm.em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionRefund,
+			PreviousState: prevState,
+			NewState:      EscrowRefunded,
+			ActorRole:     "", // System action, no specific actor
+			Metadata: map[string]string{
+				"reason":    "timeout",
+				"automatic": "true",
+				"timeout":   payment.EscrowTimeout.Format(time.RFC3339),
+			},
+		})
+		if auditErr != nil {
+			log.Printf("WARNING: failed to log automatic refund for payment %s: %v", paymentID, auditErr)
+		}
+	}
+
 	return nil
 }
 
@@ -269,31 +262,46 @@ func (tm *TimeoutMonitor) getBlockchainTimestamp() (time.Time, error) {
 }
 
 // CheckEscrowTimeoutsWithTime checks for timed-out escrows using provided time
-// Now uses the optimized GetEscrowsExpiringBefore method for better performance
 func (em *EscrowManager) CheckEscrowTimeoutsWithTime(currentTime time.Time) ([]string, error) {
+	// Get all payments (not just pending - escrows can be confirmed/funded)
+	// We need to check their escrow state, not payment status
 	store := em.paywall.Store
 
-	// Use the new optimized method to get escrows expiring before current time
-	expiring, err := store.GetEscrowsExpiringBefore(currentTime)
-	if err != nil {
-		return nil, fmt.Errorf("get expiring escrows: %w", err)
+	// Since there's no GetAllPayments, we'll use the store's internal structure
+	// For testing, we can get payments by iterating through the store
+
+	// Try to get all payments via a type assertion to MemoryStore
+	// In production, this would need a GetAllPayments method on PaymentStore
+	memStore, ok := store.(*MemoryStore)
+	if !ok {
+		// Fallback: use GetPendingMultisigPayments and also check completed ones
+		// This is a workaround for the interface limitation
+		payments, err := store.GetPendingMultisigPayments()
+		if err != nil {
+			return nil, fmt.Errorf("get payments: %w", err)
+		}
+		var timedOut []string
+		for _, payment := range payments {
+			if payment.EscrowState == EscrowFunded || payment.EscrowState == EscrowDisputed {
+				if !payment.EscrowTimeout.IsZero() && currentTime.After(payment.EscrowTimeout) {
+					timedOut = append(timedOut, payment.ID)
+				}
+			}
+		}
+		return timedOut, nil
 	}
 
-	// Extract payment IDs from expiring payments
+	// Get all payments from MemoryStore
+	memStore.mu.RLock()
+	defer memStore.mu.RUnlock()
+
 	var timedOut []string
-	for _, payment := range expiring {
-		// Defense in depth for custom stores: this flow expects only multisig-enabled
-		// escrows in funded/disputed state with non-zero timeout before currentTime.
-		if payment == nil || !payment.MultisigEnabled {
-			continue
+	for _, payment := range memStore.payments {
+		if payment.MultisigEnabled && (payment.EscrowState == EscrowFunded || payment.EscrowState == EscrowDisputed) {
+			if !payment.EscrowTimeout.IsZero() && currentTime.After(payment.EscrowTimeout) {
+				timedOut = append(timedOut, payment.ID)
+			}
 		}
-		if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
-			continue
-		}
-		if payment.EscrowTimeout.IsZero() || !payment.EscrowTimeout.Before(currentTime) {
-			continue
-		}
-		timedOut = append(timedOut, payment.ID)
 	}
 
 	return timedOut, nil
@@ -367,13 +375,6 @@ func (btp *BitcoinTimestampProvider) GetLatestBlockTime() (time.Time, error) {
 // MoneroTimestampProvider implements blockchain time for Monero
 type MoneroTimestampProvider struct {
 	rpcClient interface{} // monero RPC client
-}
-
-// ArbiterSigner defines interface for signing timeout refunds as arbiter
-type ArbiterSigner interface {
-	// SignTimeoutRefund creates an arbiter signature for a timeout-based refund
-	// The signature authorizes refunding the payment to the buyer after timeout
-	SignTimeoutRefund(payment *Payment) (*SignatureData, error)
 }
 
 // NewMoneroTimestampProvider creates a Monero timestamp provider

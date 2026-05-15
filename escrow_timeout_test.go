@@ -169,7 +169,7 @@ func TestEscrowTimeoutBounds(t *testing.T) {
 			minEscrowTimeout: 24 * time.Hour,
 			maxEscrowTimeout: 90 * 24 * time.Hour,
 			wantErr:          true,
-			errContains:      "below minimum",
+			errContains:      "must be positive",
 		},
 		{
 			name:             "zero timeout",
@@ -177,7 +177,7 @@ func TestEscrowTimeoutBounds(t *testing.T) {
 			minEscrowTimeout: 24 * time.Hour,
 			maxEscrowTimeout: 90 * 24 * time.Hour,
 			wantErr:          true,
-			errContains:      "below minimum",
+			errContains:      "must be positive",
 		},
 	}
 

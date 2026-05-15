@@ -622,3 +622,273 @@ func TestTimeoutMonitor_IntegrationTest(t *testing.T) {
 	// The monitor should have detected the timeout (logged but not processed)
 	// This is a basic integration test - in production you'd check logs
 }
+
+func TestTimeoutMonitor_AutomaticRefund(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a payment that has already timed out
+	payment := &Payment{
+		ID:              "test-timeout-payment",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Create monitor with auto-refund enabled
+	config := TimeoutMonitorConfig{
+		CheckInterval:     100 * time.Millisecond,
+		UseBlockchainTime: false,
+		AutoRefund:        true,
+	}
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Start monitoring
+	monitor.Start()
+
+	// Wait for at least one check cycle
+	time.Sleep(250 * time.Millisecond)
+
+	// Stop monitoring
+	monitor.Stop()
+
+	// Verify payment was automatically refunded
+	refundedPayment, err := store.GetPayment("test-timeout-payment")
+	if err != nil {
+		t.Fatalf("GetPayment() error = %v", err)
+	}
+
+	if refundedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("EscrowState = %v, want %v", refundedPayment.EscrowState, EscrowRefunded)
+	}
+}
+
+func TestTimeoutMonitor_ManualRefund(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a payment that has already timed out
+	payment := &Payment{
+		ID:              "test-manual-payment",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Create monitor with auto-refund DISABLED
+	config := TimeoutMonitorConfig{
+		CheckInterval:     100 * time.Millisecond,
+		UseBlockchainTime: false,
+		AutoRefund:        false,
+	}
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Start monitoring
+	monitor.Start()
+
+	// Wait for at least one check cycle
+	time.Sleep(250 * time.Millisecond)
+
+	// Stop monitoring
+	monitor.Stop()
+
+	// Verify payment was NOT automatically refunded (should still be Funded)
+	manualPayment, err := store.GetPayment("test-manual-payment")
+	if err != nil {
+		t.Fatalf("GetPayment() error = %v", err)
+	}
+
+	if manualPayment.EscrowState != EscrowFunded {
+		t.Errorf("EscrowState = %v, want %v (should not auto-refund)", manualPayment.EscrowState, EscrowFunded)
+	}
+}
+
+func TestTimeoutMonitor_ProcessTimeout_WithAutoRefund(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a timed-out payment
+	payment := &Payment{
+		ID:              "test-process-timeout",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Create monitor with auto-refund enabled
+	config := TimeoutMonitorConfig{
+		CheckInterval:     5 * time.Minute,
+		UseBlockchainTime: false,
+		AutoRefund:        true,
+	}
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Directly call processTimeout
+	err = monitor.processTimeout("test-process-timeout")
+	if err != nil {
+		t.Errorf("processTimeout() error = %v", err)
+	}
+
+	// Verify the payment was refunded
+	refundedPayment, err := store.GetPayment("test-process-timeout")
+	if err != nil {
+		t.Fatalf("GetPayment() error = %v", err)
+	}
+
+	if refundedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("EscrowState = %v, want %v", refundedPayment.EscrowState, EscrowRefunded)
+	}
+}
+
+func TestTimeoutMonitor_NoConcurrentProcessing(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a timed-out payment
+	payment := &Payment{
+		ID:              "test-concurrent",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Create monitor
+	config := TimeoutMonitorConfig{
+		CheckInterval:     5 * time.Minute,
+		UseBlockchainTime: false,
+		AutoRefund:        true,
+	}
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Try to process the same timeout twice concurrently
+	done := make(chan bool, 2)
+	go func() {
+		monitor.processTimeout("test-concurrent")
+		done <- true
+	}()
+	go func() {
+		monitor.processTimeout("test-concurrent")
+		done <- true
+	}()
+
+	// Wait for both to complete
+	<-done
+	<-done
+
+	// Verify payment was refunded only once (no duplicate processing)
+	refundedPayment, err := store.GetPayment("test-concurrent")
+	if err != nil {
+		t.Fatalf("GetPayment() error = %v", err)
+	}
+
+	if refundedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("EscrowState = %v, want %v", refundedPayment.EscrowState, EscrowRefunded)
+	}
+}
+
+func TestEscrowManager_StartTimeoutMonitor(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a timed-out payment
+	payment := &Payment{
+		ID:              "test-start-monitor",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Start monitor using convenience method
+	config := TimeoutMonitorConfig{
+		CheckInterval:     100 * time.Millisecond,
+		UseBlockchainTime: false,
+		AutoRefund:        true,
+	}
+	monitor := em.StartTimeoutMonitor(config)
+
+	// Verify monitor is running
+	if monitor == nil {
+		t.Fatal("StartTimeoutMonitor() returned nil")
+	}
+
+	// Wait for processing
+	time.Sleep(250 * time.Millisecond)
+
+	// Stop monitor
+	monitor.Stop()
+
+	// Verify payment was refunded
+	refundedPayment, err := store.GetPayment("test-start-monitor")
+	if err != nil {
+		t.Fatalf("GetPayment() error = %v", err)
+	}
+
+	if refundedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("EscrowState = %v, want %v", refundedPayment.EscrowState, EscrowRefunded)
+	}
+}

@@ -1799,3 +1799,282 @@ func TestDisputeAntiSpam_EvidenceSize(t *testing.T) {
 		t.Errorf("Expected 'evidence size limit exceeded' error, got: %v", err)
 	}
 }
+
+func TestCreateEscrow_NegativeTimeout(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:  true,
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 30 * 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Try to create escrow with negative timeout
+	_, err = em.CreateEscrow(1.0, -1*time.Hour)
+	if err == nil {
+		t.Error("CreateEscrow() with negative timeout should fail")
+	}
+	if !strings.Contains(err.Error(), "must be positive") {
+		t.Errorf("CreateEscrow() error = %v, want error about positive timeout", err)
+	}
+}
+
+func TestCreateEscrow_ZeroTimeout(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:  true,
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 30 * 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Try to create escrow with zero timeout
+	_, err = em.CreateEscrow(1.0, 0)
+	if err == nil {
+		t.Error("CreateEscrow() with zero timeout should fail")
+	}
+	if !strings.Contains(err.Error(), "must be positive") {
+		t.Errorf("CreateEscrow() error = %v, want error about positive timeout", err)
+	}
+}
+
+func TestCreateEscrow_BelowMinimum(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:  true,
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 30 * 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Try to create escrow below minimum
+	_, err = em.CreateEscrow(1.0, 30*time.Minute)
+	if err == nil {
+		t.Error("CreateEscrow() below minimum should fail")
+	}
+	if !strings.Contains(err.Error(), "below minimum") {
+		t.Errorf("CreateEscrow() error = %v, want error about minimum", err)
+	}
+}
+
+func TestCreateEscrow_AboveMaximum(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:  true,
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 30 * 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Try to create escrow above maximum
+	_, err = em.CreateEscrow(1.0, 31*24*time.Hour)
+	if err == nil {
+		t.Error("CreateEscrow() above maximum should fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("CreateEscrow() error = %v, want error about maximum", err)
+	}
+}
+
+func TestExtendTimeout_BuyerSeller(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:            store,
+		HDWallets:        make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:  true,
+		minEscrowTimeout: 1 * time.Hour,
+		maxEscrowTimeout: 30 * 24 * time.Hour,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	// Create a funded escrow payment
+	payment := &Payment{
+		ID:              "test-extend",
+		MultisigEnabled: true,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(24 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Extend timeout with buyer+seller signatures
+	buyerSig := &SignatureData{
+		Role:      RoleBuyer,
+		PublicKey: []byte("buyer-pubkey"),
+		Signature: []byte("buyer-sig-12345678"),
+		SignerID:  "buyer",
+	}
+	sellerSig := &SignatureData{
+		Role:      RoleSeller,
+		PublicKey: []byte("seller-pubkey"),
+		Signature: []byte("seller-sig-12345678"),
+		SignerID:  "seller",
+	}
+
+	oldTimeout := payment.EscrowTimeout
+	err = em.ExtendTimeout("test-extend", 2*24*time.Hour, buyerSig, sellerSig)
+	if err != nil {
+		t.Fatalf("ExtendTimeout() error = %v", err)
+	}
+
+	// Verify timeout was extended
+	updatedPayment, _ := store.GetPayment("test-extend")
+	if !updatedPayment.EscrowTimeout.After(oldTimeout) {
+		t.Error("Timeout was not extended")
+	}
+}
+
+func TestExtendTimeout_NegativeExtension(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:           store,
+		HDWallets:       make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled: true,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	payment := &Payment{
+		ID:              "test-negative",
+		MultisigEnabled: true,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(24 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	buyerSig := &SignatureData{Role: RoleBuyer, PublicKey: []byte("b"), Signature: []byte("sig123456")}
+	sellerSig := &SignatureData{Role: RoleSeller, PublicKey: []byte("s"), Signature: []byte("sig123456")}
+
+	// Try negative extension
+	err = em.ExtendTimeout("test-negative", -1*time.Hour, buyerSig, sellerSig)
+	if err == nil {
+		t.Error("ExtendTimeout() with negative extension should fail")
+	}
+	if !strings.Contains(err.Error(), "must be positive") {
+		t.Errorf("ExtendTimeout() error = %v, want error about positive extension", err)
+	}
+}
+
+func TestExtendTimeout_ExceedsMaximum(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:           store,
+		HDWallets:       make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled: true,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	payment := &Payment{
+		ID:              "test-max",
+		MultisigEnabled: true,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(24 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	buyerSig := &SignatureData{Role: RoleBuyer, PublicKey: []byte("b"), Signature: []byte("sig123456")}
+	sellerSig := &SignatureData{Role: RoleSeller, PublicKey: []byte("s"), Signature: []byte("sig123456")}
+
+	// Try extension exceeding 7 days
+	err = em.ExtendTimeout("test-max", 8*24*time.Hour, buyerSig, sellerSig)
+	if err == nil {
+		t.Error("ExtendTimeout() exceeding maximum should fail")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum") {
+		t.Errorf("ExtendTimeout() error = %v, want error about maximum", err)
+	}
+}
+
+func TestExtendTimeout_InvalidState(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:           store,
+		HDWallets:       make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled: true,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	payment := &Payment{
+		ID:              "test-invalid-state",
+		MultisigEnabled: true,
+		EscrowState:     EscrowCompleted, // Cannot extend completed escrow
+		EscrowTimeout:   time.Now().Add(24 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	buyerSig := &SignatureData{Role: RoleBuyer, PublicKey: []byte("b"), Signature: []byte("sig123456")}
+	sellerSig := &SignatureData{Role: RoleSeller, PublicKey: []byte("s"), Signature: []byte("sig123456")}
+
+	err = em.ExtendTimeout("test-invalid-state", 2*24*time.Hour, buyerSig, sellerSig)
+	if err == nil {
+		t.Error("ExtendTimeout() on completed escrow should fail")
+	}
+}
+
+func TestExtendTimeout_InsufficientSignatures(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:           store,
+		HDWallets:       make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled: true,
+	}
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("NewEscrowManager() error = %v", err)
+	}
+
+	payment := &Payment{
+		ID:              "test-insufficient",
+		MultisigEnabled: true,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(24 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	buyerSig := &SignatureData{Role: RoleBuyer, PublicKey: []byte("b"), Signature: []byte("sig123456")}
+
+	// Try with only one signature
+	err = em.ExtendTimeout("test-insufficient", 2*24*time.Hour, buyerSig, nil)
+	if err != ErrInsufficientSignatures {
+		t.Errorf("ExtendTimeout() error = %v, want %v", err, ErrInsufficientSignatures)
+	}
+}
