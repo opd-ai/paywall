@@ -3,6 +3,8 @@ package paywall
 import (
 	"fmt"
 	"testing"
+
+	"github.com/btcsuite/btcd/btcec/v2"
 )
 
 func TestNewLocalArbiter(t *testing.T) {
@@ -523,3 +525,446 @@ func TestArbiterInterface(t *testing.T) {
 	// Verify LocalArbiter implements Arbiter interface
 	var _ Arbiter = (*LocalArbiter)(nil)
 }
+
+func TestSignEvidence(t *testing.T) {
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		evidence *Evidence
+		privKey  *btcec.PrivateKey
+		wantErr  bool
+	}{
+		{
+			name:     "nil evidence",
+			evidence: nil,
+			privKey:  privKey,
+			wantErr:  true,
+		},
+		{
+			name: "nil private key",
+			evidence: &Evidence{
+				PaymentID:   "test-payment-1",
+				Type:        EvidenceText,
+				SubmittedBy: RoleBuyer,
+				Content:     "test content",
+				Description: "test description",
+			},
+			privKey: nil,
+			wantErr: true,
+		},
+		{
+			name: "valid evidence and key",
+			evidence: &Evidence{
+				PaymentID:   "test-payment-1",
+				Type:        EvidenceText,
+				SubmittedBy: RoleBuyer,
+				Content:     "test content",
+				Description: "test description",
+			},
+			privKey: privKey,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SignEvidence(tt.evidence, tt.privKey)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SignEvidence() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				if len(tt.evidence.Signature) == 0 {
+					t.Error("SignEvidence() did not set signature")
+				}
+				if len(tt.evidence.PublicKey) == 0 {
+					t.Error("SignEvidence() did not set public key")
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyEvidenceSignature(t *testing.T) {
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	// Create valid signed evidence
+	validEvidence := &Evidence{
+		PaymentID:   "test-payment-1",
+		Type:        EvidenceText,
+		SubmittedBy: RoleBuyer,
+		Content:     "test content",
+		Description: "test description",
+	}
+	if err := SignEvidence(validEvidence, privKey); err != nil {
+		t.Fatalf("Failed to sign evidence: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		evidence *Evidence
+		wantOk   bool
+		wantErr  bool
+	}{
+		{
+			name:     "nil evidence",
+			evidence: nil,
+			wantOk:   false,
+			wantErr:  true,
+		},
+		{
+			name: "evidence without signature",
+			evidence: &Evidence{
+				PaymentID:   "test-payment-1",
+				Type:        EvidenceText,
+				SubmittedBy: RoleBuyer,
+				Content:     "test content",
+			},
+			wantOk:  false,
+			wantErr: true,
+		},
+		{
+			name: "evidence without public key",
+			evidence: &Evidence{
+				PaymentID:   "test-payment-1",
+				Type:        EvidenceText,
+				SubmittedBy: RoleBuyer,
+				Content:     "test content",
+				Signature:   []byte("fake signature"),
+			},
+			wantOk:  false,
+			wantErr: true,
+		},
+		{
+			name:     "valid signed evidence",
+			evidence: validEvidence,
+			wantOk:   true,
+			wantErr:  false,
+		},
+		{
+			name: "tampered evidence content",
+			evidence: func() *Evidence {
+				e := &Evidence{
+					PaymentID:   validEvidence.PaymentID,
+					Type:        validEvidence.Type,
+					SubmittedBy: validEvidence.SubmittedBy,
+					Content:     "tampered content", // Modified!
+					Description: validEvidence.Description,
+					Signature:   validEvidence.Signature,
+					PublicKey:   validEvidence.PublicKey,
+				}
+				return e
+			}(),
+			wantOk:  false,
+			wantErr: false,
+		},
+		{
+			name: "tampered evidence description",
+			evidence: func() *Evidence {
+				e := &Evidence{
+					PaymentID:   validEvidence.PaymentID,
+					Type:        validEvidence.Type,
+					SubmittedBy: validEvidence.SubmittedBy,
+					Content:     validEvidence.Content,
+					Description: "tampered description", // Modified!
+					Signature:   validEvidence.Signature,
+					PublicKey:   validEvidence.PublicKey,
+				}
+				return e
+			}(),
+			wantOk:  false,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok, err := VerifyEvidenceSignature(tt.evidence)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VerifyEvidenceSignature() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if ok != tt.wantOk {
+				t.Errorf("VerifyEvidenceSignature() ok = %v, want %v", ok, tt.wantOk)
+			}
+		})
+	}
+}
+
+func TestSignResolution(t *testing.T) {
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		resolution *Resolution
+		privKey    *btcec.PrivateKey
+		wantErr    bool
+	}{
+		{
+			name:       "nil resolution",
+			resolution: nil,
+			privKey:    privKey,
+			wantErr:    true,
+		},
+		{
+			name: "nil private key",
+			resolution: &Resolution{
+				PaymentID: "test-payment-1",
+				Decision:  RoleBuyer,
+				Reason:    "test reason",
+				ArbiterID: "arbiter-1",
+			},
+			privKey: nil,
+			wantErr: true,
+		},
+		{
+			name: "valid resolution and key",
+			resolution: &Resolution{
+				PaymentID: "test-payment-1",
+				Decision:  RoleBuyer,
+				Reason:    "test reason",
+				ArbiterID: "arbiter-1",
+				Evidence:  []string{"evidence-1", "evidence-2"},
+			},
+			privKey: privKey,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := SignResolution(tt.resolution, tt.privKey)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("SignResolution() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				if len(tt.resolution.Signature) == 0 {
+					t.Error("SignResolution() did not set signature")
+				}
+				if len(tt.resolution.PublicKey) == 0 {
+					t.Error("SignResolution() did not set public key")
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyResolutionSignature(t *testing.T) {
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	// Create valid signed resolution
+	validResolution := &Resolution{
+		PaymentID: "test-payment-1",
+		Decision:  RoleBuyer,
+		Reason:    "test reason",
+		ArbiterID: "arbiter-1",
+		Evidence:  []string{"evidence-1", "evidence-2"},
+	}
+	if err := SignResolution(validResolution, privKey); err != nil {
+		t.Fatalf("Failed to sign resolution: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		resolution *Resolution
+		wantOk     bool
+		wantErr    bool
+	}{
+		{
+			name:       "nil resolution",
+			resolution: nil,
+			wantOk:     false,
+			wantErr:    true,
+		},
+		{
+			name: "resolution without signature",
+			resolution: &Resolution{
+				PaymentID: "test-payment-1",
+				Decision:  RoleBuyer,
+				Reason:    "test reason",
+			},
+			wantOk:  false,
+			wantErr: true,
+		},
+		{
+			name: "resolution without public key",
+			resolution: &Resolution{
+				PaymentID: "test-payment-1",
+				Decision:  RoleBuyer,
+				Reason:    "test reason",
+				Signature: []byte("fake signature"),
+			},
+			wantOk:  false,
+			wantErr: true,
+		},
+		{
+			name:       "valid signed resolution",
+			resolution: validResolution,
+			wantOk:     true,
+			wantErr:    false,
+		},
+		{
+			name: "tampered resolution reason",
+			resolution: func() *Resolution {
+				r := &Resolution{
+					PaymentID: validResolution.PaymentID,
+					Decision:  validResolution.Decision,
+					Reason:    "tampered reason", // Modified!
+					ArbiterID: validResolution.ArbiterID,
+					Evidence:  validResolution.Evidence,
+					Signature: validResolution.Signature,
+					PublicKey: validResolution.PublicKey,
+				}
+				return r
+			}(),
+			wantOk:  false,
+			wantErr: false,
+		},
+		{
+			name: "tampered resolution decision",
+			resolution: func() *Resolution {
+				r := &Resolution{
+					PaymentID: validResolution.PaymentID,
+					Decision:  RoleSeller, // Modified!
+					Reason:    validResolution.Reason,
+					ArbiterID: validResolution.ArbiterID,
+					Evidence:  validResolution.Evidence,
+					Signature: validResolution.Signature,
+					PublicKey: validResolution.PublicKey,
+				}
+				return r
+			}(),
+			wantOk:  false,
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok, err := VerifyResolutionSignature(tt.resolution)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("VerifyResolutionSignature() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if ok != tt.wantOk {
+				t.Errorf("VerifyResolutionSignature() ok = %v, want %v", ok, tt.wantOk)
+			}
+		})
+	}
+}
+
+func TestLocalArbiter_SubmitEvidence_WithSignature(t *testing.T) {
+	arbiter := NewLocalArbiter()
+	payment := &Payment{
+		ID:            "test-payment-1",
+		DisputeReason: "test",
+	}
+	arbiter.RegisterDispute(payment, RoleBuyer)
+
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	// Test with valid signature
+	validEvidence := &Evidence{
+		Type:        EvidenceText,
+		SubmittedBy: RoleBuyer,
+		Content:     "test content",
+		Description: "test description",
+	}
+	if err := SignEvidence(validEvidence, privKey); err != nil {
+		t.Fatalf("Failed to sign evidence: %v", err)
+	}
+
+	err = arbiter.SubmitEvidence(payment.ID, validEvidence)
+	if err != nil {
+		t.Errorf("SubmitEvidence() with valid signature error = %v", err)
+	}
+
+	// Test with invalid signature (tampered data)
+	tamperedEvidence := &Evidence{
+		Type:        EvidenceText,
+		SubmittedBy: RoleBuyer,
+		Content:     "tampered content", // Different from signed content
+		Description: "test description",
+		Signature:   validEvidence.Signature, // Reusing old signature
+		PublicKey:   validEvidence.PublicKey,
+	}
+
+	err = arbiter.SubmitEvidence(payment.ID, tamperedEvidence)
+	if err == nil {
+		t.Error("SubmitEvidence() with tampered evidence should have failed")
+	}
+	if err != nil && err.Error() != "invalid evidence signature" {
+		t.Errorf("SubmitEvidence() expected 'invalid evidence signature' error, got: %v", err)
+	}
+}
+
+func TestLocalArbiter_ResolveDispute_WithSignature(t *testing.T) {
+	arbiter := NewLocalArbiter()
+	payment := &Payment{
+		ID:            "test-payment-1",
+		DisputeReason: "test",
+	}
+	arbiter.RegisterDispute(payment, RoleBuyer)
+
+	privKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate private key: %v", err)
+	}
+
+	// Test with valid signature
+	validResolution := &Resolution{
+		Decision:  RoleBuyer,
+		Reason:    "test reason",
+		ArbiterID: "arbiter-1",
+		Evidence:  []string{"evidence-1"},
+	}
+	if err := SignResolution(validResolution, privKey); err != nil {
+		t.Fatalf("Failed to sign resolution: %v", err)
+	}
+
+	err = arbiter.ResolveDispute(payment.ID, validResolution)
+	if err != nil {
+		t.Errorf("ResolveDispute() with valid signature error = %v", err)
+	}
+
+	// Setup another dispute for tampered test
+	payment2 := &Payment{
+		ID:            "test-payment-2",
+		DisputeReason: "test2",
+	}
+	arbiter.RegisterDispute(payment2, RoleSeller)
+
+	// Test with invalid signature (tampered data)
+	tamperedResolution := &Resolution{
+		Decision:  RoleSeller, // Different decision!
+		Reason:    "test reason",
+		ArbiterID: "arbiter-1",
+		Evidence:  []string{"evidence-1"},
+		Signature: validResolution.Signature, // Reusing old signature
+		PublicKey: validResolution.PublicKey,
+	}
+
+	err = arbiter.ResolveDispute(payment2.ID, tamperedResolution)
+	if err == nil {
+		t.Error("ResolveDispute() with tampered resolution should have failed")
+	}
+	if err != nil && err.Error() != "invalid resolution signature" {
+		t.Errorf("ResolveDispute() expected 'invalid resolution signature' error, got: %v", err)
+	}
+}
+

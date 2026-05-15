@@ -2,10 +2,15 @@
 package paywall
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 )
 
 var (
@@ -47,6 +52,11 @@ type Evidence struct {
 	Timestamp time.Time `json:"timestamp"`
 	// Description provides context for the evidence
 	Description string `json:"description"`
+	// Signature is the cryptographic signature over the evidence data
+	// This ensures non-repudiation and tamper-evidence
+	Signature []byte `json:"signature,omitempty"`
+	// PublicKey is the submitter's public key for signature verification
+	PublicKey []byte `json:"public_key,omitempty"`
 }
 
 // Resolution represents the arbiter's decision on a dispute
@@ -63,6 +73,11 @@ type Resolution struct {
 	Timestamp time.Time `json:"timestamp"`
 	// Evidence contains references to evidence that influenced the decision
 	Evidence []string `json:"evidence"`
+	// Signature is the arbiter's cryptographic signature over the resolution
+	// This ensures non-repudiation and authenticity of the decision
+	Signature []byte `json:"signature,omitempty"`
+	// PublicKey is the arbiter's public key for signature verification
+	PublicKey []byte `json:"public_key,omitempty"`
 }
 
 // Dispute represents a dispute case with all associated evidence and resolution
@@ -98,6 +113,156 @@ const (
 	// DisputeClosed indicates the dispute was closed without resolution
 	DisputeClosed DisputeStatus = "closed"
 )
+
+// computeEvidenceHash generates a cryptographic hash of evidence data for signing
+// The hash includes all critical fields to prevent tampering
+func computeEvidenceHash(e *Evidence) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(e.PaymentID))
+	h.Write([]byte(e.Type))
+	h.Write([]byte(e.SubmittedBy))
+	h.Write([]byte(e.Content))
+	h.Write([]byte(e.Description))
+	
+	// Include timestamp to prevent replay
+	timestampBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampBytes, uint64(e.Timestamp.Unix()))
+	h.Write(timestampBytes)
+	
+	var hash [32]byte
+	copy(hash[:], h.Sum(nil))
+	return hash
+}
+
+// SignEvidence signs evidence data with the submitter's private key
+// Returns error if signing fails
+func SignEvidence(evidence *Evidence, privateKey *btcec.PrivateKey) error {
+	if evidence == nil {
+		return errors.New("evidence cannot be nil")
+	}
+	if privateKey == nil {
+		return errors.New("private key cannot be nil")
+	}
+
+	// Compute hash of evidence data
+	hash := computeEvidenceHash(evidence)
+
+	// Sign the hash
+	signature := ecdsa.Sign(privateKey, hash[:])
+	evidence.Signature = signature.Serialize()
+	evidence.PublicKey = privateKey.PubKey().SerializeCompressed()
+
+	return nil
+}
+
+// VerifyEvidenceSignature verifies the signature on evidence data
+// Returns true if signature is valid, false otherwise
+func VerifyEvidenceSignature(evidence *Evidence) (bool, error) {
+	if evidence == nil {
+		return false, errors.New("evidence cannot be nil")
+	}
+	if len(evidence.Signature) == 0 {
+		return false, errors.New("evidence has no signature")
+	}
+	if len(evidence.PublicKey) == 0 {
+		return false, errors.New("evidence has no public key")
+	}
+
+	// Parse public key
+	pubKey, err := btcec.ParsePubKey(evidence.PublicKey)
+	if err != nil {
+		return false, fmt.Errorf("invalid public key: %w", err)
+	}
+
+	// Parse signature
+	sig, err := ecdsa.ParseSignature(evidence.Signature)
+	if err != nil {
+		return false, fmt.Errorf("invalid signature: %w", err)
+	}
+
+	// Compute hash of evidence data
+	hash := computeEvidenceHash(evidence)
+
+	// Verify signature
+	return sig.Verify(hash[:], pubKey), nil
+}
+
+// computeResolutionHash generates a cryptographic hash of resolution data for signing
+// The hash includes all critical fields to prevent tampering
+func computeResolutionHash(r *Resolution) [32]byte {
+	h := sha256.New()
+	h.Write([]byte(r.PaymentID))
+	h.Write([]byte(r.Decision))
+	h.Write([]byte(r.Reason))
+	h.Write([]byte(r.ArbiterID))
+	
+	// Include timestamp to prevent replay
+	timestampBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampBytes, uint64(r.Timestamp.Unix()))
+	h.Write(timestampBytes)
+	
+	// Include evidence references
+	for _, evidenceID := range r.Evidence {
+		h.Write([]byte(evidenceID))
+	}
+	
+	var hash [32]byte
+	copy(hash[:], h.Sum(nil))
+	return hash
+}
+
+// SignResolution signs resolution data with the arbiter's private key
+// Returns error if signing fails
+func SignResolution(resolution *Resolution, privateKey *btcec.PrivateKey) error {
+	if resolution == nil {
+		return errors.New("resolution cannot be nil")
+	}
+	if privateKey == nil {
+		return errors.New("private key cannot be nil")
+	}
+
+	// Compute hash of resolution data
+	hash := computeResolutionHash(resolution)
+
+	// Sign the hash
+	signature := ecdsa.Sign(privateKey, hash[:])
+	resolution.Signature = signature.Serialize()
+	resolution.PublicKey = privateKey.PubKey().SerializeCompressed()
+
+	return nil
+}
+
+// VerifyResolutionSignature verifies the signature on resolution data
+// Returns true if signature is valid, false otherwise
+func VerifyResolutionSignature(resolution *Resolution) (bool, error) {
+	if resolution == nil {
+		return false, errors.New("resolution cannot be nil")
+	}
+	if len(resolution.Signature) == 0 {
+		return false, errors.New("resolution has no signature")
+	}
+	if len(resolution.PublicKey) == 0 {
+		return false, errors.New("resolution has no public key")
+	}
+
+	// Parse public key
+	pubKey, err := btcec.ParsePubKey(resolution.PublicKey)
+	if err != nil {
+		return false, fmt.Errorf("invalid public key: %w", err)
+	}
+
+	// Parse signature
+	sig, err := ecdsa.ParseSignature(resolution.Signature)
+	if err != nil {
+		return false, fmt.Errorf("invalid signature: %w", err)
+	}
+
+	// Compute hash of resolution data
+	hash := computeResolutionHash(resolution)
+
+	// Verify signature
+	return sig.Verify(hash[:], pubKey), nil
+}
 
 // Arbiter defines the interface for dispute resolution services
 // Integrators can provide their own implementations of this interface
@@ -189,6 +354,17 @@ func (la *LocalArbiter) SubmitEvidence(paymentID string, evidence *Evidence) err
 		return ErrInvalidEvidence
 	}
 
+	// Validate signature if provided
+	if len(evidence.Signature) > 0 {
+		valid, err := VerifyEvidenceSignature(evidence)
+		if err != nil {
+			return fmt.Errorf("signature verification failed: %w", err)
+		}
+		if !valid {
+			return fmt.Errorf("invalid evidence signature")
+		}
+	}
+
 	// Set metadata
 	evidence.ID = fmt.Sprintf("%s-%d", paymentID, len(dispute.Evidence))
 	evidence.PaymentID = paymentID
@@ -260,6 +436,17 @@ func (la *LocalArbiter) ResolveDispute(paymentID string, resolution *Resolution)
 
 	if resolution == nil {
 		return fmt.Errorf("resolution cannot be nil")
+	}
+
+	// Validate signature if provided
+	if len(resolution.Signature) > 0 {
+		valid, err := VerifyResolutionSignature(resolution)
+		if err != nil {
+			return fmt.Errorf("signature verification failed: %w", err)
+		}
+		if !valid {
+			return fmt.Errorf("invalid resolution signature")
+		}
 	}
 
 	resolution.PaymentID = paymentID

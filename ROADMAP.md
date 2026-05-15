@@ -170,7 +170,7 @@
   - **Benefit**: Prevents misconfiguration and allows legitimate deadline extensions
   - **Reference**: AUDIT.md lines 3358-3383, 3398-3424
 
-- [ ] **Add evidence and resolution signatures** (dispute.go:Evidence, dispute.go:Resolution)
+- [x] **Add evidence and resolution signatures** (dispute.go:Evidence, dispute.go:Resolution)
   - Sign evidence with submitter's private key
   - Sign resolutions with arbiter's private key
   - Validate signatures on evidence submission and resolution creation
