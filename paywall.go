@@ -246,6 +246,11 @@ type Paywall struct {
 	// Initialized if XMR RPC config is provided
 	xmrBroadcaster *XMRBroadcaster
 
+	// Arbiter reputation tracking (optional - for tracking arbiter performance)
+
+	// reputationTracker tracks arbiter reputation across all dispute resolutions
+	reputationTracker *ArbiterReputationTracker
+
 	// Escrow and timeout automation (optional - for escrow workflows)
 
 	// escrowManager manages escrow state transitions and dispute resolution
@@ -393,7 +398,7 @@ func initializeWallets(config Config) (map[wallet.WalletType]wallet.HDWallet, ma
 	return hdWallets, prices, nil
 }
 
-func setupMultisig(config Config) (*ArbiterConsensusManager, error) {
+func setupMultisig(config Config, reputationTracker *ArbiterReputationTracker) (*ArbiterConsensusManager, error) {
 	if !config.EnableMultiArbiterConsensus {
 		return nil, nil
 	}
@@ -405,7 +410,6 @@ func setupMultisig(config Config) (*ArbiterConsensusManager, error) {
 		FallbackArbiters:     config.FallbackArbiters,
 		VotingTimeout:        config.ArbiterVotingTimeout,
 	}
-	reputationTracker := NewArbiterReputationTracker()
 	consensusManager, err := NewArbiterConsensusManager(arbiterConfig, reputationTracker)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create arbiter consensus manager: %w", err)
@@ -444,6 +448,11 @@ func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.H
 		timeoutMonitor.Start()
 		p.timeoutMonitor = timeoutMonitor
 		log.Printf("Timeout monitor started (check interval: %v, auto-refund: %v)", timeoutConfig.CheckInterval, timeoutConfig.AutoRefund)
+	}
+
+	// Start consensus manager background worker if multi-arbiter mode is enabled
+	if p.consensusManager != nil {
+		p.consensusManager.Start(5 * time.Minute) // Check for expired voting every 5 minutes
 	}
 }
 
@@ -522,7 +531,11 @@ func NewPaywall(config Config) (*Paywall, error) {
 		p.extendEscrowOnDispute = 7 * 24 * time.Hour
 	}
 
-	p.consensusManager, err = setupMultisig(config)
+	// Initialize reputation tracker for arbiter performance tracking
+	// This is used for both single-arbiter and multi-arbiter dispute resolution
+	p.reputationTracker = NewArbiterReputationTracker()
+
+	p.consensusManager, err = setupMultisig(config, p.reputationTracker)
 	if err != nil {
 		pcancel()
 		return nil, err
@@ -591,6 +604,10 @@ func (p *Paywall) Close() {
 	// Stop timeout monitor if running
 	if p.timeoutMonitor != nil {
 		p.timeoutMonitor.Stop()
+	}
+	// Stop consensus manager if running
+	if p.consensusManager != nil {
+		p.consensusManager.Stop()
 	}
 	// Cancel context and close monitor
 	p.cancel()
@@ -884,13 +901,10 @@ func (p *Paywall) GetConsensusManager() *ArbiterConsensusManager {
 	return p.consensusManager
 }
 
-// GetReputationTracker returns the arbiter reputation tracker if multi-arbiter mode is enabled
-// Returns nil if multi-arbiter consensus is not configured
+// GetReputationTracker returns the arbiter reputation tracker
+// This is available for both single-arbiter and multi-arbiter dispute resolution
 func (p *Paywall) GetReputationTracker() *ArbiterReputationTracker {
-	if p.consensusManager == nil {
-		return nil
-	}
-	return p.consensusManager.reputationTracker
+	return p.reputationTracker
 }
 
 // getRoleForPubKey derives a participant's role from their public key position

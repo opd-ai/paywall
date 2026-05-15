@@ -2,8 +2,10 @@
 package paywall
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -93,6 +95,9 @@ type ArbiterConsensusManager struct {
 	mu sync.RWMutex
 	// reputationTracker tracks arbiter performance
 	reputationTracker *ArbiterReputationTracker
+	// ctx and cancel for background worker control
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewArbiterConsensusManager creates a new multi-arbiter consensus manager
@@ -122,6 +127,75 @@ func NewArbiterConsensusManager(config *ArbiterConfig, reputationTracker *Arbite
 		config:            config,
 		reputationTracker: reputationTracker,
 	}, nil
+}
+
+// Start launches the background worker to check for expired voting deadlines
+// checkInterval determines how often to check (default: 5 minutes)
+func (acm *ArbiterConsensusManager) Start(checkInterval time.Duration) {
+	if checkInterval <= 0 {
+		checkInterval = 5 * time.Minute // Default to 5 minutes
+	}
+
+	acm.ctx, acm.cancel = context.WithCancel(context.Background())
+
+	go func() {
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-acm.ctx.Done():
+				return
+			case <-ticker.C:
+				acm.checkAndLogExpiredVoting()
+			}
+		}
+	}()
+
+	log.Printf("Arbiter consensus manager started with voting deadline checks every %v", checkInterval)
+}
+
+// Stop stops the background worker gracefully
+func (acm *ArbiterConsensusManager) Stop() {
+	if acm.cancel != nil {
+		acm.cancel()
+		log.Println("Arbiter consensus manager stopped")
+	}
+}
+
+// checkAndLogExpiredVoting checks for expired voting and logs results
+func (acm *ArbiterConsensusManager) checkAndLogExpiredVoting() {
+	acm.mu.Lock()
+	defer acm.mu.Unlock()
+
+	now := time.Now()
+	expiredCount := 0
+
+	for paymentID, consensus := range acm.consensuses {
+		if consensus.Status == ConsensusOpen && now.After(consensus.VotingDeadline) {
+			consensus.Status = ConsensusExpired
+			expiredCount++
+			// Record non-participation for arbiters who didn't vote
+			activeArbiterIDs := make(map[string]bool)
+			for _, vote := range consensus.Votes {
+				activeArbiterIDs[vote.ArbiterID] = true
+			}
+			// All configured arbiters who didn't vote get non-participation recorded
+			for _, arbiterPubKey := range acm.config.PrimaryArbiters {
+				arbiterID := string(arbiterPubKey)
+				if !activeArbiterIDs[arbiterID] {
+					acm.reputationTracker.RecordNonParticipation(arbiterID)
+				}
+			}
+			log.Printf("WARNING: Voting expired for payment %s - deadline was %v, got %d/%d votes",
+				paymentID, consensus.VotingDeadline.Format(time.RFC3339),
+				len(consensus.Votes), consensus.RequiredVotes)
+		}
+	}
+
+	if expiredCount > 0 {
+		log.Printf("Expired voting check: %d disputes moved to expired status", expiredCount)
+	}
 }
 
 // InitiateConsensus starts a new consensus process for a disputed payment

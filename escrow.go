@@ -691,6 +691,15 @@ func (em *EscrowManager) ResolveDispute(paymentID string, arbiterSig, winnerSig 
 		return fmt.Errorf("failed to update payment state: %w", err)
 	}
 
+	// Track arbiter reputation for single-arbiter dispute resolution
+	// For multi-arbiter consensus, reputation is tracked during voting
+	if em.paywall.reputationTracker != nil && em.paywall.consensusManager == nil {
+		// Record decision with consensus=true since single arbiter is always "with consensus"
+		// Response time is not tracked for single-arbiter mode (set to 0)
+		arbiterID := string(arbiterSig.PublicKey)
+		em.paywall.reputationTracker.RecordDecision(arbiterID, true, 0)
+	}
+
 	// Track metrics
 	if em.metrics != nil {
 		em.metrics.IncrementEscrowDisputeResolved()

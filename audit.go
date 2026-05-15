@@ -23,6 +23,10 @@ type AuditLogger interface {
 	// GetAllEntries retrieves all audit log entries
 	// Returns entries in chronological order
 	GetAllEntries() ([]*AuditLogEntry, error)
+
+	// Close closes the audit logger and releases resources
+	// Should be called when shutting down to ensure data persistence
+	Close() error
 }
 
 // MemoryAuditLogger is an in-memory implementation of AuditLogger
@@ -128,6 +132,12 @@ func (m *MemoryAuditLogger) GetAllEntries() ([]*AuditLogEntry, error) {
 	}
 
 	return result, nil
+}
+
+// Close is a no-op for MemoryAuditLogger as there are no resources to release
+// Implements AuditLogger.Close
+func (m *MemoryAuditLogger) Close() error {
+	return nil
 }
 
 // generateAuditID creates a unique identifier for an audit log entry
