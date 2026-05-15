@@ -160,6 +160,14 @@ type PaymentStore interface {
 	// Useful for identifying payments associated with a specific multisig address.
 	// Returns error if retrieval fails. Returns empty slice if no matching payments.
 	GetPaymentsByMultisigAddress(address string) ([]*Payment, error)
+
+	// Escrow timeout operations (optional - implementations may return empty results)
+
+	// GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
+	// This method enables efficient timeout checking without scanning all payments.
+	// Implementations may internally batch, but must return the full result set.
+	// Returns error if retrieval fails. Returns empty slice if no expiring escrows.
+	GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error)
 }
 
 // PaymentPageData contains the data needed to render the payment page template

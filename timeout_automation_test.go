@@ -225,6 +225,26 @@ func TestEscrowManager_CheckEscrowTimeoutsWithTime(t *testing.T) {
 	}
 	store.CreatePayment(payment4)
 
+	// Payment 5: Pending escrow state (should not be checked)
+	payment5 := &Payment{
+		ID:              "payment-5",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowPending,
+		EscrowTimeout:   pastTimeout,
+	}
+	store.CreatePayment(payment5)
+
+	// Payment 6: Non-multisig escrow (should not be checked)
+	payment6 := &Payment{
+		ID:              "payment-6",
+		MultisigEnabled: false,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   pastTimeout,
+	}
+	store.CreatePayment(payment6)
+
 	// Check timeouts
 	timedOut, err := em.CheckEscrowTimeoutsWithTime(now)
 	if err != nil {

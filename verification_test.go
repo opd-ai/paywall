@@ -257,6 +257,10 @@ func (m *mockStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, er
 	return nil, nil
 }
 
+func (m *mockStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
+	return nil, nil
+}
+
 func (m *mockStore) Close() error {
 	return nil
 }
@@ -303,6 +307,10 @@ func (m *mockFailingStore) GetPendingMultisigPayments() ([]*Payment, error) {
 }
 
 func (m *mockFailingStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
+	return nil, errors.New("mock store error")
+}
+
+func (m *mockFailingStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
 	return nil, errors.New("mock store error")
 }
 
