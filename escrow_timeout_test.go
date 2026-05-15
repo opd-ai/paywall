@@ -269,3 +269,236 @@ func TestEscrowTimeoutCustomBounds(t *testing.T) {
 		t.Error("CreateEscrow() expected error for timeout above custom maximum, got nil")
 	}
 }
+
+// TestEscrowManager_ExtendTimeout tests timeout extension functionality
+func TestEscrowManager_ExtendTimeout(t *testing.T) {
+buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+store := NewMemoryStore()
+config := Config{
+PriceInBTC:     0.001,
+TestNet:        true,
+Store:          store,
+PaymentTimeout: time.Hour * 24,
+
+MultisigEnabled:  true,
+MultisigRequired: 2,
+MultisigTotal:    3,
+ParticipantPubKeys: map[wallet.WalletType][][]byte{
+wallet.Bitcoin: publicKeys,
+},
+MinEscrowTimeout:   time.Hour,
+MaxEscrowTimeout:   30 * 24 * time.Hour,
+AuthorizedArbiters: [][]byte{arbiterPubKey},
+}
+
+pw, err := NewPaywall(config)
+if err != nil {
+t.Fatalf("Failed to create paywall: %v", err)
+}
+defer pw.Close()
+
+em, _ := NewEscrowManager(pw)
+
+// Create escrow payment
+paymentID, err := em.CreateEscrow(1.0, 24*time.Hour)
+if err != nil {
+t.Fatalf("CreateEscrow failed: %v", err)
+}
+
+// Fund the escrow
+payment, _ := store.GetPayment(paymentID)
+payment.Status = StatusConfirmed
+store.UpdatePayment(payment)
+em.FundEscrow(paymentID)
+
+// Get original timeout
+payment, _ = store.GetPayment(paymentID)
+originalTimeout := payment.EscrowTimeout
+
+// Create signatures for extension
+buyerSig := &SignatureData{
+SignerID:  "buyer",
+Role:      RoleBuyer,
+Signature: []byte("buyer-sig"),
+PublicKey: buyerPubKey,
+SignedAt:  time.Now(),
+Nonce:     []byte(paymentID + "-extend"),
+PaymentID: paymentID,
+}
+
+sellerSig := &SignatureData{
+SignerID:  "seller",
+Role:      RoleSeller,
+Signature: []byte("seller-sig"),
+PublicKey: sellerPubKey,
+SignedAt:  time.Now(),
+Nonce:     []byte(paymentID + "-extend-2"),
+PaymentID: paymentID,
+}
+
+// Test successful extension
+extension := 48 * time.Hour // 2 days
+err = em.ExtendTimeout(paymentID, extension, buyerSig, sellerSig)
+if err != nil {
+t.Fatalf("ExtendTimeout failed: %v", err)
+}
+
+// Verify extension was applied
+payment, _ = store.GetPayment(paymentID)
+expectedTimeout := originalTimeout.Add(extension)
+if !payment.EscrowTimeout.Equal(expectedTimeout) {
+t.Errorf("Timeout not extended correctly: got %v, want %v",
+payment.EscrowTimeout, expectedTimeout)
+}
+
+t.Logf("✓ Timeout successfully extended from %v to %v",
+originalTimeout, payment.EscrowTimeout)
+}
+
+// TestEscrowManager_ExtendTimeout_MaxExtension tests maximum extension limit
+func TestEscrowManager_ExtendTimeout_MaxExtension(t *testing.T) {
+buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+store := NewMemoryStore()
+config := Config{
+PriceInBTC:     0.001,
+TestNet:        true,
+Store:          store,
+PaymentTimeout: time.Hour * 24,
+
+MultisigEnabled:  true,
+MultisigRequired: 2,
+MultisigTotal:    3,
+ParticipantPubKeys: map[wallet.WalletType][][]byte{
+wallet.Bitcoin: publicKeys,
+},
+MinEscrowTimeout:   time.Hour,
+MaxEscrowTimeout:   30 * 24 * time.Hour,
+AuthorizedArbiters: [][]byte{arbiterPubKey},
+}
+
+pw, err := NewPaywall(config)
+if err != nil {
+t.Fatalf("Failed to create paywall: %v", err)
+}
+defer pw.Close()
+
+em, _ := NewEscrowManager(pw)
+
+// Create escrow payment
+paymentID, err := em.CreateEscrow(1.0, 24*time.Hour)
+if err != nil {
+t.Fatalf("CreateEscrow failed: %v", err)
+}
+
+// Fund the escrow
+payment, _ := store.GetPayment(paymentID)
+payment.Status = StatusConfirmed
+store.UpdatePayment(payment)
+em.FundEscrow(paymentID)
+
+buyerSig := &SignatureData{
+SignerID:  "buyer",
+Role:      RoleBuyer,
+Signature: []byte("buyer-sig"),
+PublicKey: buyerPubKey,
+SignedAt:  time.Now(),
+Nonce:     []byte(paymentID + "-extend-max"),
+PaymentID: paymentID,
+}
+
+sellerSig := &SignatureData{
+SignerID:  "seller",
+Role:      RoleSeller,
+Signature: []byte("seller-sig"),
+PublicKey: sellerPubKey,
+SignedAt:  time.Now(),
+Nonce:     []byte(paymentID + "-extend-max-2"),
+PaymentID: paymentID,
+}
+
+// Try to extend beyond maximum (7 days)
+extension := 8 * 24 * time.Hour // 8 days
+err = em.ExtendTimeout(paymentID, extension, buyerSig, sellerSig)
+if err == nil {
+t.Error("ExtendTimeout should reject extension beyond 7 days")
+}
+
+t.Logf("✓ Correctly rejected extension beyond max (7 days)")
+}
+
+// TestEscrowManager_ExtendTimeout_NegativeExtension tests negative extension rejection
+func TestEscrowManager_ExtendTimeout_NegativeExtension(t *testing.T) {
+buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
+
+store := NewMemoryStore()
+config := Config{
+PriceInBTC:     0.001,
+TestNet:        true,
+Store:          store,
+PaymentTimeout: time.Hour * 24,
+
+MultisigEnabled:  true,
+MultisigRequired: 2,
+MultisigTotal:    3,
+ParticipantPubKeys: map[wallet.WalletType][][]byte{
+wallet.Bitcoin: publicKeys,
+},
+MinEscrowTimeout:   time.Hour,
+MaxEscrowTimeout:   30 * 24 * time.Hour,
+AuthorizedArbiters: [][]byte{arbiterPubKey},
+}
+
+pw, err := NewPaywall(config)
+if err != nil {
+t.Fatalf("Failed to create paywall: %v", err)
+}
+defer pw.Close()
+
+em, _ := NewEscrowManager(pw)
+
+// Create escrow payment
+paymentID, err := em.CreateEscrow(1.0, 24*time.Hour)
+if err != nil {
+t.Fatalf("CreateEscrow failed: %v", err)
+}
+
+// Fund the escrow
+payment, _ := store.GetPayment(paymentID)
+payment.Status = StatusConfirmed
+store.UpdatePayment(payment)
+em.FundEscrow(paymentID)
+
+buyerSig := &SignatureData{
+SignerID:  "buyer",
+Role:      RoleBuyer,
+Signature: []byte("buyer-sig"),
+PublicKey: buyerPubKey,
+SignedAt:  time.Now(),
+Nonce:     []byte(paymentID + "-extend-neg"),
+PaymentID: paymentID,
+}
+
+sellerSig := &SignatureData{
+SignerID:  "seller",
+Role:      RoleSeller,
+Signature: []byte("seller-sig"),
+PublicKey: sellerPubKey,
+SignedAt:  time.Now(),
+Nonce:     []byte(paymentID + "-extend-neg-2"),
+PaymentID: paymentID,
+}
+
+// Try negative extension
+extension := -24 * time.Hour
+err = em.ExtendTimeout(paymentID, extension, buyerSig, sellerSig)
+if err == nil {
+t.Error("ExtendTimeout should reject negative extension")
+}
+
+t.Logf("✓ Correctly rejected negative extension")
+}

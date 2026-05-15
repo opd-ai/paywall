@@ -803,6 +803,139 @@ func (em *EscrowManager) CheckEscrowTimeouts() ([]string, error) {
 	return timedOut, nil
 }
 
+// ExtendTimeout extends the timeout of an escrow payment
+// Requires signatures from 2 of the 3 participants (buyer, seller, arbiter)
+// The extension must not exceed the maximum extension duration configured in DisputeEnhancements
+func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration, sig1, sig2 *SignatureData) error {
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	if payment.EscrowState == EscrowNone {
+		return ErrEscrowNotEnabled
+	}
+
+	// Can only extend timeout for funded or disputed escrows
+	if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
+		return fmt.Errorf("%w: cannot extend timeout from state %s", ErrInvalidEscrowState, payment.EscrowState.String())
+	}
+
+	// Verify we have two valid signatures
+	if sig1 == nil || sig2 == nil {
+		return ErrInsufficientSignatures
+	}
+
+	// Validate signature formats and cryptographic properties
+	if err := em.validateSignatureData(sig1, payment); err != nil {
+		return fmt.Errorf("invalid first signature: %w", err)
+	}
+	if err := em.validateSignatureData(sig2, payment); err != nil {
+		return fmt.Errorf("invalid second signature: %w", err)
+	}
+
+	// Validate extension duration
+	if extension <= 0 {
+		return fmt.Errorf("extension duration must be positive, got %s", extension)
+	}
+
+	// Get the max extension (default: 7 days per ROADMAP specification)
+	maxExtension := 7 * 24 * time.Hour
+
+	if extension > maxExtension {
+		return fmt.Errorf("extension %s exceeds maximum allowed extension %s", extension, maxExtension)
+	}
+
+	// Verify signatures are from 2 different participants
+	if sig1.Role == sig2.Role {
+		return fmt.Errorf("extension requires signatures from 2 different participants")
+	}
+
+	// Valid extension combinations (any 2 of 3):
+	// 1. Buyer + Seller
+	// 2. Buyer + Arbiter
+	// 3. Seller + Arbiter
+	validExtension := false
+	arbiterInvolved := false
+	var arbiterSig *SignatureData
+
+	// Check for buyer + seller
+	if (sig1.Role == RoleBuyer && sig2.Role == RoleSeller) ||
+		(sig1.Role == RoleSeller && sig2.Role == RoleBuyer) {
+		validExtension = true
+	}
+
+	// Check for buyer + arbiter
+	if (sig1.Role == RoleBuyer && sig2.Role == RoleArbiter) ||
+		(sig1.Role == RoleArbiter && sig2.Role == RoleBuyer) {
+		validExtension = true
+		arbiterInvolved = true
+		if sig1.Role == RoleArbiter {
+			arbiterSig = sig1
+		} else {
+			arbiterSig = sig2
+		}
+	}
+
+	// Check for seller + arbiter
+	if (sig1.Role == RoleSeller && sig2.Role == RoleArbiter) ||
+		(sig1.Role == RoleArbiter && sig2.Role == RoleSeller) {
+		validExtension = true
+		arbiterInvolved = true
+		if sig1.Role == RoleArbiter {
+			arbiterSig = sig1
+		} else {
+			arbiterSig = sig2
+		}
+	}
+
+	if !validExtension {
+		return fmt.Errorf("extension requires signatures from 2 of 3 participants (buyer/seller/arbiter)")
+	}
+
+	// Validate arbiter is authorized if arbiter is involved
+	if arbiterInvolved && !em.paywall.IsAuthorizedArbiter(arbiterSig.PublicKey) {
+		return fmt.Errorf("arbiter is not authorized: public key not in authorized list")
+	}
+
+	// Apply the extension
+	oldTimeout := payment.EscrowTimeout
+	payment.EscrowTimeout = payment.EscrowTimeout.Add(extension)
+
+	// Store the extension in state transition history for audit trail
+	metadata := map[string]string{
+		"old_timeout":      oldTimeout.Format(time.RFC3339),
+		"extension":        extension.String(),
+		"new_timeout":      payment.EscrowTimeout.Format(time.RFC3339),
+		"arbiter_involved": fmt.Sprintf("%t", arbiterInvolved),
+		"sig1_role":        string(sig1.Role),
+		"sig2_role":        string(sig2.Role),
+	}
+
+	// Update payment in store
+	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
+		return fmt.Errorf("failed to update payment with extended timeout: %w", err)
+	}
+
+	// Log extension in audit trail
+	em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        "extend_timeout",
+		PreviousState: payment.EscrowState,
+		NewState:      payment.EscrowState,
+		Metadata:      metadata,
+	})
+
+	log.Printf("escrow timeout extended for payment %s by %s to %s",
+		paymentID, extension, payment.EscrowTimeout.Format(time.RFC3339))
+
+	return nil
+}
+
 // GetEscrowState retrieves the current escrow state for a payment
 func (em *EscrowManager) GetEscrowState(paymentID string) (EscrowState, error) {
 	payment, err := em.paywall.Store.GetPayment(paymentID)
