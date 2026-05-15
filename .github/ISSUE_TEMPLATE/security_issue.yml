@@ -1,0 +1,48 @@
+name: Security Issue
+description: Report a security vulnerability
+title: "[Security]: "
+labels: ["type:security", "status:security-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **IMPORTANT**: For severe vulnerabilities, please report privately via GitHub Security Advisories.
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Vulnerability Description
+      description: Detailed description of the security issue
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Potential Impact
+      description: What could an attacker accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: How to reproduce the vulnerability
+    validations:
+      required: false
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested Mitigation
+      description: Any ideas on how to fix it?
+    validations:
+      required: false
