@@ -39,7 +39,8 @@ type EscrowManager struct {
 	paywall        *Paywall
 	auditLogger    AuditLogger
 	stateValidator *EscrowStateValidator
-	arbiter        Arbiter // optional arbiter for dispute registration
+	arbiter        Arbiter          // optional arbiter for dispute registration
+	metrics        *MetricsCollector // optional metrics collector
 }
 
 // NewEscrowManager creates a new escrow manager for the given paywall

@@ -157,6 +157,19 @@ type Config struct {
 	// ExtendEscrowOnDispute is the additional time added to escrow timeout when dispute is filed.
 	// Defaults to 7 days. Prevents exploiting timeout during dispute resolution.
 	ExtendEscrowOnDispute time.Duration
+
+	// Timeout automation configuration (optional - for automatic escrow timeout handling)
+
+	// AutoTimeoutRefunds enables automatic background monitoring and processing of timed-out escrows.
+	// When true, a background worker checks for expired escrows and triggers refunds automatically.
+	// When false (default), timeouts must be handled manually by calling CheckTimeout explicitly.
+	// Requires MultisigEnabled=true and EscrowEnabled=true to function.
+	AutoTimeoutRefunds bool
+
+	// TimeoutCheckInterval is how often to check for expired escrows in the background.
+	// Defaults to 5 minutes. Only used when AutoTimeoutRefunds=true.
+	// Shorter intervals provide faster timeout handling but increase system load.
+	TimeoutCheckInterval time.Duration
 }
 
 // Paywall manages Bitcoin payment processing and verification
@@ -232,6 +245,18 @@ type Paywall struct {
 	// xmrBroadcaster handles Monero transaction broadcasting to the network
 	// Initialized if XMR RPC config is provided
 	xmrBroadcaster *XMRBroadcaster
+
+	// Escrow and timeout automation (optional - for escrow workflows)
+
+	// escrowManager manages escrow state transitions and dispute resolution
+	// Initialized when MultisigEnabled is true
+	escrowManager *EscrowManager
+	// arbiterSigner provides signature generation for arbiter-triggered refunds
+	// Used by timeout automation for automatic refund processing
+	arbiterSigner ArbiterSigner
+	// timeoutMonitor provides automatic timeout monitoring and resolution
+	// Started when AutoTimeoutRefunds is true
+	timeoutMonitor *TimeoutMonitor
 }
 
 func validateConfig(config *Config) error {
@@ -388,7 +413,7 @@ func setupMultisig(config Config) (*ArbiterConsensusManager, error) {
 	return consensusManager, nil
 }
 
-func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.HDWallet) {
+func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.HDWallet, config Config) {
 	monitor := &CryptoChainMonitor{
 		paywall: p,
 		client:  make(map[wallet.WalletType]CryptoClient),
@@ -399,6 +424,27 @@ func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.H
 	}
 	p.monitor = monitor
 	p.monitor.Start(p.ctx)
+
+	// Start timeout monitor if escrow is enabled and auto-timeout is configured
+	if p.escrowManager != nil && config.AutoTimeoutRefunds {
+		timeoutConfig := TimeoutMonitorConfig{
+			CheckInterval:     config.TimeoutCheckInterval,
+			UseBlockchainTime: false, // Use system time by default
+			AutoRefund:        config.AutoTimeoutRefunds,
+		}
+		if timeoutConfig.CheckInterval <= 0 {
+			timeoutConfig.CheckInterval = 5 * time.Minute
+		}
+
+		timeoutMonitor := NewTimeoutMonitor(p.escrowManager, timeoutConfig)
+		// Set arbiter signer if configured
+		if p.arbiterSigner != nil {
+			timeoutMonitor.SetArbiterSigner(p.arbiterSigner)
+		}
+		timeoutMonitor.Start()
+		p.timeoutMonitor = timeoutMonitor
+		log.Printf("Timeout monitor started (check interval: %v, auto-refund: %v)", timeoutConfig.CheckInterval, timeoutConfig.AutoRefund)
+	}
 }
 
 // NewPaywall creates and initializes a new Paywall instance
@@ -521,11 +567,27 @@ func NewPaywall(config Config) (*Paywall, error) {
 		}
 	}
 
-	startBackgroundWorkers(p, hdWallets)
+	// Initialize escrow manager if multisig is enabled
+	if config.MultisigEnabled {
+		escrowMgr, err := NewEscrowManager(p)
+		if err != nil {
+			pcancel()
+			return nil, fmt.Errorf("failed to initialize escrow manager: %w", err)
+		}
+		p.escrowManager = escrowMgr
+		log.Printf("Escrow manager initialized for multisig payments")
+	}
+
+	startBackgroundWorkers(p, hdWallets, config)
 	return p, nil
 }
 
 func (p *Paywall) Close() {
+	// Stop timeout monitor if running
+	if p.timeoutMonitor != nil {
+		p.timeoutMonitor.Stop()
+	}
+	// Cancel context and close monitor
 	p.cancel()
 	p.monitor.Close()
 }
