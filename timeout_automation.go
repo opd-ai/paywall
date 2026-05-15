@@ -83,17 +83,18 @@ func findBuyerTimeoutApproval(payment *Payment) (*SignatureData, error) {
 
 	for _, sigs := range payment.Signatures {
 		for i := range sigs {
-			sig := sigs[i]
-			if sig.Role != RoleBuyer {
+			storedSig := &sigs[i]
+			if storedSig.Role != RoleBuyer {
 				continue
 			}
-			if sig.PaymentID != "" && sig.PaymentID != payment.ID {
+			if storedSig.PaymentID != "" && storedSig.PaymentID != payment.ID {
 				continue
 			}
-			approval := sig
+			approval := *storedSig
 			// This signature is loaded from previously stored approvals on the payment.
-			// Clear nonce to avoid replay rejection against itself during validation.
-			approval.Nonce = nil
+			// Use a fresh nonce so replay validation can distinguish the stored approval
+			// record from this authorization submission.
+			approval.Nonce = append(append([]byte{}, storedSig.Nonce...), []byte("-timeout-refund-use")...)
 			return &approval, nil
 		}
 	}

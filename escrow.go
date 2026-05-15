@@ -806,7 +806,7 @@ func (em *EscrowManager) CheckEscrowTimeouts() ([]string, error) {
 
 // ExtendTimeout extends the timeout of an escrow payment
 // Requires signatures from 2 of the 3 participants (buyer, seller, arbiter)
-// The extension must not exceed the 7-day roadmap cap.
+// The extension must not exceed the 7-day roadmap cap enforced by maxExtension.
 func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration, sig1, sig2 *SignatureData) error {
 	payment, err := em.paywall.Store.GetPayment(paymentID)
 	if err != nil {
@@ -926,19 +926,31 @@ func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration
 	}
 
 	// Persist extension signatures to enforce replay protection.
-	for walletType := range payment.Addresses {
-		if payment.Signatures == nil {
-			payment.Signatures = make(map[wallet.WalletType][]SignatureData)
-		}
-		payment.Signatures[walletType] = append(payment.Signatures[walletType], *sig1, *sig2)
+	if payment.Signatures == nil {
+		payment.Signatures = make(map[wallet.WalletType][]SignatureData)
 	}
 
-	if len(payment.Signatures) == 0 {
-		if payment.Signatures == nil {
-			payment.Signatures = make(map[wallet.WalletType][]SignatureData)
+	targetWalletType := wallet.Bitcoin
+	foundWalletType := false
+	for walletType, participants := range em.paywall.participantPubKeys {
+		for _, participant := range participants {
+			if bytesEqual(sig1.PublicKey, participant) {
+				targetWalletType = walletType
+				foundWalletType = true
+				break
+			}
 		}
-		payment.Signatures[wallet.Bitcoin] = append(payment.Signatures[wallet.Bitcoin], *sig1, *sig2)
+		if foundWalletType {
+			break
+		}
 	}
+	if !foundWalletType {
+		for walletType := range payment.Addresses {
+			targetWalletType = walletType
+			break
+		}
+	}
+	payment.Signatures[targetWalletType] = append(payment.Signatures[targetWalletType], *sig1, *sig2)
 
 	// Update payment in store
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
@@ -1000,10 +1012,10 @@ func timeoutExtensionIntentHash(paymentID string, currentTimeout time.Time, exte
 	intent := fmt.Sprintf(
 		"extend_timeout|payment=%s|current_timeout=%s|extension=%s|role=%s|signed_at=%s|nonce=%x",
 		paymentID,
-		currentTimeout.UTC().Format(time.RFC3339Nano),
+		currentTimeout.UTC().Format(time.RFC3339),
 		extension.String(),
 		string(sig.Role),
-		sig.SignedAt.UTC().Format(time.RFC3339Nano),
+		sig.SignedAt.UTC().Format(time.RFC3339),
 		sig.Nonce,
 	)
 	return sha256.Sum256([]byte(intent))

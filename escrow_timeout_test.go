@@ -3,7 +3,6 @@ package paywall
 import (
 	"crypto/rand"
 	"crypto/sha256"
-	"fmt"
 	"testing"
 	"time"
 
@@ -479,6 +478,7 @@ func TestEscrowManager_ExtendTimeout_NegativeExtension(t *testing.T) {
 func TestEscrowManager_ExtendTimeout_ArbiterPaths(t *testing.T) {
 	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
 	buyerPrivKey, sellerPrivKey, arbiterPrivKey := generateTestPrivateKeysTimeout()
+	extension := 24 * time.Hour
 
 	cases := []struct {
 		name string
@@ -488,19 +488,19 @@ func TestEscrowManager_ExtendTimeout_ArbiterPaths(t *testing.T) {
 		{
 			name: "buyer plus arbiter",
 			sig1: func(paymentID string, currentTimeout time.Time) *SignatureData {
-				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, 24*time.Hour, RoleBuyer, "buyer", buyerPrivKey, []byte(paymentID+"-buyer-arbiter-buyer"))
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleBuyer, "buyer", buyerPrivKey, []byte(paymentID+"-buyer-arbiter-buyer"))
 			},
 			sig2: func(paymentID string, currentTimeout time.Time) *SignatureData {
-				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, 24*time.Hour, RoleArbiter, "arbiter", arbiterPrivKey, []byte(paymentID+"-buyer-arbiter-arbiter"))
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleArbiter, "arbiter", arbiterPrivKey, []byte(paymentID+"-buyer-arbiter-arbiter"))
 			},
 		},
 		{
 			name: "seller plus arbiter",
 			sig1: func(paymentID string, currentTimeout time.Time) *SignatureData {
-				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, 24*time.Hour, RoleSeller, "seller", sellerPrivKey, []byte(paymentID+"-seller-arbiter-seller"))
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleSeller, "seller", sellerPrivKey, []byte(paymentID+"-seller-arbiter-seller"))
 			},
 			sig2: func(paymentID string, currentTimeout time.Time) *SignatureData {
-				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, 24*time.Hour, RoleArbiter, "arbiter", arbiterPrivKey, []byte(paymentID+"-seller-arbiter-arbiter"))
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleArbiter, "arbiter", arbiterPrivKey, []byte(paymentID+"-seller-arbiter-arbiter"))
 			},
 		},
 	}
@@ -508,7 +508,6 @@ func TestEscrowManager_ExtendTimeout_ArbiterPaths(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			em, store, paymentID, currentTimeout := createFundedEscrowForExtensionTest(t, buyerPubKey, sellerPubKey, arbiterPubKey)
-			extension := 24 * time.Hour
 			sig1 := tc.sig1(paymentID, currentTimeout)
 			sig2 := tc.sig2(paymentID, currentTimeout)
 
@@ -553,7 +552,7 @@ func TestEscrowManager_ExtendTimeout_UnauthorizedArbiter(t *testing.T) {
 		RoleArbiter,
 		"unauthorized-arbiter",
 		unauthorizedArbiterPriv,
-		[]byte(fmt.Sprintf("%s-unauth-arbiter", paymentID)),
+		[]byte(paymentID+"-unauth-arbiter"),
 	)
 	arbiterSig.PublicKey = unauthorizedArbiterPub
 
