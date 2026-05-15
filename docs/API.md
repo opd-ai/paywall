@@ -734,6 +734,757 @@ Resolves a dispute in favor of buyer or seller.
 
 **Returns**: Error if resolution fails
 
+#### (*EscrowManager) CheckEscrowTimeouts
+
+```go
+func (em *EscrowManager) CheckEscrowTimeouts() ([]string, error)
+```
+
+Checks for expired escrows and returns their payment IDs.
+
+**Returns**:
+- List of payment IDs that have timed out
+- Error if check fails
+
+**Use case**: Periodic cleanup of expired escrows
+
+#### (*EscrowManager) ExtendTimeout
+
+```go
+func (em *EscrowManager) ExtendTimeout(
+    paymentID string,
+    extension time.Duration,
+    sig1, sig2 *SignatureData,
+) error
+```
+
+Extends the timeout deadline for an escrow payment.
+
+**Parameters**:
+- `paymentID`: Escrow to extend
+- `extension`: Additional time to add (max 7 days)
+- `sig1`, `sig2`: Signatures from 2-of-3 participants authorizing extension
+
+**Requirements**:
+- Extension must be <= 7 days
+- Requires 2-of-3 multisig authorization
+- Only valid for funded escrows
+
+**Returns**: Error if extension denied or invalid
+
+#### (*EscrowManager) CastArbiterVote
+
+```go
+func (em *EscrowManager) CastArbiterVote(
+    paymentID string,
+    vote *ArbiterVote,
+) error
+```
+
+Records an arbiter's vote on a disputed payment (multi-arbiter consensus).
+
+**Parameters**:
+- `paymentID`: Payment under dispute
+- `vote`: Arbiter's decision and signature
+
+**Returns**: Error if vote invalid or duplicate
+
+**See also**: ArbiterConsensusManager for multi-arbiter voting
+
+#### (*EscrowManager) GetConsensusStatus
+
+```go
+func (em *EscrowManager) GetConsensusStatus(
+    paymentID string,
+) (*ArbiterConsensus, error)
+```
+
+Retrieves the current multi-arbiter consensus state.
+
+**Returns**:
+- `*ArbiterConsensus` with voting status and tallies
+- Error if consensus not found
+
+#### (*EscrowManager) ActivateFallbackArbiters
+
+```go
+func (em *EscrowManager) ActivateFallbackArbiters(
+    paymentID string,
+) error
+```
+
+Activates fallback arbiters if primary arbiters fail to reach consensus.
+
+**Use case**: When primary arbiters are unresponsive or fail to vote
+
+**Returns**: Error if activation fails
+
+#### (*EscrowManager) SubmitDisputeEvidence
+
+```go
+func (em *EscrowManager) SubmitDisputeEvidence(
+    paymentID string,
+    evidence *Evidence,
+) error
+```
+
+Submits evidence for a disputed payment.
+
+**Parameters**:
+- `paymentID`: Disputed payment
+- `evidence`: Evidence struct with data, description, and submitter info
+
+**Validation**:
+- Evidence size must be <= 10 MB
+- Maximum 20 pieces of evidence per dispute
+- Evidence must be signed by submitter
+
+**Returns**: Error if evidence invalid or limit exceeded
+
+#### (*EscrowManager) StartTimeoutMonitor
+
+```go
+func (em *EscrowManager) StartTimeoutMonitor(
+    config TimeoutMonitorConfig,
+) *TimeoutMonitor
+```
+
+Starts background goroutine to automatically monitor and resolve escrow timeouts.
+
+**Parameters**:
+- `config.CheckInterval`: How often to check for timeouts (default: 5 minutes)
+- `config.UseBlockchainTime`: Use blockchain timestamps instead of system time
+- `config.AutoRefund`: Automatically process refunds (requires arbiter signer)
+
+**Returns**: `*TimeoutMonitor` instance for controlling the monitor
+
+**Important**: Call `monitor.Stop()` on shutdown to cleanup goroutine
+
+**Example**:
+```go
+monitor := em.StartTimeoutMonitor(paywall.TimeoutMonitorConfig{
+    CheckInterval:     5 * time.Minute,
+    UseBlockchainTime: true,
+    AutoRefund:        true,
+})
+defer monitor.Stop()
+```
+
+---
+
+## Arbiter Consensus System
+
+Multi-arbiter voting for decentralized dispute resolution.
+
+### Types
+
+#### ArbiterVote
+
+```go
+type ArbiterVote struct {
+    ArbiterPubKey []byte         // Arbiter's public key
+    ArbiterID     string          // Unique arbiter identifier
+    Decision      MultisigRole    // RoleBuyer or RoleSeller
+    Reason        string          // Explanation for decision
+    Signature     *SignatureData  // Arbiter's cryptographic signature
+    VotedAt       time.Time       // Vote timestamp
+}
+```
+
+Represents a single arbiter's vote on a disputed payment.
+
+#### ArbiterConsensus
+
+```go
+type ArbiterConsensus struct {
+    PaymentID        string          // Payment under dispute
+    RequiredVotes    int             // Votes needed (e.g., 3 in 3-of-5)
+    TotalArbiters    int             // Total arbiters (e.g., 5 in 3-of-5)
+    Votes            []*ArbiterVote  // All votes cast
+    VotingDeadline   time.Time       // When voting closes
+    ConsensusReached bool            // True if consensus achieved
+    FinalDecision    MultisigRole    // Winner (if consensus reached)
+    Status           ConsensusStatus // Current voting state
+}
+```
+
+Tracks multi-arbiter voting progress and results.
+
+**Status values**:
+- `ConsensusOpen` — Voting in progress
+- `ConsensusReached` — Required votes achieved
+- `ConsensusExpired` — Deadline passed without consensus
+- `ConsensusFallback` — Fallback arbiters activated
+
+#### ArbiterConfig
+
+```go
+type ArbiterConfig struct {
+    RequiredArbiterVotes int            // Votes needed (e.g., 3)
+    TotalArbiters        int            // Total arbiters (e.g., 5)
+    PrimaryArbiters      [][]byte       // Primary arbiter public keys
+    FallbackArbiters     [][]byte       // Backup arbiter public keys
+    VotingTimeout        time.Duration  // Time limit for voting
+}
+```
+
+Configuration for multi-arbiter consensus system.
+
+### ArbiterConsensusManager
+
+Coordinates multi-arbiter voting on disputes.
+
+#### NewArbiterConsensusManager
+
+```go
+func NewArbiterConsensusManager(
+    config *ArbiterConfig,
+    reputationTracker *ArbiterReputationTracker,
+) (*ArbiterConsensusManager, error)
+```
+
+Creates a new multi-arbiter consensus manager.
+
+**Parameters**:
+- `config`: Multi-arbiter configuration (required votes, total arbiters, etc.)
+- `reputationTracker`: Optional tracker for arbiter performance metrics
+
+**Validation**:
+- `RequiredArbiterVotes` must be >= 1 and <= `TotalArbiters`
+- `TotalArbiters` must match length of `PrimaryArbiters`
+- At least one arbiter required
+
+**Returns**:
+- `*ArbiterConsensusManager` for managing consensus
+- Error if configuration invalid
+
+#### (*ArbiterConsensusManager) InitiateConsensus
+
+```go
+func (acm *ArbiterConsensusManager) InitiateConsensus(
+    paymentID string,
+) (*ArbiterConsensus, error)
+```
+
+Starts a new consensus process for a disputed payment.
+
+**Parameters**:
+- `paymentID`: Payment to initiate consensus for
+
+**Returns**:
+- `*ArbiterConsensus` with initial state
+- Error if consensus already exists
+
+#### (*ArbiterConsensusManager) CastVote
+
+```go
+func (acm *ArbiterConsensusManager) CastVote(
+    paymentID string,
+    vote *ArbiterVote,
+) error
+```
+
+Records an arbiter's vote and checks if consensus is reached.
+
+**Parameters**:
+- `paymentID`: Payment being voted on
+- `vote`: Arbiter's decision with signature
+
+**Validation**:
+- Arbiter must be authorized (in PrimaryArbiters or FallbackArbiters)
+- Cannot vote twice on same dispute
+- Voting must still be open (before deadline)
+
+**Side effects**:
+- Updates consensus status if required votes reached
+- Records reputation metrics via tracker
+
+**Returns**: Error if vote invalid or duplicate
+
+#### (*ArbiterConsensusManager) GetConsensus
+
+```go
+func (acm *ArbiterConsensusManager) GetConsensus(
+    paymentID string,
+) (*ArbiterConsensus, error)
+```
+
+Retrieves current consensus state for a payment.
+
+**Returns**:
+- `*ArbiterConsensus` with current votes and status
+- Error if consensus not found
+
+#### (*ArbiterConsensusManager) CheckExpiredVoting
+
+```go
+func (acm *ArbiterConsensusManager) CheckExpiredVoting()
+```
+
+Checks for expired voting deadlines and updates consensus status.
+
+**Use case**: Call periodically (e.g., every 5 minutes) to detect expired votes
+
+**Side effects**: Updates consensus status to `ConsensusExpired` for expired deadlines
+
+#### (*ArbiterConsensusManager) ActivateFallbackArbiters
+
+```go
+func (acm *ArbiterConsensusManager) ActivateFallbackArbiters(
+    paymentID string,
+) error
+```
+
+Activates fallback arbiters when primary arbiters fail to reach consensus.
+
+**Use case**: When voting expires without consensus or primary arbiters are unresponsive
+
+**Returns**: Error if no fallback arbiters configured
+
+---
+
+## Arbiter Reputation System
+
+Tracks arbiter performance and reliability metrics.
+
+### Types
+
+#### ArbiterReputation
+
+```go
+type ArbiterReputation struct {
+    ArbiterID            string        // Unique arbiter identifier
+    PublicKey            []byte        // Arbiter's public key
+    TotalDecisions       int           // Total disputes voted on
+    ConsensusDecisions   int           // Votes matching consensus
+    DissentingDecisions  int           // Votes against consensus
+    NonParticipations    int           // Failed to vote count
+    AverageResponseTime  time.Duration // Average time to vote
+    ReputationScore      float64       // Computed score (0-100)
+    FirstDecisionAt      time.Time     // First vote timestamp
+    LastDecisionAt       time.Time     // Most recent vote timestamp
+    LastUpdated          time.Time     // Last reputation update
+}
+```
+
+Performance metrics for a single arbiter.
+
+**Reputation score calculation**:
+- Consensus rate: 50% weight
+- Response time: 25% weight
+- Participation rate: 25% weight
+
+### ArbiterReputationTracker
+
+Manages reputation for all arbiters.
+
+#### NewArbiterReputationTracker
+
+```go
+func NewArbiterReputationTracker() *ArbiterReputationTracker
+```
+
+Creates a new reputation tracker with empty reputation map.
+
+#### (*ArbiterReputationTracker) RecordDecision
+
+```go
+func (art *ArbiterReputationTracker) RecordDecision(
+    arbiterID string,
+    withConsensus bool,
+    responseTime time.Duration,
+)
+```
+
+Records an arbiter's decision and updates their reputation.
+
+**Parameters**:
+- `arbiterID`: Arbiter who voted
+- `withConsensus`: True if arbiter voted with majority
+- `responseTime`: Time taken to cast vote
+
+**Side effects**:
+- Increments `TotalDecisions` and `ConsensusDecisions` or `DissentingDecisions`
+- Updates `AverageResponseTime` with new data point
+- Recalculates `ReputationScore`
+
+#### (*ArbiterReputationTracker) RecordNonParticipation
+
+```go
+func (art *ArbiterReputationTracker) RecordNonParticipation(
+    arbiterID string,
+)
+```
+
+Records when an arbiter failed to vote by the deadline.
+
+**Side effects**: Increments `NonParticipations` and reduces `ReputationScore`
+
+#### (*ArbiterReputationTracker) GetReputation
+
+```go
+func (art *ArbiterReputationTracker) GetReputation(
+    arbiterID string,
+) (*ArbiterReputation, error)
+```
+
+Retrieves reputation metrics for a specific arbiter.
+
+**Returns**:
+- `*ArbiterReputation` with current metrics
+- Error if arbiter not found
+
+#### (*ArbiterReputationTracker) ListReputations
+
+```go
+func (art *ArbiterReputationTracker) ListReputations() []*ArbiterReputation
+```
+
+Returns reputation data for all tracked arbiters.
+
+#### (*ArbiterReputationTracker) GetTopArbiters
+
+```go
+func (art *ArbiterReputationTracker) GetTopArbiters(
+    n int,
+) []*ArbiterReputation
+```
+
+Returns the top N arbiters sorted by reputation score.
+
+**Use case**: Selecting best arbiters for new disputes
+
+#### (*ArbiterReputationTracker) RegisterArbiter
+
+```go
+func (art *ArbiterReputationTracker) RegisterArbiter(
+    arbiterID string,
+    publicKey []byte,
+) error
+```
+
+Registers a new arbiter in the reputation system.
+
+**Parameters**:
+- `arbiterID`: Unique identifier
+- `publicKey`: Arbiter's public key for signature verification
+
+**Returns**: Error if arbiter already registered
+
+#### (*ArbiterReputationTracker) RemoveArbiter
+
+```go
+func (art *ArbiterReputationTracker) RemoveArbiter(
+    arbiterID string,
+) error
+```
+
+Removes an arbiter from the reputation system.
+
+**Use case**: Disabling compromised or retired arbiters
+
+**Returns**: Error if arbiter not found
+
+#### (*ArbiterReputationTracker) GetStatistics
+
+```go
+func (art *ArbiterReputationTracker) GetStatistics() *ArbiterStatistics
+```
+
+Computes aggregate statistics across all arbiters.
+
+**Returns**:
+- `*ArbiterStatistics` with totals and averages
+
+---
+
+## Dispute Enhancements
+
+Anti-spam and anti-abuse features for dispute system.
+
+### Types
+
+#### DisputeEnhancements
+
+```go
+type DisputeEnhancements struct {
+    DisputeFeePercentage  float64       // Fee as % of payment (e.g., 0.01 = 1%)
+    MinDisputeFee         float64       // Minimum fee in base units
+    MaxDisputeFee         float64       // Maximum fee in base units
+    MaxEvidenceSize       int64         // Max evidence size in bytes
+    MaxEvidenceCount      int           // Max evidence pieces per dispute
+    DisputeRateLimit      int           // Max disputes per time window
+    DisputeRateWindow     time.Duration // Time window for rate limiting
+    AllowTimeoutExtension bool          // Enable timeout extensions
+    MaxTimeoutExtension   time.Duration // Maximum extension time
+}
+```
+
+Configuration for dispute fees, rate limiting, and evidence validation.
+
+**Default values**:
+- Fee: 1% of payment (min 0.00001 BTC, max 0.01 BTC)
+- Evidence: 10 MB max, 20 items max
+- Rate limit: 3 disputes per 24 hours
+- Extension: 7 days max
+
+#### Evidence
+
+```go
+type Evidence struct {
+    ID          string    // Unique evidence identifier
+    SubmitterID string    // Who submitted (buyer, seller, arbiter)
+    Description string    // Evidence description
+    DataHash    []byte    // SHA256 hash of evidence data
+    Signature   []byte    // Submitter's signature
+    SubmittedAt time.Time // Submission timestamp
+    SizeBytes   int64     // Evidence size for DoS prevention
+}
+```
+
+Evidence submitted during dispute resolution.
+
+### DisputeFeeCalculator
+
+Calculates dispute fees to prevent frivolous disputes.
+
+#### NewDisputeFeeCalculator
+
+```go
+func NewDisputeFeeCalculator(
+    enhancements *DisputeEnhancements,
+) *DisputeFeeCalculator
+```
+
+Creates a new fee calculator with specified configuration.
+
+**Parameters**:
+- `enhancements`: Fee configuration (or nil for defaults)
+
+#### (*DisputeFeeCalculator) CalculateFee
+
+```go
+func (dfc *DisputeFeeCalculator) CalculateFee(
+    paymentAmount float64,
+) float64
+```
+
+Calculates the dispute fee for a payment.
+
+**Parameters**:
+- `paymentAmount`: Payment amount in base currency units
+
+**Returns**: Fee amount (percentage-based with min/max bounds)
+
+**Example**:
+```go
+calculator := paywall.NewDisputeFeeCalculator(nil) // Use defaults
+fee := calculator.CalculateFee(0.1) // 0.1 BTC payment
+// Returns 0.001 BTC (1% of 0.1)
+```
+
+#### (*DisputeFeeCalculator) ValidateFeePayment
+
+```go
+func (dfc *DisputeFeeCalculator) ValidateFeePayment(
+    requiredFee, paidFee float64,
+) error
+```
+
+Validates that sufficient fee has been paid to file a dispute.
+
+**Returns**: Error if insufficient fee paid
+
+### DisputeRateLimiter
+
+Prevents dispute spam by rate-limiting per participant.
+
+#### NewDisputeRateLimiter
+
+```go
+func NewDisputeRateLimiter(
+    enhancements *DisputeEnhancements,
+) *DisputeRateLimiter
+```
+
+Creates a new rate limiter with specified configuration.
+
+#### (*DisputeRateLimiter) CheckRateLimit
+
+```go
+func (drl *DisputeRateLimiter) CheckRateLimit(
+    participantID string,
+) error
+```
+
+Checks if a participant can file a new dispute.
+
+**Parameters**:
+- `participantID`: Participant attempting to file dispute
+
+**Returns**: Error if rate limit exceeded (includes retry time)
+
+**Example error**: `"dispute rate limit exceeded: 3 disputes in last 24h0m0s, try again in 18h30m15s"`
+
+#### (*DisputeRateLimiter) RecordDispute
+
+```go
+func (drl *DisputeRateLimiter) RecordDispute(
+    participantID string,
+)
+```
+
+Records that a participant filed a dispute.
+
+**Side effects**: Updates participant's dispute history
+
+#### (*DisputeRateLimiter) GetDisputeCount
+
+```go
+func (drl *DisputeRateLimiter) GetDisputeCount(
+    participantID string,
+) int
+```
+
+Returns the number of disputes filed by a participant in the current time window.
+
+### EvidenceValidator
+
+Validates evidence submissions to prevent DoS attacks.
+
+#### NewEvidenceValidator
+
+```go
+func NewEvidenceValidator(
+    enhancements *DisputeEnhancements,
+) *EvidenceValidator
+```
+
+Creates a new evidence validator with size and count limits.
+
+#### (*EvidenceValidator) ValidateEvidence
+
+```go
+func (ev *EvidenceValidator) ValidateEvidence(
+    evidence *Evidence,
+    currentEvidenceCount int,
+) error
+```
+
+Validates evidence before accepting submission.
+
+**Checks**:
+- Evidence size <= MaxEvidenceSize
+- Total evidence count < MaxEvidenceCount
+- Evidence has valid signature
+- Evidence data hash is present
+
+**Returns**: Error if evidence invalid or limits exceeded
+
+### TimeoutExtensionManager
+
+Manages timeout extension requests and approvals.
+
+#### NewTimeoutExtensionManager
+
+```go
+func NewTimeoutExtensionManager(
+    store PaymentStore,
+    enhancements *DisputeEnhancements,
+) *TimeoutExtensionManager
+```
+
+Creates a new timeout extension manager.
+
+**Parameters**:
+- `store`: Payment store for persisting extensions
+- `enhancements`: Configuration with max extension limit
+
+#### (*TimeoutExtensionManager) RequestExtension
+
+```go
+func (tem *TimeoutExtensionManager) RequestExtension(
+    paymentID string,
+    requestedBy MultisigRole,
+    reason string,
+    extension time.Duration,
+) error
+```
+
+Requests a timeout extension for an escrow.
+
+**Parameters**:
+- `paymentID`: Escrow to extend
+- `requestedBy`: Participant requesting (buyer or seller)
+- `reason`: Justification for extension
+- `extension`: Additional time requested (max 7 days)
+
+**Validation**:
+- Extension must be > 0 and <= MaxTimeoutExtension
+- Only buyer or seller can request
+- Escrow must be in funded state
+
+**Returns**: Error if request invalid
+
+#### (*TimeoutExtensionManager) ApproveExtension
+
+```go
+func (tem *TimeoutExtensionManager) ApproveExtension(
+    paymentID string,
+    approver MultisigRole,
+) error
+```
+
+Approves a pending timeout extension request.
+
+**Parameters**:
+- `paymentID`: Escrow with pending extension
+- `approver`: Participant approving (must be different from requester)
+
+**Requirements**:
+- 2-of-3 approval: Requires requester + one other participant
+
+**Returns**: Error if approval invalid
+
+#### (*TimeoutExtensionManager) IsExtensionApproved
+
+```go
+func (tem *TimeoutExtensionManager) IsExtensionApproved(
+    paymentID string,
+) (bool, time.Duration, error)
+```
+
+Checks if an extension request has been approved.
+
+**Returns**:
+- `bool`: True if approved by 2-of-3
+- `time.Duration`: Extension duration
+- `error`: Error if check fails
+
+#### (*TimeoutExtensionManager) CompleteExtension
+
+```go
+func (tem *TimeoutExtensionManager) CompleteExtension(
+    paymentID string,
+)
+```
+
+Marks an extension as completed and clears the pending request.
+
+#### (*TimeoutExtensionManager) GetPendingExtension
+
+```go
+func (tem *TimeoutExtensionManager) GetPendingExtension(
+    paymentID string,
+) (*TimeoutExtensionRequest, error)
+```
+
+Retrieves the pending extension request for a payment.
+
+**Returns**:
+- `*TimeoutExtensionRequest` with request details
+- Error if no pending extension
+
 ---
 
 ## Wallet Package

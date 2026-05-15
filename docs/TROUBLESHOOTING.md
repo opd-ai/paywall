@@ -679,6 +679,390 @@ pw, _ := paywall.NewPaywall(config)
 // If program exits, background goroutine may not stop cleanly
 ```
 
+## Network Configuration
+
+### Testnet vs Mainnet Confusion
+
+**Problem**: "I sent real Bitcoin but the payment wasn't detected."
+
+**Cause**: Paywall configured for testnet but user sent to mainnet (or vice versa).
+
+**Symptoms**:
+- Payment shows as pending forever
+- Address doesn't appear on expected blockchain explorer
+- Funds sent to wrong network are **unrecoverable**
+
+**Prevention**:
+
+1. **Check your configuration carefully**:
+   ```go
+   config := paywall.Config{
+       TestNet: true,   // ⚠️ ONLY for testing with fake Bitcoin
+       // TestNet: false,  // For production with real Bitcoin
+   }
+   ```
+
+2. **Verify address format before accepting payment**:
+   - **Bitcoin Testnet**: `tb1q...` (bech32) or `m...`/`2...` (legacy)
+   - **Bitcoin Mainnet**: `bc1q...` (bech32) or `1...`/`3...` (legacy)
+   - **Monero Testnet**: Starts with `9` or `B`
+   - **Monero Mainnet**: Starts with `4` or `8`
+
+3. **Test on testnet first**:
+   ```bash
+   # Get free testnet coins
+   # Bitcoin: https://testnet-faucet.mempool.co/
+   # Monero: https://stagenet.xmr-tw.org/faucet.html
+   ```
+
+4. **Add validation in UI**:
+   ```go
+   if config.TestNet {
+       fmt.Println("⚠️ WARNING: Using TESTNET - do not send real funds!")
+   }
+   ```
+
+### RPC Endpoint Configuration
+
+**Problem**: "Blockchain verification failing" or "Connection refused"
+
+**Bitcoin RPC**:
+
+The paywall uses blockchain APIs to verify payments. If the default endpoint is down:
+
+1. **Run your own Bitcoin node** (most reliable):
+   ```bash
+   # Install Bitcoin Core
+   # Then in bitcoin.conf:
+   server=1
+   rpcuser=yourusername
+   rpcpassword=yourpassword
+   testnet=1  # For testnet
+   
+   # Access via: http://localhost:8332
+   ```
+
+2. **Use public API endpoints** (less reliable):
+   - Testnet: `https://blockstream.info/testnet/api/`
+   - Mainnet: `https://blockstream.info/api/`
+   
+   Note: The paywall currently uses embedded blockchain checking. To use custom RPC:
+   - Extend `BTCBroadcaster` with custom RPC URL
+   - Set environment variable (if supported by your deployment)
+
+**Monero RPC**:
+
+1. **Run monero-wallet-rpc locally**:
+   ```bash
+   # Testnet
+   monero-wallet-rpc \
+     --rpc-bind-port 18081 \
+     --wallet-file ~/testnet/mywallet \
+     --password mypass \
+     --testnet \
+     --daemon-address stagenet.xmr-tw.org:38081 \
+     --rpc-login user:pass
+   
+   # Mainnet
+   monero-wallet-rpc \
+     --rpc-bind-port 18081 \
+     --wallet-file ~/mywallet \
+     --password mypass \
+     --daemon-address node.moneroworld.com:18089 \
+     --rpc-login user:pass
+   ```
+
+2. **Configure in paywall**:
+   ```go
+   config := paywall.Config{
+       XMRRPC:      "http://localhost:18081",
+       XMRUser:     "user",
+       XMRPassword: "pass",
+   }
+   ```
+
+3. **Test connection**:
+   ```bash
+   curl -X POST http://localhost:18081/json_rpc \
+     -H 'Content-Type: application/json' \
+     -u user:pass \
+     -d '{"jsonrpc":"2.0","id":"0","method":"get_balance","params":{"account_index":0}}'
+   ```
+
+### Firewall Rules
+
+**Problem**: "Connection refused" or "timeout" errors.
+
+**Linux (ufw)**:
+```bash
+# Allow Bitcoin RPC (if running local node)
+sudo ufw allow 8332/tcp
+
+# Allow Monero wallet RPC
+sudo ufw allow 18081/tcp
+
+# Allow your paywall HTTP server
+sudo ufw allow 8000/tcp
+
+# Check rules
+sudo ufw status
+```
+
+**Linux (iptables)**:
+```bash
+# Allow inbound on paywall port
+sudo iptables -A INPUT -p tcp --dport 8000 -j ACCEPT
+
+# Allow outbound to blockchain APIs
+sudo iptables -A OUTPUT -p tcp --dport 443 -j ACCEPT
+
+# Save rules
+sudo iptables-save > /etc/iptables/rules.v4
+```
+
+**Docker**:
+```dockerfile
+# Expose paywall port
+EXPOSE 8000
+
+# If running RPC in same container
+EXPOSE 18081
+```
+
+**Cloud providers** (AWS/GCP/Azure):
+- Add security group rule allowing inbound port 8000
+- Add security group rule allowing outbound HTTPS (443) for blockchain APIs
+- If using RPC, add inbound rule for RPC ports
+
+## Recovery Procedures
+
+### Recovering Stuck Payments
+
+**Symptom**: Payment shows "pending" but blockchain shows confirmed transaction.
+
+**Diagnosis**:
+
+1. **Check payment status**:
+   ```go
+   payment, err := paywall.Store.GetPayment(paymentID)
+   if err != nil {
+       log.Fatal(err)
+   }
+   log.Printf("Status: %s, Confirmations: %d", payment.Status, payment.Confirmations)
+   ```
+
+2. **Verify on blockchain explorer**:
+   ```bash
+   # Bitcoin testnet
+   https://blockstream.info/testnet/address/YOUR_ADDRESS
+   
+   # Bitcoin mainnet
+   https://blockstream.info/address/YOUR_ADDRESS
+   ```
+
+3. **Check confirmation threshold**:
+   ```go
+   if payment.Confirmations < config.MinConfirmations {
+       // Still waiting for confirmations
+   }
+   ```
+
+**Solutions**:
+
+1. **Manual payment confirmation** (if verified on blockchain):
+   ```go
+   payment, _ := paywall.Store.GetPayment(paymentID)
+   payment.Status = paywall.StatusConfirmed
+   payment.Confirmations = 6  // Or actual confirmation count
+   err := paywall.Store.UpdatePayment(payment)
+   ```
+
+2. **Restart payment verification**:
+   ```go
+   // The background goroutine checks periodically
+   // Wait for next check cycle (typically 10-60 seconds)
+   // Or restart your application to trigger immediate recheck
+   ```
+
+3. **Lower confirmation threshold temporarily** (for testing):
+   ```go
+   config := paywall.Config{
+       MinConfirmations: 1,  // Accept after 1 confirmation
+   }
+   ```
+
+### Recovering from Lost Wallet
+
+**Problem**: "Lost wallet file" or "Need to restore from backup"
+
+**Bitcoin Wallet Recovery**:
+
+1. **If you have the mnemonic phrase** (12 or 24 words):
+   ```go
+   // Restore wallet from mnemonic
+   seed, err := wallet.ImportFromMnemonic("word1 word2 ... word24", "")
+   if err != nil {
+       log.Fatal(err)
+   }
+   
+   btcWallet, err := wallet.NewBTCHDWallet(seed[:32], testnet, 1)
+   if err != nil {
+       log.Fatal(err)
+   }
+   
+   // Save to new encrypted file
+   btcWallet.SaveToFile(wallet.StorageConfig{
+       DataDir:       "./paywallet",
+       EncryptionKey: encryptionKey,
+   })
+   ```
+
+2. **If you have the encrypted wallet file**:
+   ```go
+   // Load from backup
+   wallet, err := wallet.LoadFromFile(wallet.StorageConfig{
+       DataDir:       "./paywallet_backup",
+       EncryptionKey: originalKey,
+   })
+   if err != nil {
+       log.Fatal(err)
+   }
+   ```
+
+3. **If you have neither** (mnemonic nor file):
+   - **Funds are UNRECOVERABLE**
+   - This is why backup is critical
+   - Always store mnemonic phrase in secure location
+
+**Important**: After wallet recovery, the `nextIndex` counter (which tracks used addresses) is reset to 0. This means:
+- Old addresses will regenerate in the same order
+- Check payment history to find the highest used address index
+- Manually increment `nextIndex` to avoid address reuse:
+  ```go
+  // After recovery, if you know you used 100 addresses:
+  wallet.nextIndex = 100
+  wallet.SaveToFile(config)
+  ```
+
+**Monero Wallet Recovery**:
+
+1. **Restore from seed phrase**:
+   ```bash
+   # Stop wallet RPC
+   killall monero-wallet-rpc
+   
+   # Restore wallet
+   monero-wallet-cli --testnet --restore-deterministic-wallet
+   # Enter your 25-word seed phrase
+   # Set new wallet name and password
+   
+   # Start RPC with restored wallet
+   monero-wallet-rpc --wallet-file restored_wallet --password newpass --testnet
+   ```
+
+2. **Restore from keys**:
+   ```bash
+   monero-wallet-cli --testnet --generate-from-keys restored_wallet
+   # Enter private view key and spend key
+   ```
+
+### Recovering from Failed Transactions
+
+**Problem**: "Transaction broadcast failed" or "Transaction rejected"
+
+**Bitcoin Transaction Failures**:
+
+1. **Insufficient fee**:
+   - **Symptom**: Transaction stuck in mempool for hours/days
+   - **Solution**: Wait for transaction to be dropped (3-7 days) or use RBF (Replace-By-Fee)
+   - **Prevention**: Set reasonable fee rate (check https://mempool.space/ for current rates)
+
+2. **Double-spend attempt**:
+   - **Symptom**: "Transaction already exists" or "Input already spent"
+   - **Cause**: Tried to spend same UTXO twice
+   - **Solution**: Wait for first transaction to confirm or be dropped
+
+3. **Invalid transaction**:
+   - **Symptom**: "Script verification failed" or "Non-standard transaction"
+   - **Cause**: Malformed transaction or invalid signatures
+   - **Solution**: Regenerate transaction with correct signatures
+
+**Monero Transaction Failures**:
+
+1. **Insufficient funds**:
+   ```bash
+   # Check wallet balance
+   curl -X POST http://localhost:18081/json_rpc \
+     -u user:pass \
+     -d '{"jsonrpc":"2.0","id":"0","method":"get_balance","params":{"account_index":0}}'
+   ```
+
+2. **Unlock time not reached**:
+   - Monero has 10-block lock time after receiving funds
+   - Wait ~20 minutes for funds to unlock
+
+3. **Daemon not synchronized**:
+   ```bash
+   # Check daemon sync status
+   curl -X POST http://localhost:18081/json_rpc \
+     -d '{"jsonrpc":"2.0","id":"0","method":"get_info"}'
+   # Look for "synchronized": true
+   ```
+
+### Recovering from Escrow Timeout
+
+**Problem**: "Escrow timed out" but buyer claims they paid.
+
+**Investigation**:
+
+1. **Check escrow state**:
+   ```go
+   payment, _ := paywall.Store.GetPayment(paymentID)
+   log.Printf("EscrowState: %v, EscrowTimeout: %v", payment.EscrowState, payment.EscrowTimeout)
+   log.Printf("TransactionID: %s, BroadcastedAt: %v", payment.TransactionID, payment.BroadcastedAt)
+   ```
+
+2. **Verify on blockchain**:
+   - If `TransactionID` is set, check blockchain explorer
+   - If transaction confirmed, escrow should not have timed out
+
+3. **Check audit log**:
+   ```go
+   entries, _ := auditLogger.GetAuditTrail(paymentID)
+   for _, entry := range entries {
+       log.Printf("%s: %s -> %s by %s",
+           entry.Timestamp, entry.PreviousState, entry.NewState, entry.ActorRole)
+   }
+   ```
+
+**Manual Resolution** (if payment verified on blockchain):
+
+```go
+// If transaction is confirmed but escrow timed out due to bug:
+// 1. Verify transaction on blockchain
+// 2. Manually update escrow state
+payment, _ := paywall.Store.GetPayment(paymentID)
+payment.EscrowState = paywall.EscrowFunded
+payment.TransactionID = "blockchain_tx_id"
+payment.BroadcastedAt = time.Now()
+paywall.Store.UpdatePayment(payment)
+
+// 3. Release to seller or refund buyer as appropriate
+// Use EscrowManager.ReleaseToSeller() or RefundBuyer()
+```
+
+**Timeout Extension** (if both parties agree):
+
+```go
+// Request extension (requires 2-of-3 signatures)
+err := escrowManager.ExtendTimeout(
+    paymentID,
+    7 * 24 * time.Hour,  // Extend by 7 days
+    buyerSig,
+    sellerSig,
+)
+```
+
 ---
 
 If you can't find the solution here, check the project's GitHub issues or open a new one with:

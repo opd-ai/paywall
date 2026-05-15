@@ -252,7 +252,7 @@
 
 **Context**: Comprehensive documentation and community infrastructure to support adoption and growth.
 
-- [ ] **Complete API documentation coverage** (docs/API.md expansion)
+- [x] **Complete API documentation coverage** (docs/API.md expansion)
   - Document all exported functions in paywall package (currently partial)
   - Add multisig API reference (CreateMultisigPayment, CollectSignature, BroadcastTransaction)
   - Add escrow API reference (CreateEscrow, RequestDispute, ResolveDispute)
@@ -262,7 +262,7 @@
   - **Validation**: Every exported function must have docs/API.md entry
   - **Benefit**: Reduces support burden and improves adoption
 
-- [ ] **Add comprehensive troubleshooting guide** (docs/TROUBLESHOOTING.md expansion)
+- [x] **Add comprehensive troubleshooting guide** (docs/TROUBLESHOOTING.md expansion)
   - Common errors: XMR connection failures, insufficient confirmations, expired payments
   - Debugging techniques: payment status checking, log analysis, blockchain verification
   - Network configuration: testnet vs mainnet, RPC endpoints, firewall rules
@@ -270,7 +270,7 @@
   - **Metric Target**: Cover top 10 user-reported issues
   - **Benefit**: Reduces support requests and improves self-service
 
-- [ ] **Create deployment guides** (docs/DEPLOYMENT.md, docs/DOCKER.md)
+- [x] **Create deployment guides** (docs/DEPLOYMENT.md, docs/DOCKER.md)
   - Production deployment: systemd service, log rotation, monitoring setup
   - Docker deployment: Dockerfile, docker-compose.yml, environment variables
   - Kubernetes deployment: manifests, secrets management, scaling considerations
@@ -278,7 +278,7 @@
   - **Validation**: Follow guide to deploy to fresh server - must succeed
   - **Benefit**: Accelerates production adoption
 
-- [ ] **Add architecture documentation** (docs/ARCHITECTURE.md)
+- [x] **Add architecture documentation** (docs/ARCHITECTURE.md)
   - System architecture diagram: middleware flow, wallet layer, storage layer
   - Payment lifecycle diagram: creation → verification → confirmation
   - Escrow workflow diagram: funding → dispute resolution → completion
