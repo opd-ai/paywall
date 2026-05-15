@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	monero "github.com/monero-ecosystem/go-monero-rpc-client/wallet"
 )
@@ -190,6 +191,28 @@ func (w *MoneroHDWallet) RollbackLastAddress() {
 	if w.nextIndex > 0 {
 		w.nextIndex--
 	}
+}
+
+// GetLatestBlockTime retrieves the timestamp of the latest Monero block
+// by querying the wallet's current block height
+func (w *MoneroHDWallet) GetLatestBlockTime() (time.Time, error) {
+	// Get current block height from wallet
+	heightResp, err := w.client.GetHeight()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get wallet height: %w", err)
+	}
+
+	// Monero wallet RPC doesn't directly provide block timestamps
+	// Block time is approximately 2 minutes per block
+	// We calculate an approximate timestamp based on genesis time
+	// Genesis block timestamp: 2014-04-18 (Monero launch)
+	genesisTime := time.Date(2014, 4, 18, 0, 0, 0, 0, time.UTC)
+
+	// Average 2 minutes per block
+	blockDuration := 2 * time.Minute
+	estimatedTime := genesisTime.Add(time.Duration(heightResp.Height) * blockDuration)
+
+	return estimatedTime, nil
 }
 
 // Multisig operations (default implementations for backward compatibility)

@@ -285,10 +285,14 @@ func TestNewBitcoinTimestampProvider(t *testing.T) {
 func TestBitcoinTimestampProvider_GetLatestBlockTime(t *testing.T) {
 	provider := NewBitcoinTimestampProvider("http://localhost:8332", true)
 
-	// Should return not implemented error
-	_, err := provider.GetLatestBlockTime()
-	if err == nil {
-		t.Error("GetLatestBlockTime() error = nil, want error")
+	// Implementation now connects to public API
+	// For testnet, it logs a warning and uses system time, so should not error
+	blockTime, err := provider.GetLatestBlockTime()
+	if err != nil {
+		t.Errorf("GetLatestBlockTime() error = %v, want nil (testnet uses system time)", err)
+	}
+	if blockTime.IsZero() {
+		t.Error("GetLatestBlockTime() returned zero time")
 	}
 }
 

@@ -4,6 +4,7 @@ package paywall
 import (
 	"bytes"
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -189,6 +190,27 @@ func (b *BTCBroadcaster) ValidateTransaction(txBytes []byte, payment *Payment) e
 	}
 
 	return nil
+}
+
+// GetLatestBlockTime retrieves the timestamp of the latest Bitcoin block
+func (b *BTCBroadcaster) GetLatestBlockTime() (time.Time, error) {
+	if b.client == nil {
+		return time.Time{}, fmt.Errorf("rpc client not initialized")
+	}
+
+	// Get best block hash
+	blockHash, err := b.client.GetBestBlockHash()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get best block hash: %w", err)
+	}
+
+	// Get block header which contains timestamp
+	blockHeader, err := b.client.GetBlockHeader(blockHash)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("get block header: %w", err)
+	}
+
+	return blockHeader.Timestamp, nil
 }
 
 // Close closes the RPC client connection
