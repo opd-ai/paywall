@@ -282,6 +282,8 @@ func (em *EscrowManager) CheckEscrowTimeoutsWithTime(currentTime time.Time) ([]s
 	// Extract payment IDs from expiring payments
 	var timedOut []string
 	for _, payment := range expiring {
+		// Defense in depth for custom stores: this flow expects only multisig-enabled
+		// escrows in funded/disputed state with non-zero timeout before currentTime.
 		if payment == nil || !payment.MultisigEnabled {
 			continue
 		}

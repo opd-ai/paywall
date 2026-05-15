@@ -200,6 +200,8 @@ func computeResolutionHash(r *Resolution) [32]byte {
 	return hash
 }
 
+// writeHashString writes a length-prefixed string into the hash stream.
+// Length prefixing prevents ambiguous field boundaries in signed payloads.
 func writeHashString(h hash.Hash, value string) {
 	var lengthBytes [8]byte
 	binary.BigEndian.PutUint64(lengthBytes[:], uint64(len(value)))
@@ -207,6 +209,8 @@ func writeHashString(h hash.Hash, value string) {
 	h.Write([]byte(value))
 }
 
+// writeHashStringSlice writes a length-prefixed string slice into the hash stream.
+// It includes element count and each element's length for deterministic encoding.
 func writeHashStringSlice(h hash.Hash, values []string) {
 	var countBytes [8]byte
 	binary.BigEndian.PutUint64(countBytes[:], uint64(len(values)))
@@ -216,10 +220,16 @@ func writeHashStringSlice(h hash.Hash, values []string) {
 	}
 }
 
+// writeHashTimestamp writes timestamp seconds and nanoseconds into the hash stream.
+// Including both values preserves sub-second precision for signature verification.
 func writeHashTimestamp(h hash.Hash, ts time.Time) {
-	var timestampBytes [8]byte
-	binary.BigEndian.PutUint64(timestampBytes[:], uint64(ts.UnixNano()))
-	h.Write(timestampBytes[:])
+	var secondsBytes [8]byte
+	binary.BigEndian.PutUint64(secondsBytes[:], uint64(ts.Unix()))
+	h.Write(secondsBytes[:])
+
+	var nanosBytes [4]byte
+	binary.BigEndian.PutUint32(nanosBytes[:], uint32(ts.Nanosecond()))
+	h.Write(nanosBytes[:])
 }
 
 // SignResolution signs resolution data with the arbiter's private key
@@ -452,7 +462,10 @@ func (la *LocalArbiter) ResolveDispute(paymentID string, resolution *Resolution)
 	if resolution.PaymentID == "" {
 		resolution.PaymentID = paymentID
 	} else if resolution.PaymentID != paymentID {
-		return fmt.Errorf("resolution payment ID mismatch")
+		if len(resolution.Signature) > 0 {
+			return fmt.Errorf("resolution payment ID mismatch: got %s, expected %s", resolution.PaymentID, paymentID)
+		}
+		resolution.PaymentID = paymentID
 	}
 
 	if resolution.Timestamp.IsZero() {

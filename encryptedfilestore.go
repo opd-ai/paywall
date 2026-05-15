@@ -342,6 +342,7 @@ func (m *EncryptedFileStore) GetPaymentsByMultisigAddress(address string) ([]*Pa
 //
 // Notes:
 //   - Decryption and parse errors are skipped
+//   - This matches existing read-path behavior to avoid blocking timeout checks on a single corrupt file
 //   - Thread-safety: Protected by read lock
 func (m *EncryptedFileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
 	m.mu.RLock()

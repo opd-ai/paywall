@@ -431,6 +431,9 @@ func TestLocalArbiter_ResolveDispute(t *testing.T) {
 				if dispute.Resolution == nil {
 					t.Error("ResolveDispute() did not set resolution")
 				}
+				if dispute.Resolution.PaymentID != paymentID {
+					t.Errorf("ResolveDispute() paymentID = %q, want %q", dispute.Resolution.PaymentID, paymentID)
+				}
 				if dispute.ResolvedAt.IsZero() {
 					t.Error("ResolveDispute() did not set resolvedAt timestamp")
 				}
@@ -888,6 +891,16 @@ func TestComputeEvidenceHash_UnambiguousEncoding(t *testing.T) {
 	if computeEvidenceHash(e1) == computeEvidenceHash(e2) {
 		t.Fatal("computeEvidenceHash() should produce different hashes for different field boundaries")
 	}
+
+	if computeEvidenceHash(e1) != computeEvidenceHash(e1) {
+		t.Fatal("computeEvidenceHash() should be deterministic for identical input")
+	}
+
+	e3 := *e1
+	e3.Description = "f2"
+	if computeEvidenceHash(e1) == computeEvidenceHash(&e3) {
+		t.Fatal("computeEvidenceHash() should change when any signed field changes")
+	}
 }
 
 func TestComputeResolutionHash_UnambiguousEncoding(t *testing.T) {
@@ -911,6 +924,16 @@ func TestComputeResolutionHash_UnambiguousEncoding(t *testing.T) {
 
 	if computeResolutionHash(r1) == computeResolutionHash(r2) {
 		t.Fatal("computeResolutionHash() should produce different hashes for different field boundaries")
+	}
+
+	if computeResolutionHash(r1) != computeResolutionHash(r1) {
+		t.Fatal("computeResolutionHash() should be deterministic for identical input")
+	}
+
+	r3 := *r1
+	r3.Reason = "different"
+	if computeResolutionHash(r1) == computeResolutionHash(&r3) {
+		t.Fatal("computeResolutionHash() should change when any signed field changes")
 	}
 }
 
