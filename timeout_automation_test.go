@@ -1,6 +1,7 @@
 package paywall
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -311,6 +312,205 @@ func TestMoneroTimestampProvider_GetLatestBlockTime(t *testing.T) {
 	_, err := provider.GetLatestBlockTime()
 	if err == nil {
 		t.Error("GetLatestBlockTime() error = nil, want error")
+	}
+}
+
+// mockArbiterSigner implements ArbiterSigner for testing
+type mockArbiterSigner struct {
+	shouldFail bool
+}
+
+func (m *mockArbiterSigner) SignTimeoutRefund(payment *Payment) (*SignatureData, error) {
+	if m.shouldFail {
+		return nil, fmt.Errorf("mock signer error")
+	}
+
+	return &SignatureData{
+		SignerID:  "test-arbiter",
+		Role:      RoleArbiter,
+		Signature: []byte("mock-arbiter-signature"),
+		PublicKey: []byte("mock-arbiter-pubkey"),
+		SignedAt:  time.Now(),
+		Nonce:     []byte(payment.ID + "-arbiter-timeout"),
+	}, nil
+}
+
+func TestTimeoutMonitor_AutoRefund_Disabled(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:     store,
+		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
+	}
+
+	em := &EscrowManager{paywall: pw}
+	config := DefaultTimeoutMonitorConfig()
+	config.AutoRefund = false
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Process timeout with autoRefund disabled
+	err := monitor.processTimeout("test-payment")
+	if err != nil {
+		t.Errorf("processTimeout() with autoRefund disabled should not error, got: %v", err)
+	}
+
+	// Verify autoRefund is disabled
+	if monitor.autoRefund {
+		t.Error("autoRefund should be false")
+	}
+}
+
+func TestTimeoutMonitor_AutoRefund_NoSigner(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:     store,
+		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
+	}
+
+	em := &EscrowManager{paywall: pw}
+	config := DefaultTimeoutMonitorConfig()
+	config.AutoRefund = true
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Create a test payment
+	payment := &Payment{
+		ID:              "test-payment",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Try to process timeout without arbiter signer
+	err := monitor.processTimeout("test-payment")
+	if err == nil {
+		t.Error("processTimeout() with autoRefund enabled but no signer should error")
+	}
+	if err != nil && err.Error() != "arbiter signer not configured for automatic refunds" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestTimeoutMonitor_SetArbiterSigner(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:     store,
+		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
+	}
+
+	em := &EscrowManager{paywall: pw}
+	config := DefaultTimeoutMonitorConfig()
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Set arbiter signer
+	signer := &mockArbiterSigner{}
+	monitor.SetArbiterSigner(signer)
+
+	if monitor.arbiterSigner == nil {
+		t.Error("arbiterSigner should be set")
+	}
+}
+
+func TestTimeoutMonitor_AutoRefund_Success(t *testing.T) {
+	store := NewMemoryStore()
+
+	// Create mock wallet
+	btcWallet := &wallet.BTCHDWallet{}
+
+	// Create config with authorized arbiters
+	config := Config{
+		PriceInBTC:         0.001,
+		TestNet:            true,
+		Store:              store,
+		PaymentTimeout:     time.Hour * 24,
+		AuthorizedArbiters: [][]byte{[]byte("mock-arbiter-pubkey")},
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	// Replace wallet with mock for testing
+	pw.HDWallets[wallet.Bitcoin] = btcWallet
+
+	em, _ := NewEscrowManagerWithAudit(pw, NewMemoryAuditLogger())
+	monitorConfig := DefaultTimeoutMonitorConfig()
+	monitorConfig.AutoRefund = true
+	monitor := NewTimeoutMonitor(em, monitorConfig)
+
+	// Set arbiter signer
+	signer := &mockArbiterSigner{}
+	monitor.SetArbiterSigner(signer)
+
+	// Create a test payment with multisig metadata
+	payment := &Payment{
+		ID:              "test-payment",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+		MultisigMetadata: map[wallet.WalletType]*wallet.MultisigMetadata{
+			wallet.Bitcoin: {
+				PublicKeys: [][]byte{
+					[]byte("buyer-pubkey"),
+					[]byte("seller-pubkey"),
+					[]byte("mock-arbiter-pubkey"),
+				},
+				RequiredSigs: 2,
+			},
+		},
+	}
+	store.CreatePayment(payment)
+
+	// Process timeout with automatic refund
+	err = monitor.processTimeout("test-payment")
+	if err != nil {
+		t.Errorf("processTimeout() with autoRefund enabled should succeed, got: %v", err)
+	}
+
+	// Verify payment was refunded
+	updatedPayment, _ := store.GetPayment("test-payment")
+	if updatedPayment.EscrowState != EscrowRefunded {
+		t.Errorf("payment should be refunded, got state: %v", updatedPayment.EscrowState)
+	}
+}
+
+func TestTimeoutMonitor_AutoRefund_SignerError(t *testing.T) {
+	store := NewMemoryStore()
+
+	pw := &Paywall{
+		Store:     store,
+		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
+	}
+
+	em := &EscrowManager{paywall: pw}
+	config := DefaultTimeoutMonitorConfig()
+	config.AutoRefund = true
+	monitor := NewTimeoutMonitor(em, config)
+
+	// Set arbiter signer that will fail
+	signer := &mockArbiterSigner{shouldFail: true}
+	monitor.SetArbiterSigner(signer)
+
+	// Create a test payment
+	payment := &Payment{
+		ID:              "test-payment",
+		MultisigEnabled: true,
+		Status:          StatusPending,
+		EscrowState:     EscrowFunded,
+		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+	}
+	store.CreatePayment(payment)
+
+	// Try to process timeout with failing signer
+	err := monitor.processTimeout("test-payment")
+	if err == nil {
+		t.Error("processTimeout() with failing signer should error")
 	}
 }
 
