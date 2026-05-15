@@ -574,8 +574,13 @@ func NewPaywall(config Config) (*Paywall, error) {
 			pcancel()
 			return nil, fmt.Errorf("failed to initialize escrow manager: %w", err)
 		}
+
+		// Initialize metrics collector for escrow operations
+		metrics := NewMetricsCollector()
+		escrowMgr.SetMetrics(metrics)
+
 		p.escrowManager = escrowMgr
-		log.Printf("Escrow manager initialized for multisig payments")
+		log.Printf("Escrow manager initialized for multisig payments with metrics tracking")
 	}
 
 	startBackgroundWorkers(p, hdWallets, config)

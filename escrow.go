@@ -39,7 +39,7 @@ type EscrowManager struct {
 	paywall        *Paywall
 	auditLogger    AuditLogger
 	stateValidator *EscrowStateValidator
-	arbiter        Arbiter          // optional arbiter for dispute registration
+	arbiter        Arbiter           // optional arbiter for dispute registration
 	metrics        *MetricsCollector // optional metrics collector
 }
 
@@ -98,6 +98,12 @@ func NewEscrowManagerWithArbiter(pw *Paywall, logger AuditLogger, arbiter Arbite
 // This allows adding arbiter integration after creation
 func (em *EscrowManager) SetArbiter(arbiter Arbiter) {
 	em.arbiter = arbiter
+}
+
+// SetMetrics sets the metrics collector for the escrow manager
+// This allows adding metrics tracking after creation
+func (em *EscrowManager) SetMetrics(metrics *MetricsCollector) {
+	em.metrics = metrics
 }
 
 // validateSignatureData performs cryptographic validation on signature data
@@ -286,6 +292,11 @@ func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout tim
 		log.Printf("WARNING: failed to log escrow creation: %v", auditErr)
 	}
 
+	// Track metrics
+	if em.metrics != nil {
+		em.metrics.IncrementEscrowCreated()
+	}
+
 	return payment.ID, nil
 }
 
@@ -343,6 +354,11 @@ func (em *EscrowManager) FundEscrow(paymentID string) error {
 
 	// Log state transition in audit trail
 	em.logStateTransition(paymentID, AuditActionFund, prevState, EscrowFunded, nil, RoleBuyer, nil, nil)
+
+	// Track metrics
+	if em.metrics != nil {
+		em.metrics.IncrementEscrowFunded()
+	}
 
 	return nil
 }
@@ -424,6 +440,11 @@ func (em *EscrowManager) ReleaseToSeller(paymentID string, buyerSig, sellerSig *
 	// Log release to seller in audit trail
 	em.logStateTransition(paymentID, AuditActionRelease, prevState, EscrowCompleted,
 		buyerSig.PublicKey, RoleBuyer, buyerSig.Signature, nil)
+
+	// Track metrics
+	if em.metrics != nil {
+		em.metrics.IncrementEscrowCompleted()
+	}
 
 	return nil
 }
@@ -566,6 +587,11 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 	em.logStateTransition(paymentID, AuditActionDispute, prevState, EscrowDisputed,
 		nil, requesterRole, nil, map[string]string{"reason": reason})
 
+	// Track metrics
+	if em.metrics != nil {
+		em.metrics.IncrementEscrowDisputed()
+	}
+
 	return nil
 }
 
@@ -663,6 +689,11 @@ func (em *EscrowManager) ResolveDispute(paymentID string, arbiterSig, winnerSig 
 
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
+	}
+
+	// Track metrics
+	if em.metrics != nil {
+		em.metrics.IncrementEscrowDisputeResolved()
 	}
 
 	return nil
@@ -775,6 +806,11 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
+	}
+
+	// Track metrics
+	if em.metrics != nil {
+		em.metrics.IncrementEscrowRefunded()
 	}
 
 	return nil
