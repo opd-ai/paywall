@@ -91,6 +91,19 @@ func (m *mockPaymentStore) GetPaymentsByMultisigAddress(address string) ([]*Paym
 	return payments, nil
 }
 
+func (m *mockPaymentStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
+	var expiring []*Payment
+	for _, payment := range m.payments {
+		if payment.EscrowState == EscrowNone || payment.EscrowState == EscrowCompleted || payment.EscrowState == EscrowRefunded {
+			continue
+		}
+		if !payment.EscrowTimeout.IsZero() && payment.EscrowTimeout.Before(deadline) {
+			expiring = append(expiring, payment)
+		}
+	}
+	return expiring, nil
+}
+
 // mockPaywall provides a testable Paywall instance
 type mockPaywall struct {
 	store           PaymentStore

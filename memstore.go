@@ -2,6 +2,7 @@ package paywall
 
 import (
 	"sync"
+	"time"
 
 	"github.com/opd-ai/paywall/wallet"
 )
@@ -265,3 +266,37 @@ func (m *MemoryStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, 
 	}
 	return payments, nil
 }
+
+// GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
+// This enables efficient timeout checking without scanning all payments.
+// Note: In MemoryStore this still does a linear scan, but the interface
+// allows FileStore to use indexed queries for better performance.
+//
+// Parameters:
+//   - deadline: Time threshold - returns escrows expiring before this time
+//
+// Returns:
+//   - []*Payment: Slice of escrow payments with EscrowTimeout before deadline
+//   - error: Always nil in this implementation
+func (m *MemoryStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var expiring []*Payment
+	for _, p := range m.payments {
+		// Only check escrow-enabled payments
+		if p.EscrowState == EscrowNone {
+			continue
+		}
+		// Only check active escrow states (not completed/refunded)
+		if p.EscrowState == EscrowCompleted || p.EscrowState == EscrowRefunded {
+			continue
+		}
+		// Check if timeout is before deadline
+		if !p.EscrowTimeout.IsZero() && p.EscrowTimeout.Before(deadline) {
+			expiring = append(expiring, deepCopyPayment(p))
+		}
+	}
+	return expiring, nil
+}
+

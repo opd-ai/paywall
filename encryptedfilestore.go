@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/opd-ai/paywall/wallet"
 )
@@ -328,3 +329,46 @@ func (m *EncryptedFileStore) GetPaymentsByMultisigAddress(address string) ([]*Pa
 
 	return payments, nil
 }
+
+// GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
+// This enables efficient timeout checking for encrypted storage.
+//
+// Parameters:
+//   - deadline: Time threshold - returns escrows expiring before this time
+//
+// Returns:
+//   - []*Payment: Slice of escrow payments with EscrowTimeout before deadline
+//   - error: Directory read or decryption errors
+func (m *EncryptedFileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	files, err := os.ReadDir(m.baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var expiring []*Payment
+	for _, file := range files {
+		payment, err := m.readAndDecryptPayment(file.Name())
+		if err != nil || payment == nil {
+			continue
+		}
+
+		// Only check escrow-enabled payments
+		if payment.EscrowState == EscrowNone {
+			continue
+		}
+		// Only check active escrow states (not completed/refunded)
+		if payment.EscrowState == EscrowCompleted || payment.EscrowState == EscrowRefunded {
+			continue
+		}
+		// Check if timeout is before deadline
+		if !payment.EscrowTimeout.IsZero() && payment.EscrowTimeout.Before(deadline) {
+			expiring = append(expiring, payment)
+		}
+	}
+
+	return expiring, nil
+}
+

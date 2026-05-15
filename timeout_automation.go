@@ -269,46 +269,20 @@ func (tm *TimeoutMonitor) getBlockchainTimestamp() (time.Time, error) {
 }
 
 // CheckEscrowTimeoutsWithTime checks for timed-out escrows using provided time
+// Now uses the optimized GetEscrowsExpiringBefore method for better performance
 func (em *EscrowManager) CheckEscrowTimeoutsWithTime(currentTime time.Time) ([]string, error) {
-	// Get all payments (not just pending - escrows can be confirmed/funded)
-	// We need to check their escrow state, not payment status
 	store := em.paywall.Store
 
-	// Since there's no GetAllPayments, we'll use the store's internal structure
-	// For testing, we can get payments by iterating through the store
-
-	// Try to get all payments via a type assertion to MemoryStore
-	// In production, this would need a GetAllPayments method on PaymentStore
-	memStore, ok := store.(*MemoryStore)
-	if !ok {
-		// Fallback: use GetPendingMultisigPayments and also check completed ones
-		// This is a workaround for the interface limitation
-		payments, err := store.GetPendingMultisigPayments()
-		if err != nil {
-			return nil, fmt.Errorf("get payments: %w", err)
-		}
-		var timedOut []string
-		for _, payment := range payments {
-			if payment.EscrowState == EscrowFunded || payment.EscrowState == EscrowDisputed {
-				if !payment.EscrowTimeout.IsZero() && currentTime.After(payment.EscrowTimeout) {
-					timedOut = append(timedOut, payment.ID)
-				}
-			}
-		}
-		return timedOut, nil
+	// Use the new optimized method to get escrows expiring before current time
+	expiring, err := store.GetEscrowsExpiringBefore(currentTime)
+	if err != nil {
+		return nil, fmt.Errorf("get expiring escrows: %w", err)
 	}
 
-	// Get all payments from MemoryStore
-	memStore.mu.RLock()
-	defer memStore.mu.RUnlock()
-
+	// Extract payment IDs from expiring payments
 	var timedOut []string
-	for _, payment := range memStore.payments {
-		if payment.MultisigEnabled && (payment.EscrowState == EscrowFunded || payment.EscrowState == EscrowDisputed) {
-			if !payment.EscrowTimeout.IsZero() && currentTime.After(payment.EscrowTimeout) {
-				timedOut = append(timedOut, payment.ID)
-			}
-		}
+	for _, payment := range expiring {
+		timedOut = append(timedOut, payment.ID)
 	}
 
 	return timedOut, nil

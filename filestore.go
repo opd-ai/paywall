@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/opd-ai/paywall/wallet"
 )
@@ -331,6 +332,63 @@ func (m *FileStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, er
 	}
 
 	return payments, nil
+}
+
+// GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
+// This enables efficient timeout checking without full linear scan.
+// Scans all payment files but only unmarshals those that might be relevant.
+//
+// Parameters:
+//   - deadline: Time threshold - returns escrows expiring before this time
+//
+// Returns:
+//   - []*Payment: Slice of escrow payments with EscrowTimeout before deadline
+//   - error: Directory read errors
+//
+// Notes:
+//   - Silently skips non-JSON files and parse errors
+//   - Thread-safety: Protected by read lock
+//   - For better performance at scale, consider indexing by timeout
+func (m *FileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	files, err := os.ReadDir(m.baseDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var expiring []*Payment
+	for _, file := range files {
+		if filepath.Ext(file.Name()) != ".json" {
+			continue
+		}
+
+		data, err := os.ReadFile(filepath.Join(m.baseDir, file.Name()))
+		if err != nil {
+			continue
+		}
+
+		var payment Payment
+		if err := json.Unmarshal(data, &payment); err != nil {
+			continue
+		}
+
+		// Only check escrow-enabled payments
+		if payment.EscrowState == EscrowNone {
+			continue
+		}
+		// Only check active escrow states (not completed/refunded)
+		if payment.EscrowState == EscrowCompleted || payment.EscrowState == EscrowRefunded {
+			continue
+		}
+		// Check if timeout is before deadline
+		if !payment.EscrowTimeout.IsZero() && payment.EscrowTimeout.Before(deadline) {
+			expiring = append(expiring, &payment)
+		}
+	}
+
+	return expiring, nil
 }
 
 // FileStoreConfig defines configuration parameters for file-based payment storage

@@ -178,7 +178,7 @@
   - **Benefit**: Creates non-repudiable audit trail for disputes
   - **Reference**: AUDIT.md lines 3699-3737, 3740-3768
 
-- [ ] **Optimize timeout checking for scale** (filestore.go, types.go:PaymentStore)
+- [x] **Optimize timeout checking for scale** (filestore.go, types.go:PaymentStore)
   - Add `GetEscrowsExpiringBefore(deadline time.Time)` to PaymentStore interface
   - Implement indexed query instead of linear scan through all payments
   - Add pagination for timeout processing (batch size 100)

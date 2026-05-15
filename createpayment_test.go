@@ -235,6 +235,11 @@ func (fs *FailingStore) GetPaymentsByMultisigAddress(address string) ([]*Payment
 	return nil, fmt.Errorf("not implemented")
 }
 
+func (fs *FailingStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+
+
 func (fs *FailingStore) Close() error {
 	return nil
 }
