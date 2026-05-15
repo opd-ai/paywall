@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -1925,21 +1926,47 @@ func TestExtendTimeout_BuyerSeller(t *testing.T) {
 	store.CreatePayment(payment)
 
 	// Extend timeout with buyer+seller signatures
-	buyerSig := &SignatureData{
+	// Generate valid EC keys and signatures for the test
+	buyerPrivKey, _ := btcec.NewPrivateKey()
+	buyerPubKey := buyerPrivKey.PubKey().SerializeCompressed()
+
+	sellerPrivKey, _ := btcec.NewPrivateKey()
+	sellerPubKey := sellerPrivKey.PubKey().SerializeCompressed()
+
+	// Create signature data with required fields
+	extension := 2 * 24 * time.Hour
+	currentTime := time.Now()
+
+	buyerSigData := &SignatureData{
 		Role:      RoleBuyer,
-		PublicKey: []byte("buyer-pubkey"),
-		Signature: []byte("buyer-sig-12345678"),
+		PublicKey: buyerPubKey,
 		SignerID:  "buyer",
-	}
-	sellerSig := &SignatureData{
-		Role:      RoleSeller,
-		PublicKey: []byte("seller-pubkey"),
-		Signature: []byte("seller-sig-12345678"),
-		SignerID:  "seller",
+		PaymentID: "test-extend",
+		Nonce:     []byte("buyer-nonce-12345"),
+		SignedAt:  currentTime,
 	}
 
+	// Compute and sign the intent hash for buyer
+	buyerIntent := timeoutExtensionIntentHash("test-extend", payment.EscrowTimeout, extension, buyerSigData)
+	buyerSigECDSA := ecdsa.Sign(buyerPrivKey, buyerIntent[:])
+	buyerSigData.Signature = buyerSigECDSA.Serialize()
+
+	sellerSigData := &SignatureData{
+		Role:      RoleSeller,
+		PublicKey: sellerPubKey,
+		SignerID:  "seller",
+		PaymentID: "test-extend",
+		Nonce:     []byte("seller-nonce-67890"),
+		SignedAt:  currentTime,
+	}
+
+	// Compute and sign the intent hash for seller
+	sellerIntent := timeoutExtensionIntentHash("test-extend", payment.EscrowTimeout, extension, sellerSigData)
+	sellerSigECDSA := ecdsa.Sign(sellerPrivKey, sellerIntent[:])
+	sellerSigData.Signature = sellerSigECDSA.Serialize()
+
 	oldTimeout := payment.EscrowTimeout
-	err = em.ExtendTimeout("test-extend", 2*24*time.Hour, buyerSig, sellerSig)
+	err = em.ExtendTimeout("test-extend", extension, buyerSigData, sellerSigData)
 	if err != nil {
 		t.Fatalf("ExtendTimeout() error = %v", err)
 	}

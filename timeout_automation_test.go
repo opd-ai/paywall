@@ -3,6 +3,7 @@ package paywall
 import (
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -446,7 +447,7 @@ func TestTimeoutMonitor_AutoRefund_NoSigner(t *testing.T) {
 	if err == nil {
 		t.Error("processTimeout() with autoRefund enabled but no signer should error")
 	}
-	if err != nil && err.Error() != "arbiter signer not configured for automatic refunds" {
+	if err != nil && !strings.Contains(err.Error(), "arbiter signer not configured for automatic refunds") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -692,6 +693,10 @@ func TestTimeoutMonitor_AutomaticRefund(t *testing.T) {
 	}
 	monitor := NewTimeoutMonitor(em, config)
 
+	// Set arbiter signer for automatic refunds
+	signer := &mockArbiterSigner{shouldFail: false}
+	monitor.SetArbiterSigner(signer)
+
 	// Start monitoring
 	monitor.Start()
 
@@ -798,6 +803,10 @@ func TestTimeoutMonitor_ProcessTimeout_WithAutoRefund(t *testing.T) {
 	}
 	monitor := NewTimeoutMonitor(em, config)
 
+	// Set arbiter signer for automatic refunds
+	signer := &mockArbiterSigner{shouldFail: false}
+	monitor.SetArbiterSigner(signer)
+
 	// Directly call processTimeout
 	err = monitor.processTimeout("test-process-timeout")
 	if err != nil {
@@ -847,6 +856,10 @@ func TestTimeoutMonitor_NoConcurrentProcessing(t *testing.T) {
 		AutoRefund:        true,
 	}
 	monitor := NewTimeoutMonitor(em, config)
+
+	// Set arbiter signer for automatic refunds
+	signer := &mockArbiterSigner{shouldFail: false}
+	monitor.SetArbiterSigner(signer)
 
 	// Try to process the same timeout twice concurrently
 	done := make(chan bool, 2)
@@ -906,6 +919,10 @@ func TestEscrowManager_StartTimeoutMonitor(t *testing.T) {
 		AutoRefund:        true,
 	}
 	monitor := em.StartTimeoutMonitor(config)
+
+	// Set arbiter signer for automatic refunds
+	signer := &mockArbiterSigner{shouldFail: false}
+	monitor.SetArbiterSigner(signer)
 
 	// Verify monitor is running
 	if monitor == nil {

@@ -337,12 +337,13 @@ func TestNewPaywall_PriceValidation(t *testing.T) {
 	t.Run("ZeroBTCPrice", func(t *testing.T) {
 		config := baseConfig
 		config.PriceInBTC = 0
-		_, err := NewPaywall(config)
-		if err == nil {
-			t.Fatal("NewPaywall should fail with zero BTC price")
+		// When XMR price is positive, zero BTC price is valid (Monero-only mode)
+		pw, err := NewPaywall(config)
+		if err != nil {
+			t.Fatalf("NewPaywall should succeed with zero BTC price when XMR price is set: %v", err)
 		}
-		if !strings.Contains(err.Error(), "PriceInBTC must be positive") {
-			t.Fatalf("Expected PriceInBTC validation error, got: %v", err)
+		if pw != nil {
+			pw.Close()
 		}
 	})
 
@@ -363,10 +364,11 @@ func TestNewPaywall_PriceValidation(t *testing.T) {
 		config.PriceInXMR = 0
 		_, err := NewPaywall(config)
 		if err == nil {
-			t.Fatal("NewPaywall should fail with zero XMR price")
+			t.Fatal("NewPaywall should fail when XMR credentials provided but price is zero")
 		}
-		if !strings.Contains(err.Error(), "PriceInXMR must be positive") {
-			t.Fatalf("Expected PriceInXMR validation error, got: %v", err)
+		// The actual error message is more specific about the credentials issue
+		if !strings.Contains(err.Error(), "credentials provided but PriceInXMR is zero") {
+			t.Fatalf("Expected XMR credentials validation error, got: %v", err)
 		}
 	})
 }

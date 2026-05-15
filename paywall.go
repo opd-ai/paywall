@@ -229,6 +229,14 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("payment timeout must be positive, got: %s (hint: use time.Hour*24 for 24 hours)", config.PaymentTimeout)
 	}
 
+	if config.PriceInBTC < 0 {
+		return fmt.Errorf("PriceInBTC must be positive, got: %.8f BTC (hint: set PriceInBTC: 0.0001 or leave at 0 to disable Bitcoin payments)", config.PriceInBTC)
+	}
+
+	if config.PriceInXMR < 0 {
+		return fmt.Errorf("PriceInXMR must be positive, got: %.8f XMR (hint: set PriceInXMR: 0.01 or leave at 0 to disable Monero payments)", config.PriceInXMR)
+	}
+
 	if config.PriceInBTC <= 0 && config.PriceInXMR <= 0 {
 		return fmt.Errorf("configuration error: PriceInBTC and PriceInXMR are both zero - at least one cryptocurrency price must be set (hint: set PriceInBTC: 0.0001 or PriceInXMR: 0.01)")
 	}
