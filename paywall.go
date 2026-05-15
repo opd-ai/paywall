@@ -106,6 +106,56 @@ type Config struct {
 	// Prevents creating escrows with unreasonably long timeouts that could
 	// lock funds indefinitely. Defaults to 90 days if zero.
 	MaxEscrowTimeout time.Duration
+
+	// Multi-arbiter consensus configuration (optional - for advanced dispute resolution)
+
+	// EnableMultiArbiterConsensus enables multi-arbiter voting for dispute resolution.
+	// When true, disputes require consensus from multiple arbiters (e.g., 3-of-5).
+	// When false (default), single arbiter resolution is used.
+	EnableMultiArbiterConsensus bool
+
+	// RequiredArbiterVotes is how many arbiters must agree for consensus (e.g., 3 in 3-of-5).
+	// Must be >= 2 when EnableMultiArbiterConsensus is true.
+	RequiredArbiterVotes int
+
+	// TotalArbiters is the total number of arbiters in the pool (e.g., 5 in 3-of-5).
+	// Must be >= RequiredArbiterVotes when EnableMultiArbiterConsensus is true.
+	TotalArbiters int
+
+	// PrimaryArbiters contains public keys of primary arbiters for dispute resolution.
+	// Required when EnableMultiArbiterConsensus is true. Length must equal TotalArbiters.
+	PrimaryArbiters [][]byte
+
+	// FallbackArbiters contains public keys of backup arbiters used when primary arbiters are unavailable.
+	// Optional: if empty, no fallback mechanism is available.
+	FallbackArbiters [][]byte
+
+	// ArbiterVotingTimeout is how long arbiters have to vote on a dispute.
+	// Defaults to 48 hours if zero. After timeout, fallback arbiters may be activated.
+	ArbiterVotingTimeout time.Duration
+
+	// Dispute anti-spam configuration (optional - for preventing griefing attacks)
+
+	// DisputeFeePercent is the percentage of escrow amount charged as a dispute fee.
+	// Example: 0.05 means 5% of the escrow amount. Defaults to 0 (no fee).
+	// The fee discourages frivolous disputes. Winner of dispute gets fee refunded.
+	DisputeFeePercent float64
+
+	// MaxDisputesPerPeriod limits how many disputes a user can file in a time window.
+	// Defaults to 0 (unlimited). Recommended: 3-5 disputes per DisputePeriod.
+	MaxDisputesPerPeriod int
+
+	// DisputePeriod is the time window for dispute rate limiting.
+	// Defaults to 30 days. Used with MaxDisputesPerPeriod to prevent abuse.
+	DisputePeriod time.Duration
+
+	// MaxEvidenceSizeBytes is the maximum total evidence size per dispute.
+	// Defaults to 10 MB. Prevents DoS via large evidence uploads.
+	MaxEvidenceSizeBytes int64
+
+	// ExtendEscrowOnDispute is the additional time added to escrow timeout when dispute is filed.
+	// Defaults to 7 days. Prevents exploiting timeout during dispute resolution.
+	ExtendEscrowOnDispute time.Duration
 }
 
 // Paywall manages Bitcoin payment processing and verification
@@ -152,6 +202,26 @@ type Paywall struct {
 	minEscrowTimeout time.Duration
 	// maxEscrowTimeout is the maximum allowed escrow timeout duration
 	maxEscrowTimeout time.Duration
+
+	// Multi-arbiter consensus (optional - for advanced dispute resolution)
+
+	// consensusManager handles multi-arbiter voting for disputes
+	consensusManager *ArbiterConsensusManager
+
+	// Dispute anti-spam configuration (optional - for preventing griefing attacks)
+
+	// disputeFeePercent is the percentage of escrow amount charged as a dispute fee
+	disputeFeePercent float64
+	// maxDisputesPerPeriod limits disputes per user in time window
+	maxDisputesPerPeriod int
+	// disputePeriod is the time window for dispute rate limiting
+	disputePeriod time.Duration
+	// maxEvidenceSizeBytes is the maximum evidence size per dispute
+	maxEvidenceSizeBytes int64
+	// extendEscrowOnDispute is additional time added when dispute is filed
+	extendEscrowOnDispute time.Duration
+	// disputeHistory tracks dispute counts per participant for rate limiting
+	disputeHistory map[string][]time.Time
 }
 
 // NewPaywall creates and initializes a new Paywall instance
@@ -310,23 +380,58 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 
 	p := &Paywall{
-		HDWallets:          hdWallets,
-		Store:              config.Store,
-		prices:             prices,
-		paymentTimeout:     config.PaymentTimeout,
-		minConfirmations:   config.MinConfirmations,
-		template:           tmpl,
-		ctx:                pctx,
-		cancel:             pcancel,
-		multisigEnabled:    config.MultisigEnabled,
-		multisigRequired:   config.MultisigRequired,
-		multisigTotal:      config.MultisigTotal,
-		participantPubKeys: config.ParticipantPubKeys,
-		multisigRole:       config.MultisigRole,
-		authorizedArbiters: config.AuthorizedArbiters,
-		minEscrowTimeout:   minEscrowTimeout,
-		maxEscrowTimeout:   maxEscrowTimeout,
+		HDWallets:             hdWallets,
+		Store:                 config.Store,
+		prices:                prices,
+		paymentTimeout:        config.PaymentTimeout,
+		minConfirmations:      config.MinConfirmations,
+		template:              tmpl,
+		ctx:                   pctx,
+		cancel:                pcancel,
+		multisigEnabled:       config.MultisigEnabled,
+		multisigRequired:      config.MultisigRequired,
+		multisigTotal:         config.MultisigTotal,
+		participantPubKeys:    config.ParticipantPubKeys,
+		multisigRole:          config.MultisigRole,
+		authorizedArbiters:    config.AuthorizedArbiters,
+		minEscrowTimeout:      minEscrowTimeout,
+		maxEscrowTimeout:      maxEscrowTimeout,
+		disputeFeePercent:     config.DisputeFeePercent,
+		maxDisputesPerPeriod:  config.MaxDisputesPerPeriod,
+		disputePeriod:         config.DisputePeriod,
+		maxEvidenceSizeBytes:  config.MaxEvidenceSizeBytes,
+		extendEscrowOnDispute: config.ExtendEscrowOnDispute,
+		disputeHistory:        make(map[string][]time.Time),
 	}
+
+	// Set defaults for dispute anti-spam configuration
+	if p.disputePeriod <= 0 {
+		p.disputePeriod = 30 * 24 * time.Hour // Default: 30 days
+	}
+	if p.maxEvidenceSizeBytes <= 0 {
+		p.maxEvidenceSizeBytes = 10 * 1024 * 1024 // Default: 10 MB
+	}
+	if p.extendEscrowOnDispute <= 0 {
+		p.extendEscrowOnDispute = 7 * 24 * time.Hour // Default: 7 days
+	}
+
+	// Initialize multi-arbiter consensus manager if enabled
+	if config.EnableMultiArbiterConsensus {
+		arbiterConfig := &ArbiterConfig{
+			RequiredArbiterVotes: config.RequiredArbiterVotes,
+			TotalArbiters:        config.TotalArbiters,
+			PrimaryArbiters:      config.PrimaryArbiters,
+			FallbackArbiters:     config.FallbackArbiters,
+			VotingTimeout:        config.ArbiterVotingTimeout,
+		}
+		reputationTracker := NewArbiterReputationTracker()
+		consensusManager, err := NewArbiterConsensusManager(arbiterConfig, reputationTracker)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create arbiter consensus manager: %w", err)
+		}
+		p.consensusManager = consensusManager
+	}
+
 	// Initialize monitor
 	monitor := &CryptoChainMonitor{
 		paywall: p,
@@ -603,6 +708,21 @@ func (p *Paywall) GetAuthorizedArbiters() [][]byte {
 		copy(result[i], key)
 	}
 	return result
+}
+
+// GetConsensusManager returns the arbiter consensus manager if multi-arbiter mode is enabled
+// Returns nil if multi-arbiter consensus is not configured
+func (p *Paywall) GetConsensusManager() *ArbiterConsensusManager {
+	return p.consensusManager
+}
+
+// GetReputationTracker returns the arbiter reputation tracker if multi-arbiter mode is enabled
+// Returns nil if multi-arbiter consensus is not configured
+func (p *Paywall) GetReputationTracker() *ArbiterReputationTracker {
+	if p.consensusManager == nil {
+		return nil
+	}
+	return p.consensusManager.reputationTracker
 }
 
 // getRoleForPubKey derives a participant's role from their public key position

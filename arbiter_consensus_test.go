@@ -4,6 +4,8 @@ package paywall
 import (
 	"testing"
 	"time"
+
+	"github.com/opd-ai/paywall/wallet"
 )
 
 func TestNewArbiterConsensusManager(t *testing.T) {
@@ -360,5 +362,127 @@ func TestGetConsensus(t *testing.T) {
 	}
 	if consensus.PaymentID != "payment-123" {
 		t.Errorf("GetConsensus() PaymentID = %v, want %v", consensus.PaymentID, "payment-123")
+	}
+}
+
+func TestMultiArbiterConsensusIntegration(t *testing.T) {
+	// Create test arbiters
+	arbiter1PubKey := []byte{0x01, 0x02, 0x03}
+	arbiter2PubKey := []byte{0x04, 0x05, 0x06}
+	arbiter3PubKey := []byte{0x07, 0x08, 0x09}
+	arbiter4PubKey := []byte{0x0a, 0x0b, 0x0c}
+	arbiter5PubKey := []byte{0x0d, 0x0e, 0x0f}
+
+	// Create paywall with multi-arbiter consensus enabled
+	store := NewMemoryStore()
+	config := Config{
+		PriceInBTC:                  0.001,
+		TestNet:                     true,
+		Store:                       store,
+		PaymentTimeout:              time.Hour,
+		EnableMultiArbiterConsensus: true,
+		RequiredArbiterVotes:        3,
+		TotalArbiters:               5,
+		PrimaryArbiters: [][]byte{
+			arbiter1PubKey,
+			arbiter2PubKey,
+			arbiter3PubKey,
+			arbiter4PubKey,
+			arbiter5PubKey,
+		},
+		FallbackArbiters:     [][]byte{},
+		ArbiterVotingTimeout: 48 * time.Hour,
+		MultisigEnabled:      true,
+		MultisigRequired:     2,
+		MultisigTotal:        3,
+		ParticipantPubKeys:   map[wallet.WalletType][][]byte{},
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	// Verify consensus manager was initialized
+	if pw.consensusManager == nil {
+		t.Fatal("Consensus manager should be initialized when EnableMultiArbiterConsensus is true")
+	}
+
+	// Create an escrow manager
+	_, err = NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	// Create a test payment
+	payment := &Payment{
+		ID:          "test-payment-123",
+		EscrowState: EscrowDisputed,
+		Addresses:   map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
+	}
+	if err := store.CreatePayment(payment); err != nil {
+		t.Fatalf("Failed to create payment: %v", err)
+	}
+
+	// Initiate consensus for the dispute
+	consensus, err := pw.consensusManager.InitiateConsensus(payment.ID)
+	if err != nil {
+		t.Fatalf("Failed to initiate consensus: %v", err)
+	}
+
+	if consensus.RequiredVotes != 3 {
+		t.Errorf("Expected RequiredVotes = 3, got %d", consensus.RequiredVotes)
+	}
+	if consensus.TotalArbiters != 5 {
+		t.Errorf("Expected TotalArbiters = 5, got %d", consensus.TotalArbiters)
+	}
+
+	// Cast votes from 3 arbiters (all voting for buyer)
+	for i, pubKey := range [][]byte{arbiter1PubKey, arbiter2PubKey, arbiter3PubKey} {
+		vote := &ArbiterVote{
+			ArbiterPubKey: pubKey,
+			ArbiterID:     string(rune('A' + i)),
+			Decision:      RoleBuyer,
+			Reason:        "Evidence supports buyer's claim",
+			Signature: &SignatureData{
+				PublicKey: pubKey,
+				Signature: []byte{0x01, 0x02, 0x03},
+				Role:      RoleArbiter,
+			},
+		}
+
+		if err := pw.consensusManager.CastVote(payment.ID, vote); err != nil {
+			t.Fatalf("Failed to cast vote from arbiter %d: %v", i+1, err)
+		}
+	}
+
+	// Verify consensus was reached
+	consensus, err = pw.consensusManager.GetConsensus(payment.ID)
+	if err != nil {
+		t.Fatalf("Failed to get consensus: %v", err)
+	}
+
+	if !consensus.ConsensusReached {
+		t.Error("Expected consensus to be reached after 3 votes")
+	}
+
+	if consensus.FinalDecision != RoleBuyer {
+		t.Errorf("Expected final decision = RoleBuyer, got %v", consensus.FinalDecision)
+	}
+
+	if consensus.Status != ConsensusReached {
+		t.Errorf("Expected status = ConsensusReached, got %v", consensus.Status)
+	}
+
+	// Verify reputation tracking
+	repTracker := pw.GetReputationTracker()
+	if repTracker == nil {
+		t.Fatal("Reputation tracker should not be nil")
+	}
+
+	stats := repTracker.GetStatistics()
+	if stats.TotalDecisions != 3 {
+		t.Errorf("Expected 3 total decisions, got %d", stats.TotalDecisions)
 	}
 }

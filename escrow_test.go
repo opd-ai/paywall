@@ -3,6 +3,8 @@ package paywall
 import (
 	"crypto/sha256"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1593,4 +1595,207 @@ func TestEscrowManager_ArbiterIntegration(t *testing.T) {
 			t.Errorf("Dispute requester = %v, want %v", dispute.Requester, RoleSeller)
 		}
 	})
+}
+
+func TestDisputeAntiSpam_RateLimit(t *testing.T) {
+	store := NewMemoryStore()
+	config := Config{
+		PriceInBTC:           0.001,
+		TestNet:              true,
+		Store:                store,
+		PaymentTimeout:       time.Hour,
+		MaxDisputesPerPeriod: 3,
+		DisputePeriod:        24 * time.Hour,
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	// Create 4 test payments
+	for i := 0; i < 4; i++ {
+		payment := &Payment{
+			ID:          fmt.Sprintf("payment-%d", i),
+			EscrowState: EscrowFunded,
+			Addresses:   map[wallet.WalletType]string{wallet.Bitcoin: fmt.Sprintf("test-address-%d", i)},
+			Amounts:     map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
+		}
+		if err := store.CreatePayment(payment); err != nil {
+			t.Fatalf("Failed to create payment: %v", err)
+		}
+	}
+
+	// File 3 disputes (should succeed)
+	for i := 0; i < 3; i++ {
+		err := em.RequestDispute(fmt.Sprintf("payment-%d", i), RoleBuyer, "Test dispute")
+		if err != nil {
+			t.Errorf("Dispute %d should succeed, got error: %v", i, err)
+		}
+	}
+
+	// File 4th dispute (should fail - rate limit exceeded)
+	err = em.RequestDispute("payment-3", RoleBuyer, "Test dispute")
+	if err == nil {
+		t.Error("Expected rate limit error for 4th dispute, got nil")
+	}
+	if !strings.Contains(err.Error(), "rate limit exceeded") {
+		t.Errorf("Expected 'rate limit exceeded' error, got: %v", err)
+	}
+}
+
+func TestDisputeAntiSpam_DisputeFee(t *testing.T) {
+	store := NewMemoryStore()
+	config := Config{
+		PriceInBTC:        0.001,
+		TestNet:           true,
+		Store:             store,
+		PaymentTimeout:    time.Hour,
+		DisputeFeePercent: 0.05, // 5% dispute fee
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	payment := &Payment{
+		ID:          "payment-1",
+		EscrowState: EscrowFunded,
+		Addresses:   map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
+		Amounts:     map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
+	}
+	if err := store.CreatePayment(payment); err != nil {
+		t.Fatalf("Failed to create payment: %v", err)
+	}
+
+	// Request dispute
+	err = em.RequestDispute("payment-1", RoleBuyer, "Test dispute")
+	if err != nil {
+		t.Fatalf("Failed to request dispute: %v", err)
+	}
+
+	// Verify dispute fee was set
+	payment, _ = store.GetPayment("payment-1")
+	expectedFee := 0.001 * 0.05 // 5% of 0.001 BTC
+	if payment.DisputeFee != expectedFee {
+		t.Errorf("Expected dispute fee = %f, got %f", expectedFee, payment.DisputeFee)
+	}
+}
+
+func TestDisputeAntiSpam_TimeoutExtension(t *testing.T) {
+	store := NewMemoryStore()
+	config := Config{
+		PriceInBTC:            0.001,
+		TestNet:               true,
+		Store:                 store,
+		PaymentTimeout:        time.Hour,
+		ExtendEscrowOnDispute: 7 * 24 * time.Hour,
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	originalTimeout := time.Now().Add(24 * time.Hour)
+	payment := &Payment{
+		ID:            "payment-1",
+		EscrowState:   EscrowFunded,
+		EscrowTimeout: originalTimeout,
+		Addresses:     map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
+		Amounts:       map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
+	}
+	if err := store.CreatePayment(payment); err != nil {
+		t.Fatalf("Failed to create payment: %v", err)
+	}
+
+	// Request dispute
+	err = em.RequestDispute("payment-1", RoleBuyer, "Test dispute")
+	if err != nil {
+		t.Fatalf("Failed to request dispute: %v", err)
+	}
+
+	// Verify timeout was extended
+	payment, _ = store.GetPayment("payment-1")
+	if payment.EscrowTimeout.Before(originalTimeout) {
+		t.Error("Expected escrow timeout to be extended after dispute")
+	}
+}
+
+func TestDisputeAntiSpam_EvidenceSize(t *testing.T) {
+	store := NewMemoryStore()
+	config := Config{
+		PriceInBTC:           0.001,
+		TestNet:              true,
+		Store:                store,
+		PaymentTimeout:       time.Hour,
+		MaxEvidenceSizeBytes: 1024, // 1 KB limit for test
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	defer pw.Close()
+
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create escrow manager: %v", err)
+	}
+
+	payment := &Payment{
+		ID:          "payment-1",
+		EscrowState: EscrowDisputed,
+		Addresses:   map[wallet.WalletType]string{wallet.Bitcoin: "test-address"},
+		Amounts:     map[wallet.WalletType]float64{wallet.Bitcoin: 0.001},
+	}
+	if err := store.CreatePayment(payment); err != nil {
+		t.Fatalf("Failed to create payment: %v", err)
+	}
+
+	// Submit evidence under limit (should succeed)
+	smallEvidence := &Evidence{
+		Type:        EvidenceText,
+		SubmittedBy: RoleBuyer,
+		Content:     strings.Repeat("a", 512), // 512 bytes
+		Description: "Small evidence",
+	}
+	err = em.SubmitDisputeEvidence("payment-1", smallEvidence)
+	if err != nil {
+		t.Errorf("Small evidence should succeed, got error: %v", err)
+	}
+
+	// Submit evidence over limit (should fail)
+	largeEvidence := &Evidence{
+		Type:        EvidenceText,
+		SubmittedBy: RoleBuyer,
+		Content:     strings.Repeat("b", 1024), // 1024 bytes (total would be 1536)
+		Description: "Large evidence",
+	}
+	err = em.SubmitDisputeEvidence("payment-1", largeEvidence)
+	if err == nil {
+		t.Error("Expected evidence size limit error, got nil")
+	}
+	if !strings.Contains(err.Error(), "evidence size limit exceeded") {
+		t.Errorf("Expected 'evidence size limit exceeded' error, got: %v", err)
+	}
 }

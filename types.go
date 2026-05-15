@@ -65,6 +65,12 @@ type Payment struct {
 	EscrowTimeout time.Time `json:"escrow_timeout,omitempty"`
 	// DisputeReason contains the reason provided when a dispute is requested
 	DisputeReason string `json:"dispute_reason,omitempty"`
+	// DisputeFee is the fee paid to file the dispute (percentage of escrow amount)
+	DisputeFee float64 `json:"dispute_fee,omitempty"`
+	// DisputeFiledAt is when the dispute was filed
+	DisputeFiledAt time.Time `json:"dispute_filed_at,omitempty"`
+	// DisputeEvidenceSizeBytes tracks total size of evidence submitted (for DoS prevention)
+	DisputeEvidenceSizeBytes int64 `json:"dispute_evidence_size_bytes,omitempty"`
 
 	// Broadcast tracking (optional - for multisig transaction broadcasting)
 

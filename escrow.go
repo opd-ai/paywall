@@ -449,8 +449,35 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 		return fmt.Errorf("only buyer or seller can request disputes")
 	}
 
+	// Check dispute rate limit
+	if err := em.checkDisputeRateLimit(requesterRole); err != nil {
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionDispute,
+			PreviousState: payment.EscrowState,
+			NewState:      payment.EscrowState,
+			ActorRole:     requesterRole,
+			Metadata: map[string]string{
+				"error":  err.Error(),
+				"reason": reason,
+				"status": "rate_limited",
+			},
+		})
+		return err
+	}
+
+	// Calculate and record dispute fee
+	disputeFee := em.calculateDisputeFee(payment)
+	if disputeFee > 0 {
+		payment.DisputeFee = disputeFee
+	}
+
+	// Extend escrow timeout to allow for dispute resolution
+	em.extendEscrowTimeout(payment)
+
 	prevState := payment.EscrowState
 	payment.DisputeReason = reason
+	payment.DisputeFiledAt = time.Now()
 
 	// Validate and record state transition
 	if err := em.stateValidator.ValidateAndRecordTransition(
@@ -502,6 +529,14 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 				},
 			})
 			return fmt.Errorf("failed to register dispute with arbiter: %w", err)
+		}
+	}
+
+	// Initiate multi-arbiter consensus if enabled
+	if em.paywall.consensusManager != nil {
+		if _, err := em.paywall.consensusManager.InitiateConsensus(paymentID); err != nil {
+			// Log consensus initiation failure but don't fail the dispute
+			log.Printf("WARNING: Failed to initiate multi-arbiter consensus for payment %s: %v", paymentID, err)
 		}
 	}
 
@@ -838,4 +873,339 @@ func (em *EscrowManager) validateSignatureReplay(sig *SignatureData, payment *Pa
 	return nil
 }
 
+// CastArbiterVote allows an authorized arbiter to vote on a disputed payment
+// This is used when multi-arbiter consensus is enabled
+func (em *EscrowManager) CastArbiterVote(paymentID string, vote *ArbiterVote) error {
+	// Check if multi-arbiter consensus is enabled
+	if em.paywall.consensusManager == nil {
+		return fmt.Errorf("multi-arbiter consensus not enabled")
+	}
+
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	if payment.EscrowState != EscrowDisputed {
+		return fmt.Errorf("payment is not in disputed state")
+	}
+
+	// Validate arbiter is authorized
+	if !em.paywall.IsAuthorizedArbiter(vote.ArbiterPubKey) {
+		return fmt.Errorf("arbiter is not authorized")
+	}
+
+	// Validate the vote signature
+	if vote.Signature == nil {
+		return fmt.Errorf("vote must include signature")
+	}
+
+	if err := em.validateSignatureData(vote.Signature, payment); err != nil {
+		return fmt.Errorf("invalid vote signature: %w", err)
+	}
+
+	// Cast the vote in the consensus manager
+	if err := em.paywall.consensusManager.CastVote(paymentID, vote); err != nil {
+		return fmt.Errorf("failed to cast vote: %w", err)
+	}
+
+	// Log the vote in audit trail
+	em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        AuditActionResolve,
+		PreviousState: payment.EscrowState,
+		NewState:      payment.EscrowState,
+		ActorRole:     RoleArbiter,
+		Actor:         vote.ArbiterPubKey,
+		Metadata: map[string]string{
+			"arbiter_id": vote.ArbiterID,
+			"decision":   string(vote.Decision),
+			"reason":     vote.Reason,
+		},
+	})
+
+	// Check if consensus has been reached and auto-resolve if so
+	consensus, err := em.paywall.consensusManager.GetConsensus(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get consensus status: %w", err)
+	}
+
+	if consensus.ConsensusReached {
+		// Auto-resolve the dispute based on consensus
+		if err := em.resolveDisputeByConsensus(paymentID, consensus); err != nil {
+			return fmt.Errorf("failed to auto-resolve dispute: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// resolveDisputeByConsensus resolves a dispute based on multi-arbiter consensus
+func (em *EscrowManager) resolveDisputeByConsensus(paymentID string, consensus *ArbiterConsensus) error {
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	if payment.EscrowState != EscrowDisputed {
+		return fmt.Errorf("payment is not in disputed state")
+	}
+
+	prevState := payment.EscrowState
+
+	// Set final state based on consensus decision
+	var newState EscrowState
+	if consensus.FinalDecision == RoleBuyer {
+		newState = EscrowRefunded
+	} else {
+		newState = EscrowCompleted
+	}
+
+	// Validate and record state transition
+	if err := em.stateValidator.ValidateAndRecordTransition(
+		payment,
+		newState,
+		"consensus",
+		fmt.Sprintf("Dispute resolved by arbiter consensus (%d votes) in favor of %s", len(consensus.Votes), string(consensus.FinalDecision)),
+	); err != nil {
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionResolve,
+			PreviousState: prevState,
+			NewState:      prevState,
+			ActorRole:     RoleArbiter,
+			Metadata: map[string]string{
+				"error":          err.Error(),
+				"status":         "rejected",
+				"consensus":      "true",
+				"required_votes": fmt.Sprintf("%d", consensus.RequiredVotes),
+				"total_votes":    fmt.Sprintf("%d", len(consensus.Votes)),
+			},
+		})
+		return fmt.Errorf("invalid state transition: %w", err)
+	}
+
+	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
+		return fmt.Errorf("failed to update payment state: %w", err)
+	}
+
+	// Log dispute resolution in audit trail
+	em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        AuditActionResolve,
+		PreviousState: prevState,
+		NewState:      newState,
+		ActorRole:     RoleArbiter,
+		Metadata: map[string]string{
+			"decision":       string(consensus.FinalDecision),
+			"consensus":      "true",
+			"required_votes": fmt.Sprintf("%d", consensus.RequiredVotes),
+			"total_votes":    fmt.Sprintf("%d", len(consensus.Votes)),
+		},
+	})
+
+	return nil
+}
+
+// GetConsensusStatus retrieves the current consensus status for a disputed payment
+func (em *EscrowManager) GetConsensusStatus(paymentID string) (*ArbiterConsensus, error) {
+	if em.paywall.consensusManager == nil {
+		return nil, fmt.Errorf("multi-arbiter consensus not enabled")
+	}
+
+	return em.paywall.consensusManager.GetConsensus(paymentID)
+}
+
+// ActivateFallbackArbiters activates fallback arbiters when primary arbiters are unresponsive
+func (em *EscrowManager) ActivateFallbackArbiters(paymentID string) error {
+	if em.paywall.consensusManager == nil {
+		return fmt.Errorf("multi-arbiter consensus not enabled")
+	}
+
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	if payment.EscrowState != EscrowDisputed {
+		return fmt.Errorf("payment is not in disputed state")
+	}
+
+	if err := em.paywall.consensusManager.ActivateFallbackArbiters(paymentID); err != nil {
+		return fmt.Errorf("failed to activate fallback arbiters: %w", err)
+	}
+
+	// Log fallback activation
+	em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        AuditActionDispute,
+		PreviousState: payment.EscrowState,
+		NewState:      payment.EscrowState,
+		ActorRole:     RoleArbiter,
+		Metadata: map[string]string{
+			"action": "fallback_arbiters_activated",
+			"reason": "primary_arbiters_unresponsive",
+		},
+	})
+
+	return nil
+}
+
 // bytesEqual compares two byte slices for equality
+
+// checkDisputeRateLimit validates that a participant hasn't exceeded dispute limits
+func (em *EscrowManager) checkDisputeRateLimit(requesterRole MultisigRole) error {
+	if em.paywall.maxDisputesPerPeriod <= 0 {
+		return nil // Rate limiting disabled
+	}
+
+	requesterKey := string(requesterRole)
+	now := time.Now()
+	cutoff := now.Add(-em.paywall.disputePeriod)
+
+	// Get dispute history for this participant
+	disputes, exists := em.paywall.disputeHistory[requesterKey]
+	if !exists {
+		em.paywall.disputeHistory[requesterKey] = []time.Time{now}
+		return nil
+	}
+
+	// Filter out disputes outside the time window
+	recentDisputes := make([]time.Time, 0)
+	for _, disputeTime := range disputes {
+		if disputeTime.After(cutoff) {
+			recentDisputes = append(recentDisputes, disputeTime)
+		}
+	}
+
+	// Check if limit exceeded
+	if len(recentDisputes) >= em.paywall.maxDisputesPerPeriod {
+		return fmt.Errorf("dispute rate limit exceeded: %d disputes in last %v (max: %d)",
+			len(recentDisputes), em.paywall.disputePeriod, em.paywall.maxDisputesPerPeriod)
+	}
+
+	// Add current dispute
+	recentDisputes = append(recentDisputes, now)
+	em.paywall.disputeHistory[requesterKey] = recentDisputes
+
+	return nil
+}
+
+// calculateDisputeFee calculates the dispute fee based on escrow amount
+func (em *EscrowManager) calculateDisputeFee(payment *Payment) float64 {
+	if em.paywall.disputeFeePercent <= 0 {
+		return 0
+	}
+
+	// Calculate based on the first available amount
+	for _, amount := range payment.Amounts {
+		if amount > 0 {
+			return amount * em.paywall.disputeFeePercent
+		}
+	}
+
+	return 0
+}
+
+// extendEscrowTimeout extends the escrow timeout when a dispute is filed
+func (em *EscrowManager) extendEscrowTimeout(payment *Payment) {
+	if em.paywall.extendEscrowOnDispute <= 0 {
+		return
+	}
+
+	payment.EscrowTimeout = time.Now().Add(em.paywall.extendEscrowOnDispute)
+}
+
+// checkEvidenceSize validates that evidence doesn't exceed size limits
+func (em *EscrowManager) checkEvidenceSize(payment *Payment, newEvidenceSize int64) error {
+	if em.paywall.maxEvidenceSizeBytes <= 0 {
+		return nil // No limit enforced
+	}
+
+	totalSize := payment.DisputeEvidenceSizeBytes + newEvidenceSize
+	if totalSize > em.paywall.maxEvidenceSizeBytes {
+		return fmt.Errorf("evidence size limit exceeded: %d bytes total (max: %d)",
+			totalSize, em.paywall.maxEvidenceSizeBytes)
+	}
+
+	return nil
+}
+
+// SubmitDisputeEvidence submits evidence for a dispute with size validation
+func (em *EscrowManager) SubmitDisputeEvidence(paymentID string, evidence *Evidence) error {
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	if payment.EscrowState != EscrowDisputed {
+		return fmt.Errorf("payment is not in disputed state")
+	}
+
+	// Calculate evidence size (content length in bytes)
+	evidenceSize := int64(len(evidence.Content))
+
+	// Check evidence size limit
+	if err := em.checkEvidenceSize(payment, evidenceSize); err != nil {
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionDispute,
+			PreviousState: payment.EscrowState,
+			NewState:      payment.EscrowState,
+			ActorRole:     evidence.SubmittedBy,
+			Metadata: map[string]string{
+				"error":         err.Error(),
+				"evidence_type": string(evidence.Type),
+				"evidence_size": fmt.Sprintf("%d", evidenceSize),
+				"status":        "evidence_rejected",
+			},
+		})
+		return err
+	}
+
+	// Submit evidence to arbiter system
+	if em.arbiter != nil {
+		if err := em.arbiter.SubmitEvidence(paymentID, evidence); err != nil {
+			return fmt.Errorf("failed to submit evidence to arbiter: %w", err)
+		}
+	}
+
+	// Update payment with new evidence size
+	payment.DisputeEvidenceSizeBytes += evidenceSize
+	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
+		return fmt.Errorf("failed to update payment: %w", err)
+	}
+
+	// Log evidence submission
+	em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        AuditActionDispute,
+		PreviousState: payment.EscrowState,
+		NewState:      payment.EscrowState,
+		ActorRole:     evidence.SubmittedBy,
+		Metadata: map[string]string{
+			"action":        "evidence_submitted",
+			"evidence_type": string(evidence.Type),
+			"evidence_size": fmt.Sprintf("%d", evidenceSize),
+			"total_size":    fmt.Sprintf("%d", payment.DisputeEvidenceSizeBytes),
+		},
+	})
+
+	return nil
+}
