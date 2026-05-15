@@ -224,6 +224,165 @@ type Paywall struct {
 	disputeHistory map[string][]time.Time
 }
 
+func validateConfig(config *Config) error {
+	if config.PaymentTimeout <= 0 {
+		return fmt.Errorf("payment timeout must be positive, got: %s (hint: use time.Hour*24 for 24 hours)", config.PaymentTimeout)
+	}
+
+	if config.PriceInBTC <= 0 && config.PriceInXMR <= 0 {
+		return fmt.Errorf("configuration error: PriceInBTC and PriceInXMR are both zero - at least one cryptocurrency price must be set (hint: set PriceInBTC: 0.0001 or PriceInXMR: 0.01)")
+	}
+
+	const minBTCDustLimit = 0.00001
+	const minXMRDustLimit = 0.0001
+	if config.PriceInBTC > 0 && config.PriceInBTC <= minBTCDustLimit {
+		return fmt.Errorf("PriceInBTC %.8f is below dust limit (minimum: %.5f BTC). Dust payments are rejected by the Bitcoin network. Please increase the price", config.PriceInBTC, minBTCDustLimit)
+	}
+
+	if config.PriceInXMR > 0 && config.PriceInXMR <= minXMRDustLimit {
+		return fmt.Errorf("PriceInXMR %.8f is below dust limit (minimum: %.4f XMR). Dust payments are rejected by the Monero network. Please increase the price", config.PriceInXMR, minXMRDustLimit)
+	}
+
+	if config.PriceInXMR > 0 && (config.XMRUser == "" || config.XMRPassword == "" || config.XMRRPC == "") {
+		return fmt.Errorf("Monero price set (%.8f XMR) but credentials missing. Required: XMRUser, XMRPassword, and XMRRPC (hint: set XMRUser from XMR_WALLET_USER env, XMRPassword from XMR_WALLET_PASS env, XMRRPC: 'http://localhost:18081')", config.PriceInXMR)
+	}
+
+	if (config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "") && config.PriceInXMR <= 0 {
+		return fmt.Errorf("Monero RPC credentials provided but PriceInXMR is zero. Set PriceInXMR to enable Monero payments (hint: PriceInXMR: 0.01)")
+	}
+
+	if config.MultisigEnabled {
+		if config.MultisigRequired < 2 {
+			return fmt.Errorf("MultisigRequired must be at least 2 for multisig, got: %d (hint: for 2-of-3 multisig, set MultisigRequired: 2, MultisigTotal: 3)", config.MultisigRequired)
+		}
+		if config.MultisigTotal < config.MultisigRequired {
+			return fmt.Errorf("MultisigTotal (%d) must be >= MultisigRequired (%d). Example: for 2-of-3, set MultisigRequired: 2, MultisigTotal: 3", config.MultisigTotal, config.MultisigRequired)
+		}
+		if config.ParticipantPubKeys == nil {
+			return fmt.Errorf("ParticipantPubKeys required when MultisigEnabled is true (hint: provide public keys for all %d participants)", config.MultisigTotal)
+		}
+		for walletType, pubKeys := range config.ParticipantPubKeys {
+			if len(pubKeys) != config.MultisigTotal {
+				return fmt.Errorf("ParticipantPubKeys for %s: expected %d keys (MultisigTotal), got %d. Ensure you provide exactly %d public keys", walletType, config.MultisigTotal, len(pubKeys), config.MultisigTotal)
+			}
+			for i, key := range pubKeys {
+				if len(key) == 0 {
+					return fmt.Errorf("ParticipantPubKeys for %s: key at index %d is empty. Each participant must have a non-empty public key", walletType, i)
+				}
+			}
+		}
+	}
+
+	if config.MinConfirmations < 1 {
+		config.MinConfirmations = 1
+	}
+
+	if config.Store == nil {
+		return fmt.Errorf("Store is required (hint: use paywall.NewMemoryStore() for testing or paywall.NewFileStore() for production)")
+	}
+
+	return nil
+}
+
+func initializeWallets(config Config) (map[wallet.WalletType]wallet.HDWallet, map[wallet.WalletType]float64, error) {
+	seed := make([]byte, 32)
+	if _, err := rand.Read(seed); err != nil {
+		return nil, nil, fmt.Errorf("generate seed: %w", err)
+	}
+
+	hdWallet, err := wallet.NewBTCHDWallet(seed, config.TestNet, config.MinConfirmations)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create wallet: %w", err)
+	}
+
+	if config.MultisigEnabled {
+		if pubKeys, ok := config.ParticipantPubKeys[wallet.Bitcoin]; ok {
+			if err := hdWallet.EnableMultisig(pubKeys, config.MultisigRequired); err != nil {
+				return nil, nil, fmt.Errorf("enable multisig on Bitcoin wallet: %w", err)
+			}
+		}
+	}
+
+	if config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "" || config.PriceInXMR > 0 {
+		if config.XMRUser == "" {
+			config.XMRUser = os.Getenv("XMR_WALLET_USER")
+		}
+		if config.XMRPassword == "" {
+			pass, exists := os.LookupEnv("XMR_WALLET_PASS")
+			if !exists {
+				return nil, nil, fmt.Errorf("XMR wallet password not provided")
+			}
+			config.XMRPassword = pass
+		}
+		if config.XMRRPC == "" {
+			config.XMRRPC = "http://127.0.0.1:18081"
+		}
+		if config.XMRUser != "" && len(config.XMRUser) < 3 {
+			return nil, nil, fmt.Errorf("XMR RPC username must be at least 3 characters")
+		}
+		if config.XMRPassword != "" && len(config.XMRPassword) < 8 {
+			return nil, nil, fmt.Errorf("XMR RPC password must be at least 8 characters")
+		}
+	}
+
+	xmrHdWallet, err := wallet.NewMoneroWallet(wallet.MoneroConfig{
+		RPCUser:     config.XMRUser,
+		RPCURL:      config.XMRRPC,
+		RPCPassword: config.XMRPassword,
+	}, config.MinConfirmations)
+	if err != nil {
+		log.Printf("WARNING: XMR wallet configuration was provided but wallet creation failed: %v", err)
+		log.Printf("Continuing with Bitcoin-only support. Please check your Monero RPC configuration.")
+	}
+
+	hdWallets := make(map[wallet.WalletType]wallet.HDWallet)
+	hdWallets[wallet.WalletType(hdWallet.Currency())] = hdWallet
+	if xmrHdWallet != nil {
+		hdWallets[wallet.WalletType(xmrHdWallet.Currency())] = xmrHdWallet
+	}
+
+	prices := make(map[wallet.WalletType]float64)
+	prices[wallet.WalletType(hdWallet.Currency())] = config.PriceInBTC
+	if xmrHdWallet != nil {
+		prices[wallet.WalletType(xmrHdWallet.Currency())] = config.PriceInXMR
+	}
+
+	return hdWallets, prices, nil
+}
+
+func setupMultisig(config Config) (*ArbiterConsensusManager, error) {
+	if !config.EnableMultiArbiterConsensus {
+		return nil, nil
+	}
+
+	arbiterConfig := &ArbiterConfig{
+		RequiredArbiterVotes: config.RequiredArbiterVotes,
+		TotalArbiters:        config.TotalArbiters,
+		PrimaryArbiters:      config.PrimaryArbiters,
+		FallbackArbiters:     config.FallbackArbiters,
+		VotingTimeout:        config.ArbiterVotingTimeout,
+	}
+	reputationTracker := NewArbiterReputationTracker()
+	consensusManager, err := NewArbiterConsensusManager(arbiterConfig, reputationTracker)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create arbiter consensus manager: %w", err)
+	}
+	return consensusManager, nil
+}
+
+func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.HDWallet) {
+	monitor := &CryptoChainMonitor{
+		paywall: p,
+		client:  make(map[wallet.WalletType]CryptoClient),
+	}
+	monitor.client[wallet.Bitcoin] = hdWallets[wallet.Bitcoin]
+	if xmrWallet, ok := hdWallets[wallet.Monero]; ok {
+		monitor.client[wallet.Monero] = xmrWallet
+	}
+	p.monitor = monitor
+	p.monitor.Start(p.ctx)
+}
+
 // NewPaywall creates and initializes a new Paywall instance
 // Parameters:
 //   - config: Configuration options for the paywall
@@ -239,144 +398,29 @@ type Paywall struct {
 //
 // Related types: Config, Paywall
 func NewPaywall(config Config) (*Paywall, error) {
-	// validate payment timeout
-	if config.PaymentTimeout <= 0 {
-		return nil, fmt.Errorf("payment timeout must be positive")
-	}
-	// validate payment amounts
-	if config.PriceInBTC <= 0 {
-		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
+	if err := validateConfig(&config); err != nil {
+		return nil, err
 	}
 
-	// Validate dust limits to prevent payments below minimum blockchain amounts
-	const minBTCDustLimit = 0.00001
-	const minXMRDustLimit = 0.0001
-	if config.PriceInBTC > 0 && config.PriceInBTC <= minBTCDustLimit {
-		return nil, fmt.Errorf("PriceInBTC %f is below dust limit (minimum: %f)", config.PriceInBTC, minBTCDustLimit)
-	}
-
-	// Validate XMR price if XMR configuration is provided
-	if (config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "") && config.PriceInXMR <= 0 {
-		return nil, fmt.Errorf("PriceInXMR must be positive, got: %f", config.PriceInXMR)
-	}
-	// Validate XMR dust limit
-	if config.PriceInXMR > 0 && config.PriceInXMR <= minXMRDustLimit {
-		return nil, fmt.Errorf("PriceInXMR %f is below dust limit (minimum: %f)", config.PriceInXMR, minXMRDustLimit)
-	}
-
-	// Validate multisig configuration if enabled
-	if config.MultisigEnabled {
-		if config.MultisigRequired < 2 {
-			return nil, fmt.Errorf("MultisigRequired must be at least 2, got: %d", config.MultisigRequired)
-		}
-		if config.MultisigTotal < config.MultisigRequired {
-			return nil, fmt.Errorf("MultisigTotal (%d) must be >= MultisigRequired (%d)", config.MultisigTotal, config.MultisigRequired)
-		}
-		if config.ParticipantPubKeys == nil {
-			return nil, fmt.Errorf("ParticipantPubKeys required when MultisigEnabled is true")
-		}
-		// Validate that each enabled wallet type has the correct number of public keys
-		for walletType, pubKeys := range config.ParticipantPubKeys {
-			if len(pubKeys) != config.MultisigTotal {
-				return nil, fmt.Errorf("ParticipantPubKeys for %s: expected %d keys, got %d", walletType, config.MultisigTotal, len(pubKeys))
-			}
-			// Validate that keys are not empty
-			for i, key := range pubKeys {
-				if len(key) == 0 {
-					return nil, fmt.Errorf("ParticipantPubKeys for %s: key at index %d is empty", walletType, i)
-				}
-			}
-		}
-	}
-
-	// Generate random seed for HD wallet
-	seed := make([]byte, 32)
-	if _, err := rand.Read(seed); err != nil {
-		return nil, fmt.Errorf("generate seed: %w", err)
-	}
-
-	hdWallet, err := wallet.NewBTCHDWallet(seed, config.TestNet, config.MinConfirmations)
+	hdWallets, prices, err := initializeWallets(config)
 	if err != nil {
-		return nil, fmt.Errorf("create wallet: %w", err)
-	}
-
-	// Enable multisig on Bitcoin wallet if configured
-	if config.MultisigEnabled {
-		if pubKeys, ok := config.ParticipantPubKeys[wallet.Bitcoin]; ok {
-			if err := hdWallet.EnableMultisig(pubKeys, config.MultisigRequired); err != nil {
-				return nil, fmt.Errorf("enable multisig on Bitcoin wallet: %w", err)
-			}
-		}
-	}
-
-	// Only process XMR if any XMR config is provided
-	if config.XMRUser != "" || config.XMRPassword != "" || config.XMRRPC != "" || config.PriceInXMR > 0 {
-		if config.XMRUser == "" {
-			config.XMRUser = os.Getenv("XMR_WALLET_USER")
-		}
-		// Use secure environment variable handling
-		if config.XMRPassword == "" {
-			pass, exists := os.LookupEnv("XMR_WALLET_PASS")
-			if !exists {
-				return nil, fmt.Errorf("XMR wallet password not provided")
-			}
-			config.XMRPassword = pass
-		}
-		if config.XMRRPC == "" {
-			config.XMRRPC = "http://127.0.0.1:18081"
-		}
-		// Add credential validation
-		if config.XMRUser != "" && len(config.XMRUser) < 3 {
-			return nil, fmt.Errorf("XMR RPC username must be at least 3 characters")
-		}
-		if config.XMRPassword != "" && len(config.XMRPassword) < 8 {
-			return nil, fmt.Errorf("XMR RPC password must be at least 8 characters")
-		}
-	}
-
-	xmrHdWallet, err := wallet.NewMoneroWallet(wallet.MoneroConfig{
-		RPCUser:     config.XMRUser,
-		RPCURL:      config.XMRRPC,
-		RPCPassword: config.XMRPassword,
-	}, config.MinConfirmations)
-	if err != nil {
-		log.Printf("WARNING: XMR wallet configuration was provided but wallet creation failed: %v", err)
-		log.Printf("Continuing with Bitcoin-only support. Please check your Monero RPC configuration.")
+		return nil, err
 	}
 
 	tmpl, err := template.ParseFS(TemplateFS, "templates/payment.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse template: %w", err)
 	}
-	if config.MinConfirmations < 1 {
-		config.MinConfirmations = 1
-	}
-	// Validate payment amounts are positive
-	if config.PriceInBTC <= 0 {
-		return nil, fmt.Errorf("PriceInBTC must be positive, got: %f", config.PriceInBTC)
-	}
 
-	hdWallets := make(map[wallet.WalletType]wallet.HDWallet)
-	hdWallets[wallet.WalletType(hdWallet.Currency())] = hdWallet
-	if xmrHdWallet != nil {
-		hdWallets[wallet.WalletType(xmrHdWallet.Currency())] = xmrHdWallet
-	}
-	prices := make(map[wallet.WalletType]float64)
-	prices[wallet.WalletType(hdWallet.Currency())] = config.PriceInBTC
-	if xmrHdWallet != nil {
-		prices[wallet.WalletType(xmrHdWallet.Currency())] = config.PriceInXMR
-	}
-	// Create context with cancellation
 	pctx, pcancel := context.WithCancel(context.Background())
 
-	// Set default escrow timeout bounds if not provided
 	minEscrowTimeout := config.MinEscrowTimeout
 	if minEscrowTimeout <= 0 {
-		minEscrowTimeout = 24 * time.Hour // Default minimum: 24 hours
+		minEscrowTimeout = 24 * time.Hour
 	}
 	maxEscrowTimeout := config.MaxEscrowTimeout
 	if maxEscrowTimeout <= 0 {
-		maxEscrowTimeout = 90 * 24 * time.Hour // Default maximum: 90 days
+		maxEscrowTimeout = 90 * 24 * time.Hour
 	}
 
 	p := &Paywall{
@@ -404,45 +448,23 @@ func NewPaywall(config Config) (*Paywall, error) {
 		disputeHistory:        make(map[string][]time.Time),
 	}
 
-	// Set defaults for dispute anti-spam configuration
 	if p.disputePeriod <= 0 {
-		p.disputePeriod = 30 * 24 * time.Hour // Default: 30 days
+		p.disputePeriod = 30 * 24 * time.Hour
 	}
 	if p.maxEvidenceSizeBytes <= 0 {
-		p.maxEvidenceSizeBytes = 10 * 1024 * 1024 // Default: 10 MB
+		p.maxEvidenceSizeBytes = 10 * 1024 * 1024
 	}
 	if p.extendEscrowOnDispute <= 0 {
-		p.extendEscrowOnDispute = 7 * 24 * time.Hour // Default: 7 days
+		p.extendEscrowOnDispute = 7 * 24 * time.Hour
 	}
 
-	// Initialize multi-arbiter consensus manager if enabled
-	if config.EnableMultiArbiterConsensus {
-		arbiterConfig := &ArbiterConfig{
-			RequiredArbiterVotes: config.RequiredArbiterVotes,
-			TotalArbiters:        config.TotalArbiters,
-			PrimaryArbiters:      config.PrimaryArbiters,
-			FallbackArbiters:     config.FallbackArbiters,
-			VotingTimeout:        config.ArbiterVotingTimeout,
-		}
-		reputationTracker := NewArbiterReputationTracker()
-		consensusManager, err := NewArbiterConsensusManager(arbiterConfig, reputationTracker)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create arbiter consensus manager: %w", err)
-		}
-		p.consensusManager = consensusManager
+	p.consensusManager, err = setupMultisig(config)
+	if err != nil {
+		pcancel()
+		return nil, err
 	}
 
-	// Initialize monitor
-	monitor := &CryptoChainMonitor{
-		paywall: p,
-		client:  make(map[wallet.WalletType]CryptoClient),
-	}
-	monitor.client[wallet.Bitcoin] = hdWallets[wallet.Bitcoin]
-	if xmrHdWallet != nil {
-		monitor.client[wallet.Monero] = hdWallets[wallet.Monero]
-	}
-	p.monitor = monitor
-	p.monitor.Start(pctx)
+	startBackgroundWorkers(p, hdWallets)
 	return p, nil
 }
 

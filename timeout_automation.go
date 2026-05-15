@@ -13,6 +13,11 @@ import (
 	"github.com/opd-ai/paywall/wallet"
 )
 
+// ArbiterSigner provides signature generation for arbiter-triggered refunds
+type ArbiterSigner interface {
+	SignTimeoutRefund(payment *Payment) (*SignatureData, error)
+}
+
 // TimeoutMonitor provides automatic timeout monitoring and resolution
 type TimeoutMonitor struct {
 	em                *EscrowManager
@@ -24,6 +29,7 @@ type TimeoutMonitor struct {
 	processing        map[string]bool
 	useBlockchainTime bool
 	autoRefund        bool
+	arbiterSigner     ArbiterSigner
 }
 
 // TimeoutMonitorConfig configures the timeout monitor
@@ -60,9 +66,15 @@ func NewTimeoutMonitor(em *EscrowManager, config TimeoutMonitorConfig) *TimeoutM
 }
 
 // Start begins monitoring timeouts in a background goroutine
+// Start begins the timeout monitoring loop
 func (tm *TimeoutMonitor) Start() {
 	tm.wg.Add(1)
 	go tm.monitorLoop()
+}
+
+// SetArbiterSigner sets the arbiter signer for automatic refunds
+func (tm *TimeoutMonitor) SetArbiterSigner(signer ArbiterSigner) {
+	tm.arbiterSigner = signer
 }
 
 // Stop halts the timeout monitor

@@ -190,7 +190,7 @@
 
 **Context**: Improvements to reduce complexity and improve ease of adoption, addressing the "minimal barriers to entry" goal gap.
 
-- [ ] **Refactor NewPaywall complexity** (paywall.go:NewPaywall)
+- [x] **Refactor NewPaywall complexity** (paywall.go:NewPaywall)
   - Extract wallet initialization into `initializeWallets(config) (map[WalletType]HDWallet, error)`
   - Extract storage configuration into `configureStorage(config) (PaymentStore, error)`
   - Extract multisig setup into `setupMultisig(config) error`
@@ -200,7 +200,7 @@
   - **Benefit**: Easier to understand, test, and maintain initialization logic
   - **Reference**: Metrics show NewPaywall is 170 lines with complexity 47.5
 
-- [ ] **Add CI/CD pipeline** (.github/workflows/)
+- [x] **Add CI/CD pipeline** (.github/workflows/)
   - Create `ci.yml` with Go 1.23.2 test matrix (linux, macos, windows)
   - Add `go test -race ./...` for race detection
   - Add `go vet ./...` for static analysis
@@ -211,7 +211,7 @@
   - **Benefit**: Catches bugs early, ensures consistent quality
   - **Reference**: No CI currently exists per directory analysis
 
-- [ ] **Expand example implementations** (example/ directory)
+- [x] **Expand example implementations** (example/ directory)
   - Add `subscription-service/` example with time-based access control
   - Add `digital-downloads/` example with file download gating
   - Add `docker-compose/` example with containerized setup
@@ -221,7 +221,7 @@
   - **Benefit**: Reduces onboarding friction for new users
   - **Reference**: Currently 9 example files but missing key use cases mentioned in README
 
-- [ ] **Improve error messages and validation** (construct.go, paywall.go)
+- [x] **Improve error messages and validation** (construct.go, paywall.go)
   - Replace generic "Failed to create payment" with specific reasons
   - Add dust limit validation errors: "Price 0.000005 BTC below dust limit 0.00001 BTC"
   - Add configuration validation errors: "PriceInBTC and PriceInXMR both zero - at least one required"

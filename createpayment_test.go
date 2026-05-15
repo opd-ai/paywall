@@ -239,7 +239,6 @@ func (fs *FailingStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment
 	return nil, fmt.Errorf("not implemented")
 }
 
-
 func (fs *FailingStore) Close() error {
 	return nil
 }

@@ -91,10 +91,10 @@ func BenchmarkGetEscrowsExpiringBefore_10k(b *testing.B) {
 
 	for i := 0; i < numPayments; i++ {
 		payment := &Payment{
-			ID:             fmt.Sprintf("payment-%d", i),
-			Status:         StatusPending,
-			EscrowState:    EscrowFunded,
-			EscrowTimeout:  now.Add(time.Duration(i) * time.Minute), // Stagger timeouts
+			ID:              fmt.Sprintf("payment-%d", i),
+			Status:          StatusPending,
+			EscrowState:     EscrowFunded,
+			EscrowTimeout:   now.Add(time.Duration(i) * time.Minute), // Stagger timeouts
 			MultisigEnabled: true,
 		}
 		if err := store.CreatePayment(payment); err != nil {
@@ -157,10 +157,10 @@ func BenchmarkCheckEscrowTimeouts_10k(b *testing.B) {
 
 	for i := 0; i < numPayments; i++ {
 		payment := &Payment{
-			ID:             fmt.Sprintf("payment-%d", i),
-			Status:         StatusPending,
-			EscrowState:    EscrowFunded,
-			EscrowTimeout:  now.Add(time.Duration(i-5000) * time.Minute), // Half expired
+			ID:              fmt.Sprintf("payment-%d", i),
+			Status:          StatusPending,
+			EscrowState:     EscrowFunded,
+			EscrowTimeout:   now.Add(time.Duration(i-5000) * time.Minute), // Half expired
 			MultisigEnabled: true,
 		}
 		if err := store.CreatePayment(payment); err != nil {
@@ -180,4 +180,3 @@ func BenchmarkCheckEscrowTimeouts_10k(b *testing.B) {
 		}
 	}
 }
-
