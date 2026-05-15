@@ -811,6 +811,169 @@ if err != nil {
 // Store key securely
 ```
 
+#### GenerateMnemonic
+
+```go
+func GenerateMnemonic(strength MnemonicStrength) (string, error)
+```
+
+Generates a new BIP39 mnemonic phrase for wallet backup.
+
+**Parameters**:
+- `strength`: `Mnemonic12Words` (128 bits) or `Mnemonic24Words` (256 bits, recommended)
+
+**Returns**:
+- Space-separated mnemonic phrase (12 or 24 English words)
+- Error if entropy generation fails
+
+**Security**:
+- Uses `crypto/rand` for secure entropy
+- 24-word phrases provide maximum security (256-bit entropy)
+- 12-word phrases acceptable for lower-value wallets (128-bit entropy)
+
+**Usage**:
+```go
+// Generate 24-word mnemonic (recommended)
+mnemonic, err := wallet.GenerateMnemonic(wallet.Mnemonic24Words)
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Println("Write this down:", mnemonic)
+// Example output: "abandon ability able about above absent absorb..."
+
+// Generate 12-word mnemonic
+mnemonic12, err := wallet.GenerateMnemonic(wallet.Mnemonic12Words)
+```
+
+#### ImportFromMnemonic
+
+```go
+func ImportFromMnemonic(mnemonic string, passphrase string) ([]byte, error)
+```
+
+Converts a BIP39 mnemonic phrase to a wallet seed.
+
+**Parameters**:
+- `mnemonic`: Space-separated BIP39 phrase (12 or 24 words)
+- `passphrase`: Optional BIP39 passphrase (25th word) for additional security, use "" for none
+
+**Returns**:
+- 64-byte seed suitable for `NewBTCHDWallet`
+- Error if mnemonic is invalid (wrong word, checksum failure)
+
+**Security**:
+- Validates mnemonic checksum before generating seed
+- Normalizes whitespace automatically
+- Supports optional passphrase protection
+
+**Usage**:
+```go
+// Import without passphrase
+seed, err := wallet.ImportFromMnemonic(
+    "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+    "",
+)
+if err != nil {
+    log.Fatal("Invalid mnemonic:", err)
+}
+wallet, err := wallet.NewBTCHDWallet(seed[:32], true, 1)
+
+// Import with passphrase for extra security
+seed, err := wallet.ImportFromMnemonic(mnemonic, "my-secret-passphrase")
+```
+
+#### ValidateMnemonic
+
+```go
+func ValidateMnemonic(mnemonic string) bool
+```
+
+Checks if a mnemonic phrase is valid according to BIP39 specification.
+
+**Parameters**:
+- `mnemonic`: Space-separated phrase to validate
+
+**Returns**:
+- `true` if valid (correct checksum, recognized words)
+- `false` if invalid
+
+**Validation**:
+- Checks word count (12, 15, 18, 21, or 24 words)
+- Verifies all words in BIP39 English wordlist
+- Validates checksum integrity
+- Handles extra whitespace gracefully
+
+**Usage**:
+```go
+userInput := "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+if !wallet.ValidateMnemonic(userInput) {
+    fmt.Println("Invalid mnemonic. Please check for typos.")
+    return
+}
+// Proceed with import
+```
+
+#### NewBTCHDWalletFromMnemonic
+
+```go
+func NewBTCHDWalletFromMnemonic(
+    mnemonic string,
+    passphrase string,
+    testnet bool,
+    minConf int,
+) (*BTCHDWallet, error)
+```
+
+Creates a Bitcoin HD wallet directly from a BIP39 mnemonic phrase.
+
+**Parameters**:
+- `mnemonic`: Space-separated BIP39 phrase (12 or 24 words)
+- `passphrase`: Optional BIP39 passphrase (use "" for none)
+- `testnet`: True for testnet, false for mainnet
+- `minConf`: Minimum confirmations for payment verification
+
+**Returns**:
+- `*BTCHDWallet` with deterministic address generation
+- Error if mnemonic invalid or wallet creation fails
+
+**Determinism**:
+- Same mnemonic + passphrase always produces same addresses
+- Enables wallet recovery from backed-up phrase
+- Address order is deterministic and reproducible
+
+**Usage**:
+```go
+// Create wallet from mnemonic
+wallet, err := wallet.NewBTCHDWalletFromMnemonic(
+    "abandon ability able about above absent...",
+    "",    // No passphrase
+    true,  // Testnet
+    1,     // 1 confirmation
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Derive first address
+addr, err := wallet.DeriveNextAddress()
+```
+
+#### MnemonicToSeed
+
+```go
+func MnemonicToSeed(mnemonic string) ([]byte, error)
+```
+
+Convenience function to convert mnemonic to seed without passphrase.
+
+Equivalent to `ImportFromMnemonic(mnemonic, "")`.
+
+**Usage**:
+```go
+seed, err := wallet.MnemonicToSeed(mnemonic)
+wallet, err := wallet.NewBTCHDWallet(seed[:32], false, 6)
+```
+
 #### NewBTCHDWallet
 
 ```go

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  paywall-app:
+    build:
+      context: ../..
+      dockerfile: example/docker-compose/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PRICE_BTC=0.0001
+      - TESTNET=true
+      - PAYMENT_TIMEOUT=24h
+      - MIN_CONFIRMATIONS=1
+      - XMR_WALLET_USER=${XMR_WALLET_USER:-}
+      - XMR_WALLET_PASS=${XMR_WALLET_PASS:-}
+      - XMR_RPC_URL=${XMR_RPC_URL:-http://monero-rpc:18081}
+    volumes:
+      - paywall-data:/data
+    depends_on:
+      - monero-rpc
+    restart: unless-stopped
+
+  monero-rpc:
+    image: sethsimmons/simple-monerod:latest
+    ports:
+      - "18081:18081"
+      - "18089:18089"
+    volumes:
+      - monero-data:/home/monero/.bitmonero
+    command: >
+      --testnet
+      --rpc-bind-ip=0.0.0.0
+      --rpc-bind-port=18081
+      --confirm-external-bind
+      --restricted-rpc
+    restart: unless-stopped
+
+volumes:
+  paywall-data:
+  monero-data:

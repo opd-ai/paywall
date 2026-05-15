@@ -93,6 +93,42 @@ type Config struct {
 
 ### Wallet Management
 
+#### BIP39 Mnemonic Support
+
+User-friendly wallet backup with 12 or 24-word phrases:
+
+```go
+// Generate new mnemonic (24 words recommended)
+mnemonic, err := wallet.GenerateMnemonic(wallet.Mnemonic24Words)
+// Example: "abandon ability able about above absent absorb abstract..."
+
+// Create wallet from mnemonic
+wallet, err := wallet.NewBTCHDWalletFromMnemonic(
+    mnemonic,
+    "",    // Optional passphrase for extra security
+    true,  // Testnet
+    1,     // Min confirmations
+)
+
+// Restore wallet from backed-up mnemonic
+seed, err := wallet.ImportFromMnemonic(mnemonic, "")
+wallet, err := wallet.NewBTCHDWallet(seed[:32], testnet, 1)
+
+// Validate user-entered mnemonic
+if !wallet.ValidateMnemonic(userInput) {
+    fmt.Println("Invalid mnemonic phrase")
+}
+```
+
+**Mnemonic Backup Best Practices**:
+- **Write down the mnemonic** on paper (never store digitally unencrypted)
+- Use 24 words for maximum security (256-bit entropy)
+- Optional passphrase adds "25th word" protection
+- Test recovery before trusting with real funds
+- Store backup in secure location (fireproof safe, safety deposit box)
+
+#### File-Based Wallet Storage
+
 ```go
 // Generate new wallet encryption key
 key, err := wallet.GenerateEncryptionKey()
@@ -111,7 +147,7 @@ err = btcWallet.SaveToFile(config)
 loadedWallet, err := wallet.LoadFromFile(config)
 ```
 
-**Note on Wallet Recovery**: This implementation uses encrypted file persistence for wallet backups. **Seed-based wallet recovery is not supported**. To ensure wallet continuity, back up the encrypted wallet files (created by `SaveToFile()`) rather than just the seed phrase. If you lose the wallet file, addresses will be regenerated from the seed but the `nextIndex` counter will reset, potentially causing address reuse (BIP44 privacy violation).
+**Note on Wallet Recovery**: You can now use BIP39 mnemonics for wallet recovery! The mnemonic provides full wallet recovery including the seed. However, the `nextIndex` counter (tracking which addresses have been used) is not stored in the mnemonic. To preserve address history, back up both the mnemonic AND the encrypted wallet files. If you lose the wallet file but have the mnemonic, addresses will regenerate from the beginning, which may cause address reuse if previous addresses received payments.
 
 ### Storage Backends
 

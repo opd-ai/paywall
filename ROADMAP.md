@@ -230,7 +230,7 @@
   - **Benefit**: Faster debugging and better developer experience
   - **Reference**: AUDIT.md documents misleading error messages
 
-- [ ] **Create getting-started tutorial** (docs/GETTING_STARTED.md)
+- [x] **Create getting-started tutorial** (docs/GETTING_STARTED.md)
   - 5-minute quick start: copy-paste code to running paywall
   - Testnet tutorial: complete flow from install to receiving test payment
   - Production checklist: encryption keys, mainnet config, monitoring
@@ -239,7 +239,7 @@
   - **Benefit**: Addresses "minimal barriers to entry" goal
   - **Reference**: FOUNDATION.md mentions this as needed but not yet created
 
-- [ ] **Add BIP39 mnemonic support** (wallet/btc_hd_wallet.go, wallet/storage.go)
+- [x] **Add BIP39 mnemonic support** (wallet/btc_hd_wallet.go, wallet/storage.go)
   - Implement `GenerateMnemonic() (string, error)` for 12/24 word phrases
   - Implement `ImportFromMnemonic(phrase string) ([]byte, error)` for seed recovery
   - Add mnemonic validation (checksum, wordlist)
