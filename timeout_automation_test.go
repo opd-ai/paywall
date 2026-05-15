@@ -35,7 +35,10 @@ func TestNewTimeoutMonitor(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	monitor := NewTimeoutMonitor(em, config)
 
@@ -64,7 +67,10 @@ func TestTimeoutMonitor_StartStop(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	config.CheckInterval = 100 * time.Millisecond // Short interval for testing
 
@@ -96,7 +102,10 @@ func TestTimeoutMonitor_GetCurrentTime_SystemTime(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	config.UseBlockchainTime = false
 
@@ -123,7 +132,10 @@ func TestTimeoutMonitor_GetCurrentTime_Blockchain(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	config.UseBlockchainTime = true
 
@@ -149,7 +161,10 @@ func TestTimeoutMonitor_ProcessTimeout_NoDoubleProcessing(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	monitor := NewTimeoutMonitor(em, config)
 
@@ -159,7 +174,7 @@ func TestTimeoutMonitor_ProcessTimeout_NoDoubleProcessing(t *testing.T) {
 	monitor.processing[paymentID] = true
 
 	// Try to process again (should be skipped)
-	err := monitor.processTimeout(paymentID)
+	err = monitor.processTimeout(paymentID)
 	if err != nil {
 		t.Errorf("processTimeout() error = %v", err)
 	}
@@ -178,7 +193,10 @@ func TestEscrowManager_CheckEscrowTimeoutsWithTime(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 
 	// Create test payments
 	now := time.Now()
@@ -282,7 +300,10 @@ func TestEscrowManager_CheckEscrowTimeoutsWithTime_EmptyStore(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 
 	timedOut, err := em.CheckEscrowTimeoutsWithTime(time.Now())
 	if err != nil {
@@ -374,13 +395,16 @@ func TestTimeoutMonitor_AutoRefund_Disabled(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	config.AutoRefund = false
 	monitor := NewTimeoutMonitor(em, config)
 
 	// Process timeout with autoRefund disabled
-	err := monitor.processTimeout("test-payment")
+	err = monitor.processTimeout("test-payment")
 	if err != nil {
 		t.Errorf("processTimeout() with autoRefund disabled should not error, got: %v", err)
 	}
@@ -399,7 +423,10 @@ func TestTimeoutMonitor_AutoRefund_NoSigner(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	config.AutoRefund = true
 	monitor := NewTimeoutMonitor(em, config)
@@ -415,7 +442,7 @@ func TestTimeoutMonitor_AutoRefund_NoSigner(t *testing.T) {
 	store.CreatePayment(payment)
 
 	// Try to process timeout without arbiter signer
-	err := monitor.processTimeout("test-payment")
+	err = monitor.processTimeout("test-payment")
 	if err == nil {
 		t.Error("processTimeout() with autoRefund enabled but no signer should error")
 	}
@@ -432,7 +459,10 @@ func TestTimeoutMonitor_SetArbiterSigner(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	monitor := NewTimeoutMonitor(em, config)
 
@@ -546,7 +576,10 @@ func TestTimeoutMonitor_AutoRefund_SignerError(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 	config := DefaultTimeoutMonitorConfig()
 	config.AutoRefund = true
 	monitor := NewTimeoutMonitor(em, config)
@@ -579,7 +612,7 @@ func TestTimeoutMonitor_AutoRefund_SignerError(t *testing.T) {
 	store.CreatePayment(payment)
 
 	// Try to process timeout with failing signer
-	err := monitor.processTimeout("test-payment")
+	err = monitor.processTimeout("test-payment")
 	if err == nil {
 		t.Error("processTimeout() with failing signer should error")
 	}
@@ -593,7 +626,10 @@ func TestTimeoutMonitor_IntegrationTest(t *testing.T) {
 		HDWallets: make(map[wallet.WalletType]wallet.HDWallet),
 	}
 
-	em := &EscrowManager{paywall: pw}
+	em, err := NewEscrowManager(pw)
+	if err != nil {
+		t.Fatalf("Failed to create EscrowManager: %v", err)
+	}
 
 	// Create a payment that will timeout
 	payment := &Payment{
