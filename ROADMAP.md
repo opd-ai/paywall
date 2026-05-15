@@ -82,7 +82,7 @@
 
 **Context**: High-priority issues that significantly impact system security and functionality but don't immediately block all production use cases.
 
-- [ ] **Implement transaction broadcast functionality** (broadcast.go, xmr_broadcast.go, handlers.go)
+- [x] **Implement transaction broadcast functionality** (broadcast.go, xmr_broadcast.go, handlers.go)
   - Integrate Bitcoin RPC client for actual transaction broadcasting (remove placeholder)
   - Implement transaction validation before broadcast (verify outputs, amounts, inputs)
   - Add double-broadcast prevention (check BroadcastedAt timestamp)
@@ -91,7 +91,7 @@
   - **Risk**: Currently returns fake transaction IDs - payments cannot actually complete
   - **Reference**: AUDIT.md lines 1149-1288, multisig_handlers.go:345-415 TODO comments
 
-- [ ] **Add state transition validation** (escrow.go, types.go)
+- [x] **Add state transition validation** (escrow.go, types.go)
   - Create `isValidTransition(from, to EscrowState) bool` function
   - Enforce valid transition paths (Pending→Funded→Completed, Funded→Disputed, etc.)
   - Add `StateTransitionHistory` to Payment struct for audit trail
