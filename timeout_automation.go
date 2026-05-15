@@ -29,6 +29,7 @@ type TimeoutMonitor struct {
 	processing        map[string]bool
 	useBlockchainTime bool
 	autoRefund        bool
+	signerMu          sync.RWMutex
 	arbiterSigner     ArbiterSigner
 }
 
@@ -74,6 +75,8 @@ func (tm *TimeoutMonitor) Start() {
 
 // SetArbiterSigner sets the arbiter signer for automatic refunds
 func (tm *TimeoutMonitor) SetArbiterSigner(signer ArbiterSigner) {
+	tm.signerMu.Lock()
+	defer tm.signerMu.Unlock()
 	tm.arbiterSigner = signer
 }
 
@@ -182,13 +185,17 @@ func (tm *TimeoutMonitor) executeAutomaticRefund(paymentID string) error {
 
 	// Verify arbiter signer is configured for automatic refunds
 	// Automatic refunds require arbiter signatures to process the refund transaction
-	if tm.arbiterSigner == nil {
+	tm.signerMu.RLock()
+	signer := tm.arbiterSigner
+	tm.signerMu.RUnlock()
+
+	if signer == nil {
 		return fmt.Errorf("arbiter signer not configured for automatic refunds")
 	}
 
 	// Get arbiter signature for the timeout refund
 	// This validates that the arbiter can sign and is willing to authorize the refund
-	arbiterSig, err := tm.arbiterSigner.SignTimeoutRefund(payment)
+	arbiterSig, err := signer.SignTimeoutRefund(payment)
 	if err != nil {
 		return fmt.Errorf("arbiter failed to sign timeout refund: %w", err)
 	}
