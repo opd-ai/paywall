@@ -18,10 +18,20 @@ type HDWallet interface {
 
 	// IsMultisigEnabled returns true if this wallet instance supports multisig operations.
 	// Default implementations return false for backward compatibility.
+	//
+	// Note: This method is currently reserved for future API exposure and direct wallet
+	// querying. The paywall currently uses Config.MultisigEnabled instead. This method
+	// may be used in future versions for runtime multisig capability detection or
+	// exposing wallet state through administrative APIs.
 	IsMultisigEnabled() bool
 
 	// GetMultisigConfig returns the multisig configuration for this wallet.
 	// Returns nil if multisig is not enabled or ErrMultisigNotSupported if not supported.
+	//
+	// Note: This method is currently reserved for future API exposure and direct wallet
+	// querying. The paywall stores multisig configuration in payment metadata. This method
+	// may be used in future versions for exposing wallet configuration through APIs or
+	// for wallet state introspection.
 	GetMultisigConfig() (*MultisigConfig, error)
 
 	// DeriveMultisigAddress generates a new multisig address from multiple public keys.

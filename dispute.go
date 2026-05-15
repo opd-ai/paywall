@@ -107,8 +107,33 @@ const (
 	DisputeClosed DisputeStatus = "closed"
 )
 
-// Arbiter defines the interface for dispute resolution services
-// Integrators can provide their own implementations of this interface
+// Arbiter defines the interface for dispute resolution services.
+//
+// # Extensibility
+//
+// This interface is designed as an extensibility point to support various
+// dispute resolution architectures:
+//
+//   - LocalArbiter (default): In-memory storage, suitable for single-instance
+//     deployments and testing
+//   - RemoteArbiter (custom): HTTP/gRPC client connecting to external dispute
+//     resolution services or decentralized arbiter networks
+//   - BlockchainArbiter (custom): Integration with on-chain dispute resolution
+//     smart contracts or oracles
+//
+// Most applications can use LocalArbiter. Implement custom Arbiter when you need:
+//   - Distributed dispute storage across multiple paywall instances
+//   - Integration with existing case management systems
+//   - Compliance with external arbitration service providers
+//   - Blockchain-based transparent dispute records
+//
+// # Implementation Requirements
+//
+// Custom implementations must ensure:
+//   - Thread-safe concurrent access to dispute data
+//   - Atomic dispute registration to prevent duplicates
+//   - Proper validation of requester role (buyer or seller only)
+//   - Evidence integrity and non-repudiation
 type Arbiter interface {
 	// RegisterDispute registers a new dispute in the arbiter system
 	// requester specifies which party (buyer or seller) initiated the dispute
@@ -132,8 +157,14 @@ type Arbiter interface {
 	ListOpenDisputes() ([]*Dispute, error)
 }
 
-// LocalArbiter is an in-memory implementation of the Arbiter interface
-// Suitable for testing or single-instance deployments
+// LocalArbiter is the default in-memory implementation of the Arbiter interface.
+// It stores disputes in a thread-safe map and is suitable for:
+//   - Single-instance paywall deployments
+//   - Testing and development environments
+//   - Low-volume dispute scenarios
+//
+// For distributed deployments or external arbitration services, implement
+// a custom Arbiter that integrates with your dispute resolution backend.
 type LocalArbiter struct {
 	disputes map[string]*Dispute
 	mu       sync.RWMutex
