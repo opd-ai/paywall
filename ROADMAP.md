@@ -153,7 +153,7 @@
   - **Benefit**: Prevents griefing attacks via false disputes
   - **Reference**: AUDIT.md lines 3686-3708, 2766-2785
 
-- [ ] **Implement automatic timeout resolution** (timeout_automation.go, escrow.go)
+- [x] **Implement automatic timeout resolution** (timeout_automation.go, escrow.go)
   - Add `StartTimeoutMonitor(interval time.Duration)` goroutine
   - Automatically trigger refunds when escrow times out
   - Add processing deduplication lock to prevent concurrent refunds
@@ -161,7 +161,7 @@
   - **Benefit**: Reduces operational burden and prevents fund locking
   - **Reference**: AUDIT.md lines 3210-3297, 3469-3480
 
-- [ ] **Add timeout validation and extension** (escrow.go:CreateEscrow)
+- [x] **Add timeout validation and extension** (escrow.go:CreateEscrow)
   - Enforce minimum timeout (1 hour) and maximum timeout (30 days)
   - Validate timeout is positive and reasonable at escrow creation
   - Implement `ExtendTimeout(paymentID, extension, signatures)` API

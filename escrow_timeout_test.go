@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -23,6 +24,94 @@ func generateTestPublicKeysTimeout() ([]byte, []byte, []byte) {
 	return buyerPrivKey.PubKey().SerializeCompressed(),
 		sellerPrivKey.PubKey().SerializeCompressed(),
 		arbiterPrivKey.PubKey().SerializeCompressed()
+}
+
+func generateTestPrivateKeysTimeout() (*btcec.PrivateKey, *btcec.PrivateKey, *btcec.PrivateKey) {
+	buyerSeed := sha256.Sum256([]byte("buyer-timeout-test"))
+	sellerSeed := sha256.Sum256([]byte("seller-timeout-test"))
+	arbiterSeed := sha256.Sum256([]byte("arbiter-timeout-test"))
+
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+
+	return buyerPrivKey, sellerPrivKey, arbiterPrivKey
+}
+
+func buildTimeoutExtensionSignature(
+	t *testing.T,
+	paymentID string,
+	currentTimeout time.Time,
+	extension time.Duration,
+	role MultisigRole,
+	signerID string,
+	privateKey *btcec.PrivateKey,
+	nonce []byte,
+) *SignatureData {
+	t.Helper()
+
+	signedAt := time.Now().UTC().Truncate(time.Nanosecond)
+	sigPayload := &SignatureData{
+		SignerID:  signerID,
+		Role:      role,
+		PublicKey: privateKey.PubKey().SerializeCompressed(),
+		SignedAt:  signedAt,
+		Nonce:     nonce,
+		PaymentID: paymentID,
+	}
+	intent := timeoutExtensionIntentHash(paymentID, currentTimeout, extension, sigPayload)
+	signature := append(ecdsa.Sign(privateKey, intent[:]).Serialize(), byte(0x01))
+	sigPayload.Signature = signature
+	return sigPayload
+}
+
+func createFundedEscrowForExtensionTest(
+	t *testing.T,
+	buyerPubKey, sellerPubKey, arbiterPubKey []byte,
+) (*EscrowManager, *MemoryStore, string, time.Time) {
+	t.Helper()
+
+	store := NewMemoryStore()
+	config := Config{
+		PriceInBTC:     0.001,
+		TestNet:        true,
+		Store:          store,
+		PaymentTimeout: time.Hour * 24,
+
+		MultisigEnabled:  true,
+		MultisigRequired: 2,
+		MultisigTotal:    3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{
+			wallet.Bitcoin: {buyerPubKey, sellerPubKey, arbiterPubKey},
+		},
+		MinEscrowTimeout:   time.Hour,
+		MaxEscrowTimeout:   30 * 24 * time.Hour,
+		AuthorizedArbiters: [][]byte{arbiterPubKey},
+	}
+
+	pw, err := NewPaywall(config)
+	if err != nil {
+		t.Fatalf("Failed to create paywall: %v", err)
+	}
+	t.Cleanup(func() { pw.Close() })
+
+	em, _ := NewEscrowManager(pw)
+	paymentID, err := em.CreateEscrow(1.0, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("CreateEscrow failed: %v", err)
+	}
+
+	payment, _ := store.GetPayment(paymentID)
+	payment.Status = StatusConfirmed
+	if err := store.UpdatePayment(payment); err != nil {
+		t.Fatalf("UpdatePayment failed: %v", err)
+	}
+	if err := em.FundEscrow(paymentID); err != nil {
+		t.Fatalf("FundEscrow failed: %v", err)
+	}
+
+	payment, _ = store.GetPayment(paymentID)
+	return em, store, paymentID, payment.EscrowTimeout
 }
 
 // TestEscrowTimeoutBounds verifies that escrow creation enforces timeout bounds
@@ -267,5 +356,208 @@ func TestEscrowTimeoutCustomBounds(t *testing.T) {
 	_, err = em.CreateEscrow(1.0, 60*24*time.Hour)
 	if err == nil {
 		t.Error("CreateEscrow() expected error for timeout above custom maximum, got nil")
+	}
+}
+
+// TestEscrowManager_ExtendTimeout tests timeout extension functionality
+func TestEscrowManager_ExtendTimeout(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+	buyerPrivKey, sellerPrivKey, _ := generateTestPrivateKeysTimeout()
+	em, store, paymentID, originalTimeout := createFundedEscrowForExtensionTest(t, buyerPubKey, sellerPubKey, arbiterPubKey)
+
+	extension := 48 * time.Hour
+	buyerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		originalTimeout,
+		extension,
+		RoleBuyer,
+		"buyer",
+		buyerPrivKey,
+		[]byte(paymentID+"-extend"),
+	)
+	sellerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		originalTimeout,
+		extension,
+		RoleSeller,
+		"seller",
+		sellerPrivKey,
+		[]byte(paymentID+"-extend-2"),
+	)
+
+	err := em.ExtendTimeout(paymentID, extension, buyerSig, sellerSig)
+	if err != nil {
+		t.Fatalf("ExtendTimeout failed: %v", err)
+	}
+
+	payment, _ := store.GetPayment(paymentID)
+	expectedTimeout := originalTimeout.Add(extension)
+	if !payment.EscrowTimeout.Equal(expectedTimeout) {
+		t.Errorf("Timeout not extended correctly: got %v, want %v",
+			payment.EscrowTimeout, expectedTimeout)
+	}
+
+	t.Logf("✓ Timeout successfully extended from %v to %v",
+		originalTimeout, payment.EscrowTimeout)
+}
+
+// TestEscrowManager_ExtendTimeout_MaxExtension tests maximum extension limit
+func TestEscrowManager_ExtendTimeout_MaxExtension(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+	buyerPrivKey, sellerPrivKey, _ := generateTestPrivateKeysTimeout()
+	em, _, paymentID, currentTimeout := createFundedEscrowForExtensionTest(t, buyerPubKey, sellerPubKey, arbiterPubKey)
+
+	extension := 8 * 24 * time.Hour // 8 days
+	buyerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		currentTimeout,
+		extension,
+		RoleBuyer,
+		"buyer",
+		buyerPrivKey,
+		[]byte(paymentID+"-extend-max"),
+	)
+	sellerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		currentTimeout,
+		extension,
+		RoleSeller,
+		"seller",
+		sellerPrivKey,
+		[]byte(paymentID+"-extend-max-2"),
+	)
+
+	err := em.ExtendTimeout(paymentID, extension, buyerSig, sellerSig)
+	if err == nil {
+		t.Error("ExtendTimeout should reject extension beyond 7 days")
+	}
+
+	t.Logf("✓ Correctly rejected extension beyond max (7 days)")
+}
+
+// TestEscrowManager_ExtendTimeout_NegativeExtension tests negative extension rejection
+func TestEscrowManager_ExtendTimeout_NegativeExtension(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+	buyerPrivKey, sellerPrivKey, _ := generateTestPrivateKeysTimeout()
+	em, _, paymentID, currentTimeout := createFundedEscrowForExtensionTest(t, buyerPubKey, sellerPubKey, arbiterPubKey)
+
+	extension := -24 * time.Hour
+	buyerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		currentTimeout,
+		extension,
+		RoleBuyer,
+		"buyer",
+		buyerPrivKey,
+		[]byte(paymentID+"-extend-neg"),
+	)
+	sellerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		currentTimeout,
+		extension,
+		RoleSeller,
+		"seller",
+		sellerPrivKey,
+		[]byte(paymentID+"-extend-neg-2"),
+	)
+
+	err := em.ExtendTimeout(paymentID, extension, buyerSig, sellerSig)
+	if err == nil {
+		t.Error("ExtendTimeout should reject negative extension")
+	}
+
+	t.Logf("✓ Correctly rejected negative extension")
+}
+
+func TestEscrowManager_ExtendTimeout_ArbiterPaths(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+	buyerPrivKey, sellerPrivKey, arbiterPrivKey := generateTestPrivateKeysTimeout()
+	extension := 24 * time.Hour
+
+	cases := []struct {
+		name string
+		sig1 func(paymentID string, currentTimeout time.Time) *SignatureData
+		sig2 func(paymentID string, currentTimeout time.Time) *SignatureData
+	}{
+		{
+			name: "buyer plus arbiter",
+			sig1: func(paymentID string, currentTimeout time.Time) *SignatureData {
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleBuyer, "buyer", buyerPrivKey, []byte(paymentID+"-buyer-arbiter-buyer"))
+			},
+			sig2: func(paymentID string, currentTimeout time.Time) *SignatureData {
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleArbiter, "arbiter", arbiterPrivKey, []byte(paymentID+"-buyer-arbiter-arbiter"))
+			},
+		},
+		{
+			name: "seller plus arbiter",
+			sig1: func(paymentID string, currentTimeout time.Time) *SignatureData {
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleSeller, "seller", sellerPrivKey, []byte(paymentID+"-seller-arbiter-seller"))
+			},
+			sig2: func(paymentID string, currentTimeout time.Time) *SignatureData {
+				return buildTimeoutExtensionSignature(t, paymentID, currentTimeout, extension, RoleArbiter, "arbiter", arbiterPrivKey, []byte(paymentID+"-seller-arbiter-arbiter"))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			em, store, paymentID, currentTimeout := createFundedEscrowForExtensionTest(t, buyerPubKey, sellerPubKey, arbiterPubKey)
+			sig1 := tc.sig1(paymentID, currentTimeout)
+			sig2 := tc.sig2(paymentID, currentTimeout)
+
+			if err := em.ExtendTimeout(paymentID, extension, sig1, sig2); err != nil {
+				t.Fatalf("ExtendTimeout failed: %v", err)
+			}
+
+			payment, _ := store.GetPayment(paymentID)
+			if !payment.EscrowTimeout.Equal(currentTimeout.Add(extension)) {
+				t.Fatalf("timeout not extended as expected")
+			}
+		})
+	}
+}
+
+func TestEscrowManager_ExtendTimeout_UnauthorizedArbiter(t *testing.T) {
+	buyerPubKey, sellerPubKey, arbiterPubKey := generateTestPublicKeysTimeout()
+	buyerPrivKey, _, _ := generateTestPrivateKeysTimeout()
+
+	unauthorizedSeed := sha256.Sum256([]byte("unauthorized-arbiter-timeout-test"))
+	unauthorizedArbiterPriv, _ := btcec.PrivKeyFromBytes(unauthorizedSeed[:])
+	unauthorizedArbiterPub := unauthorizedArbiterPriv.PubKey().SerializeCompressed()
+
+	em, _, paymentID, currentTimeout := createFundedEscrowForExtensionTest(t, buyerPubKey, sellerPubKey, arbiterPubKey)
+	extension := 24 * time.Hour
+
+	buyerSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		currentTimeout,
+		extension,
+		RoleBuyer,
+		"buyer",
+		buyerPrivKey,
+		[]byte(paymentID+"-buyer-unauth-arbiter-buyer"),
+	)
+	arbiterSig := buildTimeoutExtensionSignature(
+		t,
+		paymentID,
+		currentTimeout,
+		extension,
+		RoleArbiter,
+		"unauthorized-arbiter",
+		unauthorizedArbiterPriv,
+		[]byte(paymentID+"-unauth-arbiter"),
+	)
+	arbiterSig.PublicKey = unauthorizedArbiterPub
+
+	err := em.ExtendTimeout(paymentID, extension, buyerSig, arbiterSig)
+	if err == nil {
+		t.Fatal("ExtendTimeout should reject unauthorized arbiter")
 	}
 }

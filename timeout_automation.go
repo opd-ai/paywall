@@ -22,7 +22,10 @@ type TimeoutMonitor struct {
 	wg                sync.WaitGroup
 	processingLock    sync.Mutex
 	processing        map[string]bool
+	signerLock        sync.RWMutex
 	useBlockchainTime bool
+	autoRefund        bool
+	arbiterSigner     ArbiterSigner // optional, required for automatic refunds
 }
 
 // TimeoutMonitorConfig configures the timeout monitor
@@ -54,7 +57,49 @@ func NewTimeoutMonitor(em *EscrowManager, config TimeoutMonitorConfig) *TimeoutM
 		cancel:            cancel,
 		processing:        make(map[string]bool),
 		useBlockchainTime: config.UseBlockchainTime,
+		autoRefund:        config.AutoRefund,
+		arbiterSigner:     nil, // Must be set separately if autoRefund is enabled
 	}
+}
+
+// SetArbiterSigner sets the arbiter signer for automatic refunds
+// This is required if autoRefund is enabled in the configuration
+func (tm *TimeoutMonitor) SetArbiterSigner(signer ArbiterSigner) {
+	tm.signerLock.Lock()
+	defer tm.signerLock.Unlock()
+	tm.arbiterSigner = signer
+}
+
+func (tm *TimeoutMonitor) getArbiterSigner() ArbiterSigner {
+	tm.signerLock.RLock()
+	defer tm.signerLock.RUnlock()
+	return tm.arbiterSigner
+}
+
+func findBuyerTimeoutApproval(payment *Payment) (*SignatureData, error) {
+	if payment.Signatures == nil {
+		return nil, fmt.Errorf("buyer timeout approval signature not found")
+	}
+
+	for _, sigs := range payment.Signatures {
+		for i := range sigs {
+			storedSig := &sigs[i]
+			if storedSig.Role != RoleBuyer {
+				continue
+			}
+			if storedSig.PaymentID != "" && storedSig.PaymentID != payment.ID {
+				continue
+			}
+			approval := *storedSig
+			// This signature is loaded from previously stored approvals on the payment.
+			// Use a fresh nonce so replay validation can distinguish the stored approval
+			// record from this authorization submission.
+			approval.Nonce = append(append([]byte{}, storedSig.Nonce...), []byte("-timeout-refund-use")...)
+			return &approval, nil
+		}
+	}
+
+	return nil, fmt.Errorf("buyer timeout approval signature not found")
 }
 
 // Start begins monitoring timeouts in a background goroutine
@@ -133,10 +178,46 @@ func (tm *TimeoutMonitor) processTimeout(paymentID string) error {
 	// Log timeout detection
 	log.Printf("timeout detected for payment %s", paymentID)
 
-	// Note: Actual refund processing should be done by calling RefundBuyer
-	// with proper signatures. This method just logs detection since
-	// automatic refunds require careful consideration of security implications.
+	// If autoRefund is disabled, just log and return
+	if !tm.autoRefund {
+		log.Printf("automatic refund disabled for payment %s - manual refund required", paymentID)
+		return nil
+	}
 
+	// Verify arbiter signer is configured for automatic refunds
+	arbiterSigner := tm.getArbiterSigner()
+	if arbiterSigner == nil {
+		log.Printf("WARNING: automatic refund enabled but no arbiter signer configured for payment %s", paymentID)
+		return fmt.Errorf("arbiter signer not configured for automatic refunds")
+	}
+
+	// Get payment details
+	payment, err := tm.em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("get payment for timeout refund: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	buyerSig, err := findBuyerTimeoutApproval(payment)
+	if err != nil {
+		return fmt.Errorf("automatic timeout refund requires buyer pre-authorization: %w", err)
+	}
+
+	// Generate arbiter signature for timeout refund
+	arbiterSig, err := arbiterSigner.SignTimeoutRefund(payment)
+	if err != nil {
+		return fmt.Errorf("arbiter sign timeout refund: %w", err)
+	}
+
+	// Execute refund with buyer pre-authorization + arbiter signature
+	if err := tm.em.RefundBuyer(paymentID, buyerSig, arbiterSig); err != nil {
+		return fmt.Errorf("execute automatic timeout refund: %w", err)
+	}
+
+	log.Printf("automatic timeout refund completed for payment %s", paymentID)
 	return nil
 }
 
@@ -301,6 +382,13 @@ func (btp *BitcoinTimestampProvider) GetLatestBlockTime() (time.Time, error) {
 // MoneroTimestampProvider implements blockchain time for Monero
 type MoneroTimestampProvider struct {
 	rpcClient interface{} // monero RPC client
+}
+
+// ArbiterSigner defines interface for signing timeout refunds as arbiter
+type ArbiterSigner interface {
+	// SignTimeoutRefund creates an arbiter signature for a timeout-based refund
+	// The signature authorizes refunding the payment to the buyer after timeout
+	SignTimeoutRefund(payment *Payment) (*SignatureData, error)
 }
 
 // NewMoneroTimestampProvider creates a Monero timestamp provider
