@@ -335,8 +335,7 @@ func (m *FileStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, er
 }
 
 // GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
-// This enables efficient timeout checking without full linear scan.
-// Scans all payment files but only unmarshals those that might be relevant.
+// This currently scans and unmarshals all payment JSON files in the data directory.
 //
 // Parameters:
 //   - deadline: Time threshold - returns escrows expiring before this time
@@ -374,12 +373,10 @@ func (m *FileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, er
 			continue
 		}
 
-		// Only check escrow-enabled payments
-		if payment.EscrowState == EscrowNone {
+		if !payment.MultisigEnabled {
 			continue
 		}
-		// Only check active escrow states (not completed/refunded)
-		if payment.EscrowState == EscrowCompleted || payment.EscrowState == EscrowRefunded {
+		if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
 			continue
 		}
 		// Check if timeout is before deadline

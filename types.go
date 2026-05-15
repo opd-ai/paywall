@@ -165,7 +165,7 @@ type PaymentStore interface {
 
 	// GetEscrowsExpiringBefore returns escrow payments expiring before the deadline.
 	// This method enables efficient timeout checking without scanning all payments.
-	// Results may be paginated in batches for scalability.
+	// Implementations may internally batch, but must return the full result set.
 	// Returns error if retrieval fails. Returns empty slice if no expiring escrows.
 	GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error)
 }

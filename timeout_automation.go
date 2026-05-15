@@ -282,6 +282,15 @@ func (em *EscrowManager) CheckEscrowTimeoutsWithTime(currentTime time.Time) ([]s
 	// Extract payment IDs from expiring payments
 	var timedOut []string
 	for _, payment := range expiring {
+		if payment == nil || !payment.MultisigEnabled {
+			continue
+		}
+		if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
+			continue
+		}
+		if payment.EscrowTimeout.IsZero() || !payment.EscrowTimeout.Before(currentTime) {
+			continue
+		}
 		timedOut = append(timedOut, payment.ID)
 	}
 

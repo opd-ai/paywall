@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
 	"sync"
 	"time"
 
@@ -118,17 +119,13 @@ const (
 // The hash includes all critical fields to prevent tampering
 func computeEvidenceHash(e *Evidence) [32]byte {
 	h := sha256.New()
-	h.Write([]byte(e.PaymentID))
-	h.Write([]byte(e.Type))
-	h.Write([]byte(e.SubmittedBy))
-	h.Write([]byte(e.Content))
-	h.Write([]byte(e.Description))
-	
-	// Include timestamp to prevent replay
-	timestampBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(timestampBytes, uint64(e.Timestamp.Unix()))
-	h.Write(timestampBytes)
-	
+	writeHashString(h, e.PaymentID)
+	writeHashString(h, string(e.Type))
+	writeHashString(h, string(e.SubmittedBy))
+	writeHashString(h, e.Content)
+	writeHashString(h, e.Description)
+	writeHashTimestamp(h, e.Timestamp)
+
 	var hash [32]byte
 	copy(hash[:], h.Sum(nil))
 	return hash
@@ -191,24 +188,38 @@ func VerifyEvidenceSignature(evidence *Evidence) (bool, error) {
 // The hash includes all critical fields to prevent tampering
 func computeResolutionHash(r *Resolution) [32]byte {
 	h := sha256.New()
-	h.Write([]byte(r.PaymentID))
-	h.Write([]byte(r.Decision))
-	h.Write([]byte(r.Reason))
-	h.Write([]byte(r.ArbiterID))
-	
-	// Include timestamp to prevent replay
-	timestampBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(timestampBytes, uint64(r.Timestamp.Unix()))
-	h.Write(timestampBytes)
-	
-	// Include evidence references
-	for _, evidenceID := range r.Evidence {
-		h.Write([]byte(evidenceID))
-	}
-	
+	writeHashString(h, r.PaymentID)
+	writeHashString(h, string(r.Decision))
+	writeHashString(h, r.Reason)
+	writeHashString(h, r.ArbiterID)
+	writeHashTimestamp(h, r.Timestamp)
+	writeHashStringSlice(h, r.Evidence)
+
 	var hash [32]byte
 	copy(hash[:], h.Sum(nil))
 	return hash
+}
+
+func writeHashString(h hash.Hash, value string) {
+	var lengthBytes [8]byte
+	binary.BigEndian.PutUint64(lengthBytes[:], uint64(len(value)))
+	h.Write(lengthBytes[:])
+	h.Write([]byte(value))
+}
+
+func writeHashStringSlice(h hash.Hash, values []string) {
+	var countBytes [8]byte
+	binary.BigEndian.PutUint64(countBytes[:], uint64(len(values)))
+	h.Write(countBytes[:])
+	for _, value := range values {
+		writeHashString(h, value)
+	}
+}
+
+func writeHashTimestamp(h hash.Hash, ts time.Time) {
+	var timestampBytes [8]byte
+	binary.BigEndian.PutUint64(timestampBytes[:], uint64(ts.UnixNano()))
+	h.Write(timestampBytes[:])
 }
 
 // SignResolution signs resolution data with the arbiter's private key
@@ -438,7 +449,20 @@ func (la *LocalArbiter) ResolveDispute(paymentID string, resolution *Resolution)
 		return fmt.Errorf("resolution cannot be nil")
 	}
 
-	// Validate signature if provided
+	if resolution.PaymentID == "" {
+		resolution.PaymentID = paymentID
+	} else if resolution.PaymentID != paymentID {
+		return fmt.Errorf("resolution payment ID mismatch")
+	}
+
+	if resolution.Timestamp.IsZero() {
+		if len(resolution.Signature) > 0 {
+			return fmt.Errorf("signed resolution must include timestamp")
+		}
+		resolution.Timestamp = time.Now()
+	}
+
+	// Validate signature if provided after all signed fields are finalized
 	if len(resolution.Signature) > 0 {
 		valid, err := VerifyResolutionSignature(resolution)
 		if err != nil {
@@ -448,9 +472,6 @@ func (la *LocalArbiter) ResolveDispute(paymentID string, resolution *Resolution)
 			return fmt.Errorf("invalid resolution signature")
 		}
 	}
-
-	resolution.PaymentID = paymentID
-	resolution.Timestamp = time.Now()
 
 	dispute.Resolution = resolution
 	dispute.Status = DisputeResolved

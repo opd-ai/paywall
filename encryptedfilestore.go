@@ -338,7 +338,11 @@ func (m *EncryptedFileStore) GetPaymentsByMultisigAddress(address string) ([]*Pa
 //
 // Returns:
 //   - []*Payment: Slice of escrow payments with EscrowTimeout before deadline
-//   - error: Directory read or decryption errors
+//   - error: Directory read errors
+//
+// Notes:
+//   - Decryption and parse errors are skipped
+//   - Thread-safety: Protected by read lock
 func (m *EncryptedFileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -355,12 +359,10 @@ func (m *EncryptedFileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Pa
 			continue
 		}
 
-		// Only check escrow-enabled payments
-		if payment.EscrowState == EscrowNone {
+		if !payment.MultisigEnabled {
 			continue
 		}
-		// Only check active escrow states (not completed/refunded)
-		if payment.EscrowState == EscrowCompleted || payment.EscrowState == EscrowRefunded {
+		if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
 			continue
 		}
 		// Check if timeout is before deadline
@@ -371,4 +373,3 @@ func (m *EncryptedFileStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Pa
 
 	return expiring, nil
 }
-

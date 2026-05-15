@@ -284,12 +284,10 @@ func (m *MemoryStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, 
 
 	var expiring []*Payment
 	for _, p := range m.payments {
-		// Only check escrow-enabled payments
-		if p.EscrowState == EscrowNone {
+		if !p.MultisigEnabled {
 			continue
 		}
-		// Only check active escrow states (not completed/refunded)
-		if p.EscrowState == EscrowCompleted || p.EscrowState == EscrowRefunded {
+		if p.EscrowState != EscrowFunded && p.EscrowState != EscrowDisputed {
 			continue
 		}
 		// Check if timeout is before deadline
@@ -299,4 +297,3 @@ func (m *MemoryStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, 
 	}
 	return expiring, nil
 }
-

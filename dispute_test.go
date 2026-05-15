@@ -3,6 +3,7 @@ package paywall
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 )
@@ -865,6 +866,54 @@ func TestVerifyResolutionSignature(t *testing.T) {
 	}
 }
 
+func TestComputeEvidenceHash_UnambiguousEncoding(t *testing.T) {
+	ts := time.Unix(1700000000, 123)
+	e1 := &Evidence{
+		PaymentID:   "ab",
+		Type:        EvidenceType("c"),
+		SubmittedBy: MultisigRole("d"),
+		Content:     "e",
+		Description: "f",
+		Timestamp:   ts,
+	}
+	e2 := &Evidence{
+		PaymentID:   "a",
+		Type:        EvidenceType("bc"),
+		SubmittedBy: MultisigRole("d"),
+		Content:     "e",
+		Description: "f",
+		Timestamp:   ts,
+	}
+
+	if computeEvidenceHash(e1) == computeEvidenceHash(e2) {
+		t.Fatal("computeEvidenceHash() should produce different hashes for different field boundaries")
+	}
+}
+
+func TestComputeResolutionHash_UnambiguousEncoding(t *testing.T) {
+	ts := time.Unix(1700000000, 123)
+	r1 := &Resolution{
+		PaymentID: "ab",
+		Decision:  MultisigRole("c"),
+		Reason:    "d",
+		ArbiterID: "e",
+		Timestamp: ts,
+		Evidence:  []string{"f", "g"},
+	}
+	r2 := &Resolution{
+		PaymentID: "a",
+		Decision:  MultisigRole("bc"),
+		Reason:    "d",
+		ArbiterID: "e",
+		Timestamp: ts,
+		Evidence:  []string{"f", "g"},
+	}
+
+	if computeResolutionHash(r1) == computeResolutionHash(r2) {
+		t.Fatal("computeResolutionHash() should produce different hashes for different field boundaries")
+	}
+}
+
 func TestLocalArbiter_SubmitEvidence_WithSignature(t *testing.T) {
 	arbiter := NewLocalArbiter()
 	payment := &Payment{
@@ -928,9 +977,11 @@ func TestLocalArbiter_ResolveDispute_WithSignature(t *testing.T) {
 
 	// Test with valid signature
 	validResolution := &Resolution{
+		PaymentID: payment.ID,
 		Decision:  RoleBuyer,
 		Reason:    "test reason",
 		ArbiterID: "arbiter-1",
+		Timestamp: time.Now(),
 		Evidence:  []string{"evidence-1"},
 	}
 	if err := SignResolution(validResolution, privKey); err != nil {
@@ -954,6 +1005,7 @@ func TestLocalArbiter_ResolveDispute_WithSignature(t *testing.T) {
 		Decision:  RoleSeller, // Different decision!
 		Reason:    "test reason",
 		ArbiterID: "arbiter-1",
+		Timestamp: validResolution.Timestamp,
 		Evidence:  []string{"evidence-1"},
 		Signature: validResolution.Signature, // Reusing old signature
 		PublicKey: validResolution.PublicKey,
@@ -967,4 +1019,3 @@ func TestLocalArbiter_ResolveDispute_WithSignature(t *testing.T) {
 		t.Errorf("ResolveDispute() expected 'invalid resolution signature' error, got: %v", err)
 	}
 }
-
