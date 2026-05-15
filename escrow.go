@@ -2,6 +2,7 @@
 package paywall
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log"
@@ -805,7 +806,7 @@ func (em *EscrowManager) CheckEscrowTimeouts() ([]string, error) {
 
 // ExtendTimeout extends the timeout of an escrow payment
 // Requires signatures from 2 of the 3 participants (buyer, seller, arbiter)
-// The extension must not exceed the maximum extension duration configured in DisputeEnhancements
+// The extension must not exceed the 7-day roadmap cap.
 func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration, sig1, sig2 *SignatureData) error {
 	payment, err := em.paywall.Store.GetPayment(paymentID)
 	if err != nil {
@@ -902,11 +903,19 @@ func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration
 		return fmt.Errorf("arbiter is not authorized: public key not in authorized list")
 	}
 
+	// Verify both signatures explicitly authorize this specific extension.
+	if err := validateTimeoutExtensionSignature(sig1, payment, extension); err != nil {
+		return fmt.Errorf("invalid first extension authorization: %w", err)
+	}
+	if err := validateTimeoutExtensionSignature(sig2, payment, extension); err != nil {
+		return fmt.Errorf("invalid second extension authorization: %w", err)
+	}
+
 	// Apply the extension
 	oldTimeout := payment.EscrowTimeout
 	payment.EscrowTimeout = payment.EscrowTimeout.Add(extension)
 
-	// Store the extension in state transition history for audit trail
+	// Build audit metadata for extension event.
 	metadata := map[string]string{
 		"old_timeout":      oldTimeout.Format(time.RFC3339),
 		"extension":        extension.String(),
@@ -916,24 +925,88 @@ func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration
 		"sig2_role":        string(sig2.Role),
 	}
 
+	// Persist extension signatures to enforce replay protection.
+	for walletType := range payment.Addresses {
+		if payment.Signatures == nil {
+			payment.Signatures = make(map[wallet.WalletType][]SignatureData)
+		}
+		payment.Signatures[walletType] = append(payment.Signatures[walletType], *sig1, *sig2)
+	}
+
+	if len(payment.Signatures) == 0 {
+		if payment.Signatures == nil {
+			payment.Signatures = make(map[wallet.WalletType][]SignatureData)
+		}
+		payment.Signatures[wallet.Bitcoin] = append(payment.Signatures[wallet.Bitcoin], *sig1, *sig2)
+	}
+
 	// Update payment in store
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment with extended timeout: %w", err)
 	}
 
 	// Log extension in audit trail
-	em.auditLogger.LogAction(&AuditLogEntry{
+	_, err = em.auditLogger.LogAction(&AuditLogEntry{
 		PaymentID:     paymentID,
 		Action:        "extend_timeout",
 		PreviousState: payment.EscrowState,
 		NewState:      payment.EscrowState,
 		Metadata:      metadata,
 	})
+	if err != nil {
+		log.Printf("WARNING: failed to log timeout extension for payment %s: %v", paymentID, err)
+	}
 
 	log.Printf("escrow timeout extended for payment %s by %s to %s",
 		paymentID, extension, payment.EscrowTimeout.Format(time.RFC3339))
 
 	return nil
+}
+
+func validateTimeoutExtensionSignature(sig *SignatureData, payment *Payment, extension time.Duration) error {
+	if sig.PaymentID != payment.ID {
+		return fmt.Errorf("signature payment ID mismatch for extension authorization")
+	}
+	if len(sig.Nonce) == 0 {
+		return fmt.Errorf("signature nonce required for extension authorization")
+	}
+	if sig.SignedAt.IsZero() {
+		return fmt.Errorf("signature timestamp required for extension authorization")
+	}
+
+	parsedPubKey, err := btcec.ParsePubKey(sig.PublicKey)
+	if err != nil {
+		return fmt.Errorf("parse signer public key: %w", err)
+	}
+
+	sigBytes := sig.Signature
+	if len(sigBytes) > 0 && (sigBytes[len(sigBytes)-1]&0x1f) <= 3 {
+		sigBytes = sigBytes[:len(sigBytes)-1]
+	}
+	parsedSig, err := ecdsa.ParseDERSignature(sigBytes)
+	if err != nil {
+		return fmt.Errorf("parse extension signature: %w", err)
+	}
+
+	intent := timeoutExtensionIntentHash(payment.ID, payment.EscrowTimeout, extension, sig)
+	if !parsedSig.Verify(intent[:], parsedPubKey) {
+		return fmt.Errorf("signature does not authorize this timeout extension")
+	}
+
+	return nil
+}
+
+func timeoutExtensionIntentHash(paymentID string, currentTimeout time.Time, extension time.Duration, sig *SignatureData) [32]byte {
+	intent := fmt.Sprintf(
+		"extend_timeout|payment=%s|current_timeout=%s|extension=%s|role=%s|signed_at=%s|nonce=%x",
+		paymentID,
+		currentTimeout.UTC().Format(time.RFC3339Nano),
+		extension.String(),
+		string(sig.Role),
+		sig.SignedAt.UTC().Format(time.RFC3339Nano),
+		sig.Nonce,
+	)
+	return sha256.Sum256([]byte(intent))
 }
 
 // GetEscrowState retrieves the current escrow state for a payment

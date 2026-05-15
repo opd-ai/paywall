@@ -1,10 +1,13 @@
 package paywall
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -318,6 +321,7 @@ func TestMoneroTimestampProvider_GetLatestBlockTime(t *testing.T) {
 // mockArbiterSigner implements ArbiterSigner for testing
 type mockArbiterSigner struct {
 	shouldFail bool
+	privateKey *btcec.PrivateKey
 }
 
 func (m *mockArbiterSigner) SignTimeoutRefund(payment *Payment) (*SignatureData, error) {
@@ -325,13 +329,20 @@ func (m *mockArbiterSigner) SignTimeoutRefund(payment *Payment) (*SignatureData,
 		return nil, fmt.Errorf("mock signer error")
 	}
 
+	privateKey := m.privateKey
+	if privateKey == nil {
+		seed := sha256.Sum256([]byte("timeout-automation-arbiter"))
+		privateKey, _ = btcec.PrivKeyFromBytes(seed[:])
+	}
+	hash := sha256.Sum256([]byte("timeout_refund|" + payment.ID))
 	return &SignatureData{
 		SignerID:  "test-arbiter",
 		Role:      RoleArbiter,
-		Signature: []byte("mock-arbiter-signature"),
-		PublicKey: []byte("mock-arbiter-pubkey"),
+		Signature: append(ecdsa.Sign(privateKey, hash[:]).Serialize(), byte(0x01)),
+		PublicKey: privateKey.PubKey().SerializeCompressed(),
 		SignedAt:  time.Now(),
 		Nonce:     []byte(payment.ID + "-arbiter-timeout"),
+		PaymentID: payment.ID,
 	}, nil
 }
 
@@ -417,8 +428,15 @@ func TestTimeoutMonitor_SetArbiterSigner(t *testing.T) {
 func TestTimeoutMonitor_AutoRefund_Success(t *testing.T) {
 	store := NewMemoryStore()
 
-	// Create mock wallet
-	btcWallet := &wallet.BTCHDWallet{}
+	buyerSeed := sha256.Sum256([]byte("timeout-automation-buyer"))
+	sellerSeed := sha256.Sum256([]byte("timeout-automation-seller"))
+	arbiterSeed := sha256.Sum256([]byte("timeout-automation-arbiter"))
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	sellerPrivKey, _ := btcec.PrivKeyFromBytes(sellerSeed[:])
+	arbiterPrivKey, _ := btcec.PrivKeyFromBytes(arbiterSeed[:])
+	buyerPub := buyerPrivKey.PubKey().SerializeCompressed()
+	sellerPub := sellerPrivKey.PubKey().SerializeCompressed()
+	arbiterPub := arbiterPrivKey.PubKey().SerializeCompressed()
 
 	// Create config with authorized arbiters
 	config := Config{
@@ -426,7 +444,11 @@ func TestTimeoutMonitor_AutoRefund_Success(t *testing.T) {
 		TestNet:            true,
 		Store:              store,
 		PaymentTimeout:     time.Hour * 24,
-		AuthorizedArbiters: [][]byte{[]byte("mock-arbiter-pubkey")},
+		MultisigEnabled:    true,
+		MultisigRequired:   2,
+		MultisigTotal:      3,
+		ParticipantPubKeys: map[wallet.WalletType][][]byte{wallet.Bitcoin: {buyerPub, sellerPub, arbiterPub}},
+		AuthorizedArbiters: [][]byte{arbiterPub},
 	}
 
 	pw, err := NewPaywall(config)
@@ -435,19 +457,18 @@ func TestTimeoutMonitor_AutoRefund_Success(t *testing.T) {
 	}
 	defer pw.Close()
 
-	// Replace wallet with mock for testing
-	pw.HDWallets[wallet.Bitcoin] = btcWallet
-
 	em, _ := NewEscrowManagerWithAudit(pw, NewMemoryAuditLogger())
 	monitorConfig := DefaultTimeoutMonitorConfig()
 	monitorConfig.AutoRefund = true
 	monitor := NewTimeoutMonitor(em, monitorConfig)
 
 	// Set arbiter signer
-	signer := &mockArbiterSigner{}
+	signer := &mockArbiterSigner{privateKey: arbiterPrivKey}
 	monitor.SetArbiterSigner(signer)
 
-	// Create a test payment with multisig metadata
+	buyerRefundHash := sha256.Sum256([]byte("timeout_refund|test-payment"))
+	buyerRefundSig := append(ecdsa.Sign(buyerPrivKey, buyerRefundHash[:]).Serialize(), byte(0x01))
+
 	payment := &Payment{
 		ID:              "test-payment",
 		MultisigEnabled: true,
@@ -457,11 +478,24 @@ func TestTimeoutMonitor_AutoRefund_Success(t *testing.T) {
 		MultisigMetadata: map[wallet.WalletType]*wallet.MultisigMetadata{
 			wallet.Bitcoin: {
 				PublicKeys: [][]byte{
-					[]byte("buyer-pubkey"),
-					[]byte("seller-pubkey"),
-					[]byte("mock-arbiter-pubkey"),
+					buyerPub,
+					sellerPub,
+					arbiterPub,
 				},
 				RequiredSigs: 2,
+			},
+		},
+		Signatures: map[wallet.WalletType][]SignatureData{
+			wallet.Bitcoin: {
+				{
+					SignerID:  "buyer",
+					Role:      RoleBuyer,
+					Signature: buyerRefundSig,
+					PublicKey: buyerPub,
+					SignedAt:  time.Now(),
+					Nonce:     []byte("test-payment-timeout-approval"),
+					PaymentID: "test-payment",
+				},
 			},
 		},
 	}
@@ -482,6 +516,10 @@ func TestTimeoutMonitor_AutoRefund_Success(t *testing.T) {
 
 func TestTimeoutMonitor_AutoRefund_SignerError(t *testing.T) {
 	store := NewMemoryStore()
+	buyerSeed := sha256.Sum256([]byte("timeout-automation-buyer"))
+	buyerPrivKey, _ := btcec.PrivKeyFromBytes(buyerSeed[:])
+	buyerPub := buyerPrivKey.PubKey().SerializeCompressed()
+	buyerRefundHash := sha256.Sum256([]byte("timeout_refund|test-payment"))
 
 	pw := &Paywall{
 		Store:     store,
@@ -504,6 +542,19 @@ func TestTimeoutMonitor_AutoRefund_SignerError(t *testing.T) {
 		Status:          StatusPending,
 		EscrowState:     EscrowFunded,
 		EscrowTimeout:   time.Now().Add(-1 * time.Hour),
+		Signatures: map[wallet.WalletType][]SignatureData{
+			wallet.Bitcoin: {
+				{
+					SignerID:  "buyer",
+					Role:      RoleBuyer,
+					Signature: append(ecdsa.Sign(buyerPrivKey, buyerRefundHash[:]).Serialize(), byte(0x01)),
+					PublicKey: buyerPub,
+					SignedAt:  time.Now(),
+					Nonce:     []byte("test-payment-timeout-approval"),
+					PaymentID: "test-payment",
+				},
+			},
+		},
 	}
 	store.CreatePayment(payment)
 
