@@ -5,6 +5,8 @@ package wallet
 import (
 	"bytes"
 	"crypto/rand"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -604,6 +606,18 @@ func TestBTCHDWallet_HDWalletInterface(t *testing.T) {
 
 // TestUtilityFunctions tests the utility functions
 func TestValidateEndpoint(t *testing.T) {
+	// Create local test server for valid endpoint tests
+	validServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer validServer.Close()
+
+	// Create local test server that returns non-200 status
+	invalidServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer invalidServer.Close()
+
 	tests := []struct {
 		name     string
 		endpoint string
@@ -611,27 +625,32 @@ func TestValidateEndpoint(t *testing.T) {
 	}{
 		{
 			name:     "Valid HTTPS endpoint",
-			endpoint: "https://httpbin.org/status/200",
+			endpoint: validServer.URL,
 			expected: true,
 		},
 		{
 			name:     "Valid HTTP endpoint",
-			endpoint: "http://httpbin.org/status/200",
+			endpoint: validServer.URL,
 			expected: true,
 		},
 		{
 			name:     "Endpoint without protocol",
-			endpoint: "httpbin.org/status/200",
+			endpoint: "localhost:12345/status/200",
 			expected: false,
 		},
 		{
-			name:     "Invalid endpoint",
-			endpoint: "https://invalid-endpoint-that-does-not-exist.com",
+			name:     "Invalid endpoint with non-200 status",
+			endpoint: invalidServer.URL,
 			expected: false,
 		},
 		{
 			name:     "Empty endpoint",
 			endpoint: "",
+			expected: false,
+		},
+		{
+			name:     "Unreachable endpoint",
+			endpoint: "https://invalid-endpoint-that-does-not-exist.com",
 			expected: false,
 		},
 	}
