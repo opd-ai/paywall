@@ -1,0 +1,70 @@
+ok  	github.com/opd-ai/paywall	36.344s
+?   	github.com/opd-ai/paywall/example	[no test files]
+?   	github.com/opd-ai/paywall/example/api-monetization	[no test files]
+?   	github.com/opd-ai/paywall/example/bitcoin-only	[no test files]
+?   	github.com/opd-ai/paywall/example/digital-downloads	[no test files]
+?   	github.com/opd-ai/paywall/example/docker-compose/app	[no test files]
+?   	github.com/opd-ai/paywall/example/monero-only	[no test files]
+?   	github.com/opd-ai/paywall/example/multisig/basic	[no test files]
+?   	github.com/opd-ai/paywall/example/multisig/marketplace	[no test files]
+?   	github.com/opd-ai/paywall/example/multisig/subscription	[no test files]
+?   	github.com/opd-ai/paywall/example/reverseproxy	[no test files]
+?   	github.com/opd-ai/paywall/example/reverseproxy/proxy	[no test files]
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: Signature for payment 2bd9e567e788bd0fe6dee99af3de4956 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: Signature for payment 2bd9e567e788bd0fe6dee99af3de4956 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: Signature for payment fd6e15f39d908abc54d1d7f601182b22 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: Signature for payment fd6e15f39d908abc54d1d7f601182b22 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: Signature for payment bc0054792cf078a1f094b42569bcea1e missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: Signature for payment bc0054792cf078a1f094b42569bcea1e missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: Signature for payment 872d3efb0270bb95d4b3d79a5cf4b7d2 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: Signature for payment 872d3efb0270bb95d4b3d79a5cf4b7d2 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: Signature for payment dc0f887e25124532a8713f858d35a572 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: Signature for payment dc0f887e25124532a8713f858d35a572 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:33 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:33 WARNING: Signature for payment 63721d1a4a1b68a9270d683e31ad19e4 missing nonce (backward compatibility mode)
+2026/05/15 19:26:33 WARNING: Signature for payment 63721d1a4a1b68a9270d683e31ad19e4 missing nonce (backward compatibility mode)
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+--- FAIL: TestConcurrentStateModificationStress (0.09s)
+    --- FAIL: TestConcurrentStateModificationStress/ConcurrentTransitionsOnSamePayment (0.01s)
+        escrow_test.go:1513: Expected exactly 1 successful transition, got 2 (release=0, dispute=1, refund=1)
+        escrow_test.go:1535: ✓ Concurrent transitions: 150 total attempts, 2 succeeded, final state: refunded
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+2026/05/15 19:26:34 WARNING: XMR wallet configuration was provided but wallet creation failed: monero RPC connection failed: Post "": unsupported protocol scheme ""
+2026/05/15 19:26:34 Continuing with Bitcoin-only support. Please check your Monero RPC configuration.
+FAIL
+FAIL	github.com/opd-ai/paywall/integration_test	0.498s
+ok  	github.com/opd-ai/paywall/migration	1.029s
+?   	github.com/opd-ai/paywall/migration/cmd/encrypt	[no test files]
+ok  	github.com/opd-ai/paywall/wallet	1.972s
+FAIL
