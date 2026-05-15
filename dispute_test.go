@@ -17,22 +17,43 @@ func TestNewLocalArbiter(t *testing.T) {
 
 func TestLocalArbiter_RegisterDispute(t *testing.T) {
 	tests := []struct {
-		name    string
-		payment *Payment
-		wantErr bool
+		name      string
+		payment   *Payment
+		requester MultisigRole
+		wantErr   bool
 	}{
 		{
-			name:    "nil payment",
-			payment: nil,
-			wantErr: true,
+			name:      "nil payment",
+			payment:   nil,
+			requester: RoleBuyer,
+			wantErr:   true,
 		},
 		{
-			name: "valid payment",
+			name: "valid payment with buyer requester",
 			payment: &Payment{
 				ID:            "test-payment-1",
 				DisputeReason: "goods not received",
 			},
-			wantErr: false,
+			requester: RoleBuyer,
+			wantErr:   false,
+		},
+		{
+			name: "valid payment with seller requester",
+			payment: &Payment{
+				ID:            "test-payment-2",
+				DisputeReason: "buyer not responding",
+			},
+			requester: RoleSeller,
+			wantErr:   false,
+		},
+		{
+			name: "invalid requester - arbiter",
+			payment: &Payment{
+				ID:            "test-payment-3",
+				DisputeReason: "some reason",
+			},
+			requester: RoleArbiter,
+			wantErr:   true,
 		},
 		{
 			name: "duplicate registration",
@@ -40,7 +61,8 @@ func TestLocalArbiter_RegisterDispute(t *testing.T) {
 				ID:            "test-payment-1",
 				DisputeReason: "different reason",
 			},
-			wantErr: true,
+			requester: RoleBuyer,
+			wantErr:   true,
 		},
 	}
 
@@ -48,7 +70,7 @@ func TestLocalArbiter_RegisterDispute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := arbiter.RegisterDispute(tt.payment)
+			err := arbiter.RegisterDispute(tt.payment, tt.requester)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("RegisterDispute() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -64,6 +86,9 @@ func TestLocalArbiter_RegisterDispute(t *testing.T) {
 				if dispute.Status != DisputeOpen {
 					t.Errorf("Registered dispute status = %v, want %v", dispute.Status, DisputeOpen)
 				}
+				if dispute.Requester != tt.requester {
+					t.Errorf("Registered dispute requester = %v, want %v", dispute.Requester, tt.requester)
+				}
 			}
 		})
 	}
@@ -75,7 +100,7 @@ func TestLocalArbiter_SubmitEvidence(t *testing.T) {
 		ID:            "test-payment-1",
 		DisputeReason: "goods not received",
 	}
-	arbiter.RegisterDispute(payment)
+	arbiter.RegisterDispute(payment, RoleBuyer)
 
 	tests := []struct {
 		name      string
@@ -166,7 +191,7 @@ func TestLocalArbiter_SubmitEvidence_AfterResolution(t *testing.T) {
 		ID:            "test-payment-1",
 		DisputeReason: "test reason",
 	}
-	arbiter.RegisterDispute(payment)
+	arbiter.RegisterDispute(payment, RoleBuyer)
 
 	// Resolve the dispute
 	resolution := &Resolution{
@@ -196,7 +221,7 @@ func TestLocalArbiter_GetResolution(t *testing.T) {
 		ID:            "test-payment-1",
 		DisputeReason: "test reason",
 	}
-	arbiter.RegisterDispute(payment)
+	arbiter.RegisterDispute(payment, RoleSeller)
 
 	// Before resolution
 	_, err := arbiter.GetResolution(payment.ID)
@@ -246,7 +271,7 @@ func TestLocalArbiter_GetDispute(t *testing.T) {
 		ID:            "test-payment-1",
 		DisputeReason: "test reason",
 	}
-	arbiter.RegisterDispute(payment)
+	arbiter.RegisterDispute(payment, RoleSeller)
 
 	dispute, err := arbiter.GetDispute(payment.ID)
 	if err != nil {
@@ -279,7 +304,11 @@ func TestLocalArbiter_ListOpenDisputes(t *testing.T) {
 			ID:            fmt.Sprintf("payment-%d", i),
 			DisputeReason: "test reason",
 		}
-		arbiter.RegisterDispute(payment)
+		requester := RoleBuyer
+		if i%2 == 0 {
+			requester = RoleSeller
+		}
+		arbiter.RegisterDispute(payment, requester)
 	}
 
 	disputes, err = arbiter.ListOpenDisputes()
@@ -333,7 +362,7 @@ func TestLocalArbiter_ResolveDispute(t *testing.T) {
 					ID:            "test-payment-1",
 					DisputeReason: "test",
 				}
-				la.RegisterDispute(payment)
+				la.RegisterDispute(payment, RoleBuyer)
 				return payment.ID
 			},
 			resolution: nil,
@@ -346,7 +375,7 @@ func TestLocalArbiter_ResolveDispute(t *testing.T) {
 					ID:            "test-payment-2",
 					DisputeReason: "test",
 				}
-				la.RegisterDispute(payment)
+				la.RegisterDispute(payment, RoleSeller)
 				return payment.ID
 			},
 			resolution: &Resolution{
@@ -364,7 +393,7 @@ func TestLocalArbiter_ResolveDispute(t *testing.T) {
 					ID:            "test-payment-3",
 					DisputeReason: "test",
 				}
-				la.RegisterDispute(payment)
+				la.RegisterDispute(payment, RoleBuyer)
 				la.ResolveDispute(payment.ID, &Resolution{
 					Decision:  RoleBuyer,
 					Reason:    "first resolution",
@@ -424,7 +453,7 @@ func TestLocalArbiter_CloseDispute(t *testing.T) {
 		ID:            "test-payment-1",
 		DisputeReason: "test",
 	}
-	arbiter.RegisterDispute(payment)
+	arbiter.RegisterDispute(payment, RoleBuyer)
 
 	err = arbiter.CloseDispute(payment.ID)
 	if err != nil {

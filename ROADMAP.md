@@ -100,7 +100,7 @@
   - **Risk**: Direct state manipulation bypasses escrow rules
   - **Reference**: AUDIT.md lines 2766-2785
 
-- [ ] **Implement signature replay protection** (types.go:SignatureData, escrow.go validation)
+- [x] **Implement signature replay protection** (types.go:SignatureData, escrow.go validation)
   - Add nonce field to SignatureData
   - Bind signatures to specific payment ID (include in signature data)
   - Implement signature deduplication (track used signatures)
@@ -108,7 +108,7 @@
   - **Risk**: Signatures can be reused across different payments
   - **Reference**: AUDIT.md lines 2766-2785
 
-- [ ] **Fix hardcoded dispute requester** (dispute.go:RegisterDispute)
+- [x] **Fix hardcoded dispute requester** (dispute.go:RegisterDispute)
   - Add `requester MultisigRole` parameter to `RegisterDispute()`
   - Pass actual requester from `RequestDispute()` call
   - Validate requester is buyer or seller (not arbiter)
@@ -116,7 +116,7 @@
   - **Risk**: All disputes recorded as buyer-initiated, breaking audit trail
   - **Reference**: AUDIT.md lines 3627-3641, dispute.go:160
 
-- [ ] **Integrate arbiter registration with payment system** (escrow.go:RequestDispute, dispute.go)
+- [x] **Integrate arbiter registration with payment system** (escrow.go:RequestDispute, dispute.go)
   - Call `Arbiter.RegisterDispute()` when dispute is requested
   - Add rollback logic if registration fails
   - Ensure payment state and arbiter state stay synchronized

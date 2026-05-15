@@ -103,8 +103,9 @@ const (
 // Integrators can provide their own implementations of this interface
 type Arbiter interface {
 	// RegisterDispute registers a new dispute in the arbiter system
+	// requester specifies which party (buyer or seller) initiated the dispute
 	// Returns error if registration fails
-	RegisterDispute(payment *Payment) error
+	RegisterDispute(payment *Payment, requester MultisigRole) error
 
 	// SubmitEvidence allows parties to submit evidence for a dispute
 	// Returns error if evidence is invalid or submission fails
@@ -138,12 +139,18 @@ func NewLocalArbiter() *LocalArbiter {
 }
 
 // RegisterDispute registers a new dispute in the arbiter system
-func (la *LocalArbiter) RegisterDispute(payment *Payment) error {
+// requester specifies which party (buyer or seller) initiated the dispute
+func (la *LocalArbiter) RegisterDispute(payment *Payment, requester MultisigRole) error {
 	la.mu.Lock()
 	defer la.mu.Unlock()
 
 	if payment == nil {
 		return fmt.Errorf("payment cannot be nil")
+	}
+
+	// Validate requester is buyer or seller
+	if requester != RoleBuyer && requester != RoleSeller {
+		return fmt.Errorf("requester must be buyer or seller, got: %s", requester)
 	}
 
 	// Check if dispute already exists
@@ -153,7 +160,7 @@ func (la *LocalArbiter) RegisterDispute(payment *Payment) error {
 
 	dispute := &Dispute{
 		PaymentID: payment.ID,
-		Requester: RoleBuyer, // Default, should be set based on who requested
+		Requester: requester,
 		Reason:    payment.DisputeReason,
 		Evidence:  make([]*Evidence, 0),
 		CreatedAt: time.Now(),

@@ -38,6 +38,7 @@ type EscrowManager struct {
 	paywall        *Paywall
 	auditLogger    AuditLogger
 	stateValidator *EscrowStateValidator
+	arbiter        Arbiter // optional arbiter for dispute registration
 }
 
 // NewEscrowManager creates a new escrow manager for the given paywall
@@ -67,7 +68,34 @@ func NewEscrowManagerWithAudit(pw *Paywall, logger AuditLogger) (*EscrowManager,
 		paywall:        pw,
 		auditLogger:    logger,
 		stateValidator: NewEscrowStateValidator(),
+		arbiter:        nil, // No arbiter by default
 	}, nil
+}
+
+// NewEscrowManagerWithArbiter creates an escrow manager with arbiter integration
+// Use this when you want automatic dispute registration with an arbiter system
+func NewEscrowManagerWithArbiter(pw *Paywall, logger AuditLogger, arbiter Arbiter) (*EscrowManager, error) {
+	if pw == nil {
+		return nil, errors.New("paywall cannot be nil")
+	}
+	if logger == nil {
+		return nil, errors.New("audit logger cannot be nil")
+	}
+	if arbiter == nil {
+		return nil, errors.New("arbiter cannot be nil")
+	}
+	return &EscrowManager{
+		paywall:        pw,
+		auditLogger:    logger,
+		stateValidator: NewEscrowStateValidator(),
+		arbiter:        arbiter,
+	}, nil
+}
+
+// SetArbiter sets the arbiter for the escrow manager
+// This allows adding arbiter integration after creation
+func (em *EscrowManager) SetArbiter(arbiter Arbiter) {
+	em.arbiter = arbiter
 }
 
 // validateSignatureData performs cryptographic validation on signature data
@@ -449,6 +477,32 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment state: %w", err)
+	}
+
+	// Register dispute with arbiter system if configured
+	if em.arbiter != nil {
+		if err := em.arbiter.RegisterDispute(payment, requesterRole); err != nil {
+			// Rollback payment state if arbiter registration fails
+			payment.EscrowState = prevState
+			payment.DisputeReason = ""
+			if rollbackErr := em.paywall.Store.UpdatePayment(payment); rollbackErr != nil {
+				// Log rollback failure but return original error
+				log.Printf("ERROR: Failed to rollback payment state after arbiter registration failure: %v", rollbackErr)
+			}
+			em.auditLogger.LogAction(&AuditLogEntry{
+				PaymentID:     paymentID,
+				Action:        AuditActionDispute,
+				PreviousState: prevState,
+				NewState:      prevState,
+				ActorRole:     requesterRole,
+				Metadata: map[string]string{
+					"error":  err.Error(),
+					"reason": reason,
+					"status": "arbiter_registration_failed",
+				},
+			})
+			return fmt.Errorf("failed to register dispute with arbiter: %w", err)
+		}
 	}
 
 	// Log dispute request in audit trail

@@ -1425,3 +1425,172 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+func TestEscrowManager_ArbiterIntegration(t *testing.T) {
+	store := NewMemoryStore()
+	pw := &Paywall{
+		Store:              store,
+		HDWallets:          make(map[wallet.WalletType]wallet.HDWallet),
+		multisigEnabled:    true,
+		participantPubKeys: make(map[wallet.WalletType][][]byte),
+	}
+
+	arbiter := NewLocalArbiter()
+	logger := NewMemoryAuditLogger()
+
+	t.Run("RequestDispute with arbiter registers dispute", func(t *testing.T) {
+		em, err := NewEscrowManagerWithArbiter(pw, logger, arbiter)
+		if err != nil {
+			t.Fatalf("NewEscrowManagerWithArbiter() error = %v", err)
+		}
+
+		// Create escrowed payment
+		payment := &Payment{
+			ID:                     "test-payment-arbiter",
+			EscrowState:            EscrowFunded,
+			DisputeReason:          "",
+			MultisigEnabled:        true,
+			Addresses:              map[wallet.WalletType]string{wallet.Bitcoin: "test-addr"},
+			StateTransitionHistory: []StateTransitionHistory{},
+		}
+		store.CreatePayment(payment)
+
+		// Request dispute
+		err = em.RequestDispute(payment.ID, RoleBuyer, "goods not received")
+		if err != nil {
+			t.Fatalf("RequestDispute() error = %v", err)
+		}
+
+		// Verify payment state
+		updatedPayment, _ := store.GetPayment(payment.ID)
+		if updatedPayment.EscrowState != EscrowDisputed {
+			t.Errorf("Payment state = %v, want %v", updatedPayment.EscrowState, EscrowDisputed)
+		}
+
+		// Verify arbiter registration
+		dispute, err := arbiter.GetDispute(payment.ID)
+		if err != nil {
+			t.Fatalf("GetDispute() error = %v, dispute should be registered", err)
+		}
+		if dispute.Requester != RoleBuyer {
+			t.Errorf("Dispute requester = %v, want %v", dispute.Requester, RoleBuyer)
+		}
+		if dispute.Reason != "goods not received" {
+			t.Errorf("Dispute reason = %v, want 'goods not received'", dispute.Reason)
+		}
+	})
+
+	t.Run("RequestDispute with seller as requester", func(t *testing.T) {
+		em, err := NewEscrowManagerWithArbiter(pw, logger, arbiter)
+		if err != nil {
+			t.Fatalf("NewEscrowManagerWithArbiter() error = %v", err)
+		}
+
+		// Create escrowed payment
+		payment := &Payment{
+			ID:                     "test-payment-seller-dispute",
+			EscrowState:            EscrowFunded,
+			DisputeReason:          "",
+			MultisigEnabled:        true,
+			Addresses:              map[wallet.WalletType]string{wallet.Bitcoin: "test-addr-2"},
+			StateTransitionHistory: []StateTransitionHistory{},
+		}
+		store.CreatePayment(payment)
+
+		// Request dispute as seller
+		err = em.RequestDispute(payment.ID, RoleSeller, "buyer not responding")
+		if err != nil {
+			t.Fatalf("RequestDispute() error = %v", err)
+		}
+
+		// Verify arbiter registration with correct requester
+		dispute, err := arbiter.GetDispute(payment.ID)
+		if err != nil {
+			t.Fatalf("GetDispute() error = %v", err)
+		}
+		if dispute.Requester != RoleSeller {
+			t.Errorf("Dispute requester = %v, want %v", dispute.Requester, RoleSeller)
+		}
+	})
+
+	t.Run("RequestDispute without arbiter still works", func(t *testing.T) {
+		em, err := NewEscrowManagerWithAudit(pw, logger)
+		if err != nil {
+			t.Fatalf("NewEscrowManagerWithAudit() error = %v", err)
+		}
+
+		// Create escrowed payment
+		payment := &Payment{
+			ID:                     "test-payment-no-arbiter",
+			EscrowState:            EscrowFunded,
+			DisputeReason:          "",
+			MultisigEnabled:        true,
+			Addresses:              map[wallet.WalletType]string{wallet.Bitcoin: "test-addr-3"},
+			StateTransitionHistory: []StateTransitionHistory{},
+		}
+		store.CreatePayment(payment)
+
+		// Request dispute without arbiter
+		err = em.RequestDispute(payment.ID, RoleBuyer, "test dispute")
+		if err != nil {
+			t.Fatalf("RequestDispute() error = %v", err)
+		}
+
+		// Verify payment state changed
+		updatedPayment, _ := store.GetPayment(payment.ID)
+		if updatedPayment.EscrowState != EscrowDisputed {
+			t.Errorf("Payment state = %v, want %v", updatedPayment.EscrowState, EscrowDisputed)
+		}
+
+		// Arbiter should not have this dispute
+		_, err = arbiter.GetDispute(payment.ID)
+		if err != ErrDisputeNotFound {
+			t.Errorf("GetDispute() error = %v, want %v (dispute should not exist without arbiter)", err, ErrDisputeNotFound)
+		}
+	})
+
+	t.Run("SetArbiter after creation", func(t *testing.T) {
+		em, err := NewEscrowManagerWithAudit(pw, logger)
+		if err != nil {
+			t.Fatalf("NewEscrowManagerWithAudit() error = %v", err)
+		}
+
+		// Initially no arbiter
+		if em.arbiter != nil {
+			t.Error("EscrowManager should not have arbiter initially")
+		}
+
+		// Set arbiter
+		newArbiter := NewLocalArbiter()
+		em.SetArbiter(newArbiter)
+
+		if em.arbiter == nil {
+			t.Error("SetArbiter() did not set arbiter")
+		}
+
+		// Create payment and request dispute
+		payment := &Payment{
+			ID:                     "test-payment-set-arbiter",
+			EscrowState:            EscrowFunded,
+			DisputeReason:          "",
+			MultisigEnabled:        true,
+			Addresses:              map[wallet.WalletType]string{wallet.Bitcoin: "test-addr-4"},
+			StateTransitionHistory: []StateTransitionHistory{},
+		}
+		store.CreatePayment(payment)
+
+		err = em.RequestDispute(payment.ID, RoleSeller, "dispute after arbiter set")
+		if err != nil {
+			t.Fatalf("RequestDispute() error = %v", err)
+		}
+
+		// Verify dispute registered with newly set arbiter
+		dispute, err := newArbiter.GetDispute(payment.ID)
+		if err != nil {
+			t.Fatalf("GetDispute() error = %v", err)
+		}
+		if dispute.Requester != RoleSeller {
+			t.Errorf("Dispute requester = %v, want %v", dispute.Requester, RoleSeller)
+		}
+	})
+}
