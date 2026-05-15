@@ -222,6 +222,15 @@ type Paywall struct {
 	extendEscrowOnDispute time.Duration
 	// disputeHistory tracks dispute counts per participant for rate limiting
 	disputeHistory map[string][]time.Time
+
+	// Transaction broadcasting (optional - for multisig workflows)
+
+	// btcBroadcaster handles Bitcoin transaction broadcasting to the network
+	// Initialized if BTCRPCHost is provided in config
+	btcBroadcaster *BTCBroadcaster
+	// xmrBroadcaster handles Monero transaction broadcasting to the network
+	// Initialized if XMR RPC config is provided
+	xmrBroadcaster *XMRBroadcaster
 }
 
 func validateConfig(config *Config) error {
