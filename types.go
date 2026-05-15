@@ -67,6 +67,9 @@ type Payment struct {
 	DisputeReason string `json:"dispute_reason,omitempty"`
 	// DisputeFee is the fee paid to file the dispute (percentage of escrow amount)
 	DisputeFee float64 `json:"dispute_fee,omitempty"`
+	// DisputeFeePaid indicates whether the dispute fee has been paid and verified
+	// Must be true before RequestDispute will succeed (when DisputeFeePercent > 0)
+	DisputeFeePaid bool `json:"dispute_fee_paid,omitempty"`
 	// DisputeFiledAt is when the dispute was filed
 	DisputeFiledAt time.Time `json:"dispute_filed_at,omitempty"`
 	// DisputeEvidenceSizeBytes tracks total size of evidence submitted (for DoS prevention)

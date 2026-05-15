@@ -1682,6 +1682,11 @@ func TestDisputeAntiSpam_DisputeFee(t *testing.T) {
 		t.Fatalf("Failed to create payment: %v", err)
 	}
 
+	// Record dispute fee payment (simulating external verification)
+	if err := em.RecordDisputeFeePayment("payment-1", RoleBuyer); err != nil {
+		t.Fatalf("Failed to record dispute fee payment: %v", err)
+	}
+
 	// Request dispute
 	err = em.RequestDispute("payment-1", RoleBuyer, "Test dispute")
 	if err != nil {

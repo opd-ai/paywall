@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -481,6 +482,45 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, err
 	}
 
+	// Initialize transaction broadcasters if RPC config is provided
+	if config.BTCRPCHost != "" {
+		chainParams, err := getChaincfgParams(config.TestNet)
+		if err != nil {
+			pcancel()
+			return nil, fmt.Errorf("failed to get chain params: %w", err)
+		}
+		btcBroadcaster, err := NewBTCBroadcaster(
+			config.BTCRPCHost,
+			config.BTCRPCUser,
+			config.BTCRPCPass,
+			!config.BTCDisableTLS,
+			chainParams,
+		)
+		if err != nil {
+			log.Printf("Warning: failed to initialize Bitcoin broadcaster: %v", err)
+			// Don't fail initialization - broadcasting is optional
+		} else {
+			p.btcBroadcaster = btcBroadcaster
+			log.Printf("Bitcoin transaction broadcaster initialized (RPC: %s)", config.BTCRPCHost)
+		}
+	}
+
+	// Initialize Monero broadcaster if XMR config is provided
+	if config.XMRRPC != "" && config.XMRUser != "" && config.XMRPassword != "" {
+		xmrBroadcaster, err := NewXMRBroadcaster(
+			config.XMRRPC,
+			config.XMRUser,
+			config.XMRPassword,
+		)
+		if err != nil {
+			log.Printf("Warning: failed to initialize Monero broadcaster: %v", err)
+			// Don't fail initialization - broadcasting is optional
+		} else {
+			p.xmrBroadcaster = xmrBroadcaster
+			log.Printf("Monero transaction broadcaster initialized (RPC: %s)", config.XMRRPC)
+		}
+	}
+
 	startBackgroundWorkers(p, hdWallets)
 	return p, nil
 }
@@ -504,6 +544,28 @@ func (p *Paywall) xmrWalletAddress() (string, error) {
 		return "", fmt.Errorf("failed to get XMR address: %w", err)
 	}
 	return xmrAddress, nil
+}
+
+// getChaincfgParams returns the appropriate Bitcoin chain parameters
+func getChaincfgParams(testnet bool) (*chaincfg.Params, error) {
+	if testnet {
+		return &chaincfg.TestNet3Params, nil
+	}
+	return &chaincfg.MainNetParams, nil
+}
+
+// GetBTCBroadcaster returns the Bitcoin transaction broadcaster if configured
+// Returns nil if Bitcoin RPC was not configured or initialization failed
+// Users should call this after NewPaywall to set up MultisigCoordinator
+func (p *Paywall) GetBTCBroadcaster() *BTCBroadcaster {
+	return p.btcBroadcaster
+}
+
+// GetXMRBroadcaster returns the Monero transaction broadcaster if configured
+// Returns nil if Monero RPC was not configured or initialization failed
+// Users should call this after NewPaywall to set up MultisigCoordinator
+func (p *Paywall) GetXMRBroadcaster() *XMRBroadcaster {
+	return p.xmrBroadcaster
 }
 
 func (p *Paywall) addressMap() (map[wallet.WalletType]string, error) {

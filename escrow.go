@@ -470,6 +470,23 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 		return err
 	}
 
+	// Validate dispute fee payment if required
+	if err := em.validateDisputeFeePayment(paymentID, requesterRole); err != nil {
+		em.auditLogger.LogAction(&AuditLogEntry{
+			PaymentID:     paymentID,
+			Action:        AuditActionDispute,
+			PreviousState: payment.EscrowState,
+			NewState:      payment.EscrowState,
+			ActorRole:     requesterRole,
+			Metadata: map[string]string{
+				"error":  err.Error(),
+				"reason": reason,
+				"status": "fee_not_paid",
+			},
+		})
+		return fmt.Errorf("dispute fee not paid: %w", err)
+	}
+
 	// Calculate and record dispute fee
 	disputeFee := em.calculateDisputeFee(payment)
 	if disputeFee > 0 {
@@ -1360,6 +1377,88 @@ func (em *EscrowManager) checkEvidenceSize(payment *Payment, newEvidenceSize int
 		return fmt.Errorf("evidence size limit exceeded: %d bytes total (max: %d)",
 			totalSize, em.paywall.maxEvidenceSizeBytes)
 	}
+
+	return nil
+}
+
+// validateDisputeFeePayment validates that the dispute fee has been paid
+// This check prevents spam disputes by requiring a fee payment before filing
+// Returns error if fee is required but not paid
+func (em *EscrowManager) validateDisputeFeePayment(paymentID string, requesterRole MultisigRole) error {
+	// If no dispute fee is configured, no validation needed
+	if em.paywall.disputeFeePercent <= 0 {
+		return nil // Fee not required
+	}
+
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	// Check if dispute fee has been marked as paid
+	if !payment.DisputeFeePaid {
+		feeAmount := em.calculateDisputeFee(payment)
+		return fmt.Errorf("dispute fee of %.8f must be paid before filing dispute (use RecordDisputeFeePayment after verifying payment)", feeAmount)
+	}
+
+	return nil
+}
+
+// RecordDisputeFeePayment marks the dispute fee as paid for a payment
+// This should be called after externally verifying that the fee payment was confirmed on-chain
+//
+// Usage pattern:
+//  1. Calculate dispute fee using payment.DisputeFee or calculateDisputeFee
+//  2. Generate and provide a dispute fee payment address to the requester
+//  3. Wait for blockchain confirmation of fee payment to that address
+//  4. Call this method to record the payment and allow dispute filing
+//
+// Parameters:
+//   - paymentID: The escrow payment ID for which dispute fee was paid
+//   - requesterRole: The role of the party who paid the fee (buyer or seller)
+//
+// Security note: This method trusts the caller to have verified the payment.
+// In production, implement automated blockchain verification before calling this.
+func (em *EscrowManager) RecordDisputeFeePayment(paymentID string, requesterRole MultisigRole) error {
+	payment, err := em.paywall.Store.GetPayment(paymentID)
+	if err != nil {
+		return fmt.Errorf("failed to get payment: %w", err)
+	}
+
+	if payment == nil {
+		return fmt.Errorf("payment not found: %s", paymentID)
+	}
+
+	// Verify payment is in a state that can have dispute fee paid
+	if payment.EscrowState != EscrowFunded {
+		return fmt.Errorf("can only pay dispute fee for funded escrows, current state: %s", payment.EscrowState.String())
+	}
+
+	// Mark fee as paid
+	payment.DisputeFeePaid = true
+
+	// Update payment in store
+	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
+		return fmt.Errorf("failed to update payment: %w", err)
+	}
+
+	// Log fee payment in audit trail
+	em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        AuditActionDispute,
+		PreviousState: payment.EscrowState,
+		NewState:      payment.EscrowState,
+		ActorRole:     requesterRole,
+		Metadata: map[string]string{
+			"action":     "dispute_fee_paid",
+			"fee_amount": fmt.Sprintf("%.8f", payment.DisputeFee),
+			"paid_by":    string(requesterRole),
+		},
+	})
 
 	return nil
 }
