@@ -297,6 +297,17 @@ func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout tim
 		em.metrics.IncrementEscrowCreated()
 	}
 
+	if em.paywall.logger != nil {
+		currency := wallet.Bitcoin
+		amount := 0.0
+		for walletType, walletAmount := range payment.Amounts {
+			currency = walletType
+			amount = walletAmount
+			break
+		}
+		em.paywall.logger.LogEscrowCreated(payment.ID, amount, currency, []MultisigRole{RoleBuyer, RoleSeller, RoleArbiter})
+	}
+
 	return payment.ID, nil
 }
 
@@ -358,6 +369,17 @@ func (em *EscrowManager) FundEscrow(paymentID string) error {
 	// Track metrics
 	if em.metrics != nil {
 		em.metrics.IncrementEscrowFunded()
+	}
+
+	if em.paywall.logger != nil {
+		currency := wallet.Bitcoin
+		amount := 0.0
+		for walletType, walletAmount := range payment.Amounts {
+			currency = walletType
+			amount = walletAmount
+			break
+		}
+		em.paywall.logger.LogEscrowFunded(paymentID, payment.TransactionID, amount, currency)
 	}
 
 	return nil
@@ -444,6 +466,10 @@ func (em *EscrowManager) ReleaseToSeller(paymentID string, buyerSig, sellerSig *
 	// Track metrics
 	if em.metrics != nil {
 		em.metrics.IncrementEscrowCompleted()
+	}
+
+	if em.paywall.logger != nil {
+		em.paywall.logger.LogEscrowCompleted(paymentID, RoleSeller)
 	}
 
 	return nil
@@ -592,6 +618,10 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 		em.metrics.IncrementEscrowDisputed()
 	}
 
+	if em.paywall.logger != nil {
+		em.paywall.logger.LogDisputeInitiated(paymentID, requesterRole, reason)
+	}
+
 	return nil
 }
 
@@ -703,6 +733,14 @@ func (em *EscrowManager) ResolveDispute(paymentID string, arbiterSig, winnerSig 
 	// Track metrics
 	if em.metrics != nil {
 		em.metrics.IncrementEscrowDisputeResolved()
+	}
+
+	if em.paywall.logger != nil {
+		resolutionTimeMs := int64(0)
+		if !payment.DisputeFiledAt.IsZero() {
+			resolutionTimeMs = time.Since(payment.DisputeFiledAt).Milliseconds()
+		}
+		em.paywall.logger.LogDisputeResolved(paymentID, winnerSig.Role, em.paywall.consensusManager != nil, resolutionTimeMs)
 	}
 
 	return nil
@@ -822,6 +860,10 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 		em.metrics.IncrementEscrowRefunded()
 	}
 
+	if em.paywall.logger != nil {
+		em.paywall.logger.LogEscrowRefunded(paymentID, RoleBuyer)
+	}
+
 	return nil
 }
 
@@ -842,6 +884,10 @@ func (em *EscrowManager) logStateTransition(paymentID string, action AuditAction
 		// Log audit failure but don't fail the operation
 		// Audit failures should be logged but not block escrow operations
 		log.Printf("WARNING: failed to log state transition %s for payment %s: %v", action, paymentID, err)
+	}
+
+	if em.paywall.logger != nil {
+		em.paywall.logger.LogEscrowStateTransition(paymentID, prevState, newState, actorRole)
 	}
 }
 

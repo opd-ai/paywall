@@ -172,6 +172,9 @@ func (m *CryptoChainMonitor) checkWalletPayment(payment *Payment, walletType wal
 		payment.Status = StatusConfirmed
 		payment.Confirmations = m.paywall.minConfirmations
 		m.paywall.Store.UpdatePayment(payment)
+		if m.paywall.logger != nil {
+			m.paywall.logger.LogPaymentConfirmed(payment.ID, payment.Confirmations, "")
+		}
 	}
 	return nil
 }

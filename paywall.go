@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -41,6 +42,9 @@ type Config struct {
 	TestNet bool
 	// Store implements the payment persistence interface
 	Store PaymentStore
+	// Logger provides structured logging for paywall lifecycle events
+	// Optional: defaults to NewDefaultLogger() when nil
+	Logger *StructuredLogger
 	// XMRUser is the monero-rpc username
 	XMRUser string
 	// XMRPassword is the monero-rpc password
@@ -194,6 +198,8 @@ type Paywall struct {
 	ctx context.Context
 	// cancel is the context cancellation function
 	cancel context.CancelFunc
+	// logger emits structured events for payment and escrow operations
+	logger *StructuredLogger
 
 	// Multisig configuration (optional - defaults to single-signature mode)
 
@@ -499,6 +505,7 @@ func NewPaywall(config Config) (*Paywall, error) {
 	p := &Paywall{
 		HDWallets:             hdWallets,
 		Store:                 config.Store,
+		logger:                config.Logger,
 		prices:                prices,
 		paymentTimeout:        config.PaymentTimeout,
 		minConfirmations:      config.MinConfirmations,
@@ -519,6 +526,12 @@ func NewPaywall(config Config) (*Paywall, error) {
 		maxEvidenceSizeBytes:  config.MaxEvidenceSizeBytes,
 		extendEscrowOnDispute: config.ExtendEscrowOnDispute,
 		disputeHistory:        make(map[string][]time.Time),
+	}
+
+	if p.logger == nil {
+		// Keep default logging disabled for performance-sensitive paths.
+		// Callers can provide Config.Logger to enable structured event output.
+		p.logger = NewStructuredLogger(io.Discard, LogLevelError, true)
 	}
 
 	if p.disputePeriod <= 0 {
@@ -769,6 +782,12 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 		// Rollback address generation on storage failure
 		p.rollbackAddressGeneration(generatedWallets)
 		return nil, fmt.Errorf("store payment: %w", err)
+	}
+
+	if p.logger != nil {
+		for walletType, amount := range payment.Amounts {
+			p.logger.LogPaymentCreated(payment.ID, amount, walletType, payment.MultisigEnabled)
+		}
 	}
 
 	return payment, nil
