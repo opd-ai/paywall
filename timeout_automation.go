@@ -367,12 +367,17 @@ func (btp *BitcoinTimestampProvider) GetLatestBlockTime() (time.Time, error) {
 		return time.Time{}, fmt.Errorf("rpc url not configured")
 	}
 
-	// Use blockchain.info public API for mainnet
-	// For testnet, would need a different API or local node
-	url := "https://blockchain.info/latestblock"
+	// For testnet, use system time to avoid external API dependency
+	// For mainnet, query blockchain.info public API
 	if btp.testnet {
-		url = "https://blockstream.info/testnet/api/blocks/tip/height"
+		// For testnet, we get block height, need another call for timestamp
+		// For simplicity, use system time with logged warning
+		log.Printf("testnet block timestamp estimation not fully implemented, using system time")
+		return time.Now(), nil
 	}
+
+	// Use blockchain.info public API for mainnet
+	url := "https://blockchain.info/latestblock"
 
 	resp, err := http.Get(url)
 	if err != nil {
@@ -387,13 +392,6 @@ func (btp *BitcoinTimestampProvider) GetLatestBlockTime() (time.Time, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read response body: %w", err)
-	}
-
-	if btp.testnet {
-		// For testnet, we get block height, need another call for timestamp
-		// For simplicity, use system time with logged warning
-		log.Printf("testnet block timestamp estimation not fully implemented, using system time")
-		return time.Now(), nil
 	}
 
 	// Parse blockchain.info response
