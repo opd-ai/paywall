@@ -113,6 +113,15 @@ func (w *MoneroHDWallet) MakeMultisig(participantInfos []string, threshold int) 
 		return "", "", fmt.Errorf("make multisig failed: %w", err)
 	}
 
+	// Store the multisig address and config in the wallet
+	w.multisigAddress = resp.Address
+	w.multisigConfig = &MultisigConfig{
+		Enabled:      true,
+		RequiredSigs: threshold,
+		TotalSigners: total,
+		MultisigInfo: resp.MultisigInfo,
+	}
+
 	return resp.Address, resp.MultisigInfo, nil
 }
 
@@ -239,6 +248,9 @@ func (w *MoneroHDWallet) FinalizeMultisig(participantInfos []string) (string, er
 	if err != nil {
 		return "", fmt.Errorf("finalize multisig failed: %w", err)
 	}
+
+	// Update the stored multisig address
+	w.multisigAddress = resp.Address
 
 	return resp.Address, nil
 }

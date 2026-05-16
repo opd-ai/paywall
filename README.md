@@ -149,6 +149,62 @@ loadedWallet, err := wallet.LoadFromFile(config)
 
 **Note on Wallet Recovery**: You can now use BIP39 mnemonics for wallet recovery! The mnemonic provides full wallet recovery including the seed. However, the `nextIndex` counter (tracking which addresses have been used) is not stored in the mnemonic. To preserve address history, back up both the mnemonic AND the encrypted wallet files. If you lose the wallet file but have the mnemonic, addresses will regenerate from the beginning, which may cause address reuse if previous addresses received payments.
 
+#### Monero Multisig Support
+
+The paywall now supports Monero multisig wallets for escrow and multi-party payment scenarios. Monero multisig setup is a multi-step process requiring coordination between all participants.
+
+**2-of-3 Multisig Setup Example**:
+
+```go
+// Create wallets for all three participants
+wallet1, _ := wallet.NewMoneroWallet(config1, 1)
+wallet2, _ := wallet.NewMoneroWallet(config2, 1)
+wallet3, _ := wallet.NewMoneroWallet(config3, 1)
+
+// Step 1: Each participant prepares multisig
+info1, _ := wallet1.PrepareMultisig(2) // threshold = 2
+info2, _ := wallet2.PrepareMultisig(2)
+info3, _ := wallet3.PrepareMultisig(2)
+
+// Step 2: Each participant makes multisig with others' info
+round2Info1, addr1, _ := wallet1.MakeMultisig([]string{info2, info3}, 2)
+round2Info2, addr2, _ := wallet2.MakeMultisig([]string{info1, info3}, 2)
+round2Info3, addr3, _ := wallet3.MakeMultisig([]string{info1, info2}, 2)
+
+// Step 3: Finalize multisig (required for M-of-N where M < N)
+wallet1.FinalizeMultisig([]string{round2Info2, round2Info3})
+wallet2.FinalizeMultisig([]string{round2Info1, round2Info3})
+wallet3.FinalizeMultisig([]string{round2Info1, round2Info2})
+
+// Now wallets are ready for multisig payments
+// Use with EscrowManager for marketplace/subscription scenarios
+```
+
+**Using Monero Multisig with Escrow**:
+
+```go
+// After multisig setup, create escrow payment
+escrowMgr := paywall.NewEscrowManager(pw)
+payment, _ := escrowMgr.CreateEscrow(
+    0.1,              // 0.1 XMR
+    wallet.Monero,    // Use Monero multisig
+    buyerPubKey,
+    sellerPubKey,
+    arbiterPubKey,
+    2,                // 2-of-3 signatures required
+)
+
+// The payment uses the Monero multisig address
+// Transaction signing requires coordination via ExportMultisigInfo/ImportMultisigInfo
+```
+
+**Important Notes**:
+- Monero multisig addresses are wallet-level, not per-payment like subaddresses
+- Each wallet must complete the full setup process before use
+- For M-of-N multisig (e.g., 2-of-3), the FinalizeMultisig step is required
+- Transaction signing requires additional coordination rounds (ExportMultisigInfo/ImportMultisigInfo)
+- Keep multisig setup info secure - loss of info may make funds unrecoverable
+
 ### Storage Backends
 
 #### Available Storage Options

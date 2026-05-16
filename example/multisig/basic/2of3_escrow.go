@@ -5,10 +5,10 @@
 //
 // Current implementation status:
 //   - ✓ Bitcoin HD wallet multisig (P2WSH/P2SH)
+//   - ✓ Monero HD wallet multisig (via RPC workflow)
 //   - ✓ Multisig coordination HTTP API (signature collection)
 //   - ✓ Escrow state machine (pending, funded, completed, disputed, refunded)
 //   - ✓ 2-of-3 signature coordination with roles (buyer, seller, arbiter)
-//   - ⧗ Monero multisig support (planned)
 package main
 
 import (

@@ -1,15 +1,15 @@
 // Package main demonstrates a subscription service with arbiter-backed escrow
 //
 // NOTE: This example demonstrates the multisig coordination API and escrow workflows
-// using fully implemented Bitcoin multisig address generation.
+// using fully implemented Bitcoin and Monero multisig address generation.
 //
 // Current implementation status:
 //   - ✓ Bitcoin HD wallet multisig (P2WSH/P2SH)
+//   - ✓ Monero HD wallet multisig (via RPC workflow)
 //   - ✓ EscrowManager for subscription lifecycle
 //   - ✓ Pro-rated refund logic
 //   - ✓ Service quality dispute resolution
 //   - ✓ Multi-party signature coordination
-//   - ⧗ Monero multisig support (planned)
 package main
 
 import (
