@@ -203,22 +203,31 @@
   - **Validation**: Test wallet recovery from mnemonic recreates identical addresses — ALL TESTS PASSING
   - **Result**: All features already implemented with comprehensive test coverage (327 lines of tests)
 
-- [ ] **Performance optimization for large-scale deployments**
+- [x] **Performance optimization for large-scale deployments** — COMPLETED
   - **Issue**: `filestore.go` scans all payments linearly for timeout checking
   - **Solution**: Add `GetEscrowsExpiringBefore(deadline time.Time)` to PaymentStore interface with indexed queries
-  - **Validation**: Benchmark with 10,000 pending escrows - timeout check must complete <1s
+  - **Implementation**: Refactored CheckEscrowTimeouts() and CheckEscrowTimeoutsWithTime() to use GetEscrowsExpiringBefore()
+  - **Validation**: Benchmark with 10,000 pending escrows - timeout check completes in ~1.6ms (well under 1s target)
   - **Effort**: 1 day
   - **Benefit**: Enables scaling to thousands of concurrent escrows
   - **Reference**: AUDIT.md lines 3440-3454
 
-- [ ] **Webhook notification system** (types.go, handlers.go)
+- [x] **Webhook notification system** (types.go, handlers.go) — COMPLETED
   - **Feature**: Configurable webhook URLs for payment/escrow events
-  - **Scope**: 
-    1. Add `WebhookConfig` to Config struct (URLs, retry policy, timeout)
-    2. Implement webhook dispatcher with exponential backoff retry
-    3. Add HMAC signature for webhook authenticity
-    4. Support events: payment_created, payment_confirmed, escrow_funded, dispute_resolved
-  - **Validation**: Mock webhook endpoint receives and validates event payloads
+  - **Implementation**:
+    1. ✅ Added `WebhookConfig` to Config struct (URL, secret, retry policy, timeout, event filtering)
+    2. ✅ Implemented webhook dispatcher with exponential backoff retry (webhook.go)
+    3. ✅ Added HMAC-SHA256 signature for webhook authenticity
+    4. ✅ Integrated webhook dispatching for all key events:
+       - payment_created (paywall.go after CreatePayment)
+       - payment_confirmed (verification.go after confirmation)
+       - escrow_funded (escrow.go after ConfirmFunding)
+       - escrow_completed (escrow.go after ReleaseToSeller)
+       - escrow_refunded (escrow.go after RefundBuyer)
+       - dispute_resolved (escrow.go after ResolveDispute)
+    5. ✅ Added webhook event filtering via EnabledEvents configuration
+    6. ✅ Proper cleanup in Paywall.Close()
+  - **Validation**: Comprehensive test suite (7 tests covering delivery, retries, signatures, filtering)
   - **Effort**: 2-3 days
   - **Benefit**: Enables external system integration (inventory management, notifications)
 

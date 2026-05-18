@@ -397,6 +397,20 @@ func (em *EscrowManager) FundEscrow(paymentID string) error {
 		em.paywall.logger.LogEscrowFunded(paymentID, payment.TransactionID, amount, currency)
 	}
 
+	// Dispatch webhook for escrow funded event
+	if em.paywall.webhookDispatcher != nil {
+		em.paywall.webhookDispatcher.Dispatch(WebhookPayload{
+			Event:     EventEscrowFunded,
+			PaymentID: paymentID,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"transaction_id": payment.TransactionID,
+				"amounts":        payment.Amounts,
+				"escrow_timeout": payment.EscrowTimeout,
+			},
+		})
+	}
+
 	return nil
 }
 
@@ -485,6 +499,19 @@ func (em *EscrowManager) ReleaseToSeller(paymentID string, buyerSig, sellerSig *
 
 	if em.paywall.logger != nil {
 		em.paywall.logger.LogEscrowCompleted(paymentID, RoleSeller)
+	}
+
+	// Dispatch webhook for escrow completed event
+	if em.paywall.webhookDispatcher != nil {
+		em.paywall.webhookDispatcher.Dispatch(WebhookPayload{
+			Event:     EventEscrowCompleted,
+			PaymentID: paymentID,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"released_to": "seller",
+				"amounts":     payment.Amounts,
+			},
+		})
 	}
 
 	return nil
@@ -768,6 +795,25 @@ func (em *EscrowManager) ResolveDispute(paymentID string, arbiterSig, winnerSig 
 		em.paywall.logger.LogDisputeResolved(paymentID, winnerSig.Role, em.paywall.consensusManager != nil, resolutionTimeMs)
 	}
 
+	// Dispatch webhook for dispute resolved event
+	if em.paywall.webhookDispatcher != nil {
+		winner := "buyer"
+		if winnerSig.Role == RoleSeller {
+			winner = "seller"
+		}
+		em.paywall.webhookDispatcher.Dispatch(WebhookPayload{
+			Event:     EventDisputeResolved,
+			PaymentID: paymentID,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"winner":        winner,
+				"arbiter_id":    string(arbiterSig.PublicKey),
+				"resolution_ms": time.Since(payment.DisputeFiledAt).Milliseconds(),
+				"final_state":   newState.String(),
+			},
+		})
+	}
+
 	return nil
 }
 
@@ -889,6 +935,19 @@ func (em *EscrowManager) RefundBuyer(paymentID string, sig1, sig2 *SignatureData
 		em.paywall.logger.LogEscrowRefunded(paymentID, RoleBuyer)
 	}
 
+	// Dispatch webhook for escrow refunded event
+	if em.paywall.webhookDispatcher != nil {
+		em.paywall.webhookDispatcher.Dispatch(WebhookPayload{
+			Event:     EventEscrowRefunded,
+			PaymentID: paymentID,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"refunded_to": "buyer",
+				"amounts":     payment.Amounts,
+			},
+		})
+	}
+
 	return nil
 }
 
@@ -924,23 +983,17 @@ func (em *EscrowManager) logStateTransition(paymentID string, action AuditAction
 // CheckEscrowTimeouts checks all escrowed payments for timeouts
 // Returns a slice of payment IDs that have timed out and are eligible for automatic refund
 func (em *EscrowManager) CheckEscrowTimeouts() ([]string, error) {
-	// Get all pending multisig payments (escrows are multisig)
-	payments, err := em.paywall.Store.GetPendingMultisigPayments()
+	now := time.Now()
+	// Use indexed query for efficient timeout checking
+	payments, err := em.paywall.Store.GetEscrowsExpiringBefore(now)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pending multisig payments: %w", err)
+		return nil, fmt.Errorf("failed to get expiring escrows: %w", err)
 	}
 
-	var timedOut []string
-	now := time.Now()
-
+	// Extract payment IDs
+	timedOut := make([]string, 0, len(payments))
 	for _, payment := range payments {
-		// Check if this is an escrow payment that's funded or disputed
-		if payment.EscrowState == EscrowFunded || payment.EscrowState == EscrowDisputed {
-			// Check if timeout has been reached
-			if !payment.EscrowTimeout.IsZero() && now.After(payment.EscrowTimeout) {
-				timedOut = append(timedOut, payment.ID)
-			}
-		}
+		timedOut = append(timedOut, payment.ID)
 	}
 
 	return timedOut, nil

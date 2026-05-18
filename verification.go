@@ -207,6 +207,19 @@ func (m *CryptoChainMonitor) checkWalletPayment(payment *Payment, walletType wal
 		if m.paywall.logger != nil {
 			m.paywall.logger.LogPaymentConfirmed(payment.ID, payment.Confirmations, "")
 		}
+		// Dispatch webhook for payment confirmation
+		if m.paywall.webhookDispatcher != nil {
+			m.paywall.webhookDispatcher.Dispatch(WebhookPayload{
+				Event:     EventPaymentConfirmed,
+				PaymentID: payment.ID,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"confirmations": payment.Confirmations,
+					"amount":        balance,
+					"currency":      walletType,
+				},
+			})
+		}
 	}
 	return nil
 }

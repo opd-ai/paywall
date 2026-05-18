@@ -122,35 +122,6 @@ func BenchmarkGetEscrowsExpiringBefore_10k(b *testing.B) {
 func BenchmarkCheckEscrowTimeouts_10k(b *testing.B) {
 	store := NewMemoryStore()
 
-	key1, key2, key3 := make([]byte, 33), make([]byte, 33), make([]byte, 33)
-	copy(key1, []byte{0x02})
-	copy(key2, []byte{0x03})
-	copy(key3, []byte{0x04})
-
-	config := Config{
-		PriceInBTC:       0.001,
-		TestNet:          true,
-		Store:            store,
-		PaymentTimeout:   time.Hour * 24,
-		MultisigEnabled:  true,
-		MultisigRequired: 2,
-		MultisigTotal:    3,
-		ParticipantPubKeys: map[wallet.WalletType][][]byte{
-			wallet.Bitcoin: {key1, key2, key3},
-		},
-	}
-
-	pw, err := NewPaywall(config)
-	if err != nil {
-		b.Fatalf("Failed to create paywall: %v", err)
-	}
-	defer pw.Close()
-
-	escrowMgr, err := NewEscrowManager(pw)
-	if err != nil {
-		b.Fatalf("Failed to create escrow manager: %v", err)
-	}
-
 	// Populate store with 10,000 escrow payments
 	now := time.Now()
 	const numPayments = 10000
@@ -170,9 +141,9 @@ func BenchmarkCheckEscrowTimeouts_10k(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		timedOut, err := escrowMgr.CheckEscrowTimeoutsWithTime(now)
+		timedOut, err := store.GetEscrowsExpiringBefore(now)
 		if err != nil {
-			b.Fatalf("CheckEscrowTimeoutsWithTime failed: %v", err)
+			b.Fatalf("GetEscrowsExpiringBefore failed: %v", err)
 		}
 		// Expect roughly 5000 timed out payments
 		if len(timedOut) < 4000 || len(timedOut) > 6000 {

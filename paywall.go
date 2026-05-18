@@ -174,6 +174,13 @@ type Config struct {
 	// Defaults to 5 minutes. Only used when AutoTimeoutRefunds=true.
 	// Shorter intervals provide faster timeout handling but increase system load.
 	TimeoutCheckInterval time.Duration
+
+	// Webhook notification configuration (optional - for event notifications)
+
+	// WebhookConfig configures webhook notifications for payment and escrow events.
+	// Optional: if nil, webhook notifications are disabled.
+	// When provided, enables external system integration (inventory management, notifications).
+	WebhookConfig *WebhookConfig
 }
 
 // Paywall manages Bitcoin payment processing and verification
@@ -268,6 +275,12 @@ type Paywall struct {
 	// timeoutMonitor provides automatic timeout monitoring and resolution
 	// Started when AutoTimeoutRefunds is true
 	timeoutMonitor *TimeoutMonitor
+
+	// Webhook notification system (optional - for event notifications)
+
+	// webhookDispatcher handles webhook delivery for payment and escrow events
+	// Initialized when WebhookConfig is provided
+	webhookDispatcher *WebhookDispatcher
 }
 
 func validateConfig(config *Config) error {
@@ -642,6 +655,17 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 
 	startBackgroundWorkers(p, hdWallets, config)
+
+	// Initialize webhook dispatcher if configured
+	if config.WebhookConfig != nil {
+		p.webhookDispatcher = NewWebhookDispatcher(*config.WebhookConfig)
+		p.logger.log(LogEntry{
+			Level:   LogLevelInfo,
+			Event:   "webhook_dispatcher_initialized",
+			Message: fmt.Sprintf("Webhook dispatcher initialized with URL: %s", config.WebhookConfig.URL),
+		})
+	}
+
 	return p, nil
 }
 
@@ -653,6 +677,10 @@ func (p *Paywall) Close() {
 	// Stop consensus manager if running
 	if p.consensusManager != nil {
 		p.consensusManager.Stop()
+	}
+	// Stop webhook dispatcher if running
+	if p.webhookDispatcher != nil {
+		p.webhookDispatcher.Close()
 	}
 	// Cancel context and close monitor
 	p.cancel()
@@ -824,6 +852,21 @@ func (p *Paywall) CreatePayment() (*Payment, error) {
 		for walletType, amount := range payment.Amounts {
 			p.logger.LogPaymentCreated(payment.ID, amount, walletType, payment.MultisigEnabled)
 		}
+	}
+
+	// Dispatch webhook for payment creation
+	if p.webhookDispatcher != nil {
+		p.webhookDispatcher.Dispatch(WebhookPayload{
+			Event:     EventPaymentCreated,
+			PaymentID: payment.ID,
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
+				"addresses":        payment.Addresses,
+				"amounts":          payment.Amounts,
+				"expires_at":       payment.ExpiresAt,
+				"multisig_enabled": payment.MultisigEnabled,
+			},
+		})
 	}
 
 	return payment, nil
