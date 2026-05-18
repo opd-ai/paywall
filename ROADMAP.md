@@ -153,7 +153,7 @@
 
 **Context**: Reduce technical debt and improve long-term maintainability.
 
-- [ ] **Remove dead code** (quick wins - 1-2 hours each)
+- [x] **Remove dead code** (quick wins - 1-2 hours each)
   - [x] **Remove GetPaymentsByMultisigAddress dead code** — COMPLETED (see AUDIT.md)
   
   - [x] **Integrate migration functions** — COMPLETED

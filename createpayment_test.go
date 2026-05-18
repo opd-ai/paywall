@@ -231,10 +231,6 @@ func (fs *FailingStore) GetPendingMultisigPayments() ([]*Payment, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (fs *FailingStore) GetPaymentsByMultisigAddress(address string) ([]*Payment, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
 func (fs *FailingStore) GetEscrowsExpiringBefore(deadline time.Time) ([]*Payment, error) {
 	return nil, fmt.Errorf("not implemented")
 }
