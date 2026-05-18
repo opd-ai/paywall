@@ -9,6 +9,11 @@ paywallet
 *.dll
 *.a
 
+# Compiled example binaries
+example/multisig/basic/basic
+example/multisig/marketplace/marketplace
+example/multisig/subscription/subscription
+
 # Analysis and report files
 *-baseline.json
 *-post.json
