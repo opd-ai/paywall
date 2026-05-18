@@ -17,20 +17,9 @@ import (
 	"time"
 
 	"github.com/opd-ai/paywall"
+	"github.com/opd-ai/paywall/example/multisig/common"
 	"github.com/opd-ai/paywall/wallet"
 )
-
-// mockSignature creates a placeholder signature for examples
-// In production, use actual cryptographic signing
-func mockSignature(role paywall.MultisigRole, pubKey []byte) *paywall.SignatureData {
-	return &paywall.SignatureData{
-		SignerID:  fmt.Sprintf("%s-signer", string(role)),
-		Role:      role,
-		Signature: []byte("mock-signature-" + string(role)),
-		PublicKey: pubKey,
-		SignedAt:  time.Now(),
-	}
-}
 
 // This example demonstrates:
 // 1. Creating a 2-of-3 multisig escrow payment
@@ -41,15 +30,7 @@ func main() {
 	fmt.Println("=== 2-of-3 Multisig Escrow Example ===")
 
 	// Generate example public keys (in production, these would come from participants)
-	buyerPubKey := make([]byte, 33)
-	sellerPubKey := make([]byte, 33)
-	arbiterPubKey := make([]byte, 33)
-
-	// Fill with example data (in production, use real compressed public keys)
-	copy(buyerPubKey, []byte{0x02})   // Buyer's compressed pubkey
-	copy(sellerPubKey, []byte{0x03})  // Seller's compressed pubkey
-	copy(arbiterPubKey, []byte{0x04}) // Arbiter's compressed pubkey
-
+	buyerPubKey, sellerPubKey, arbiterPubKey := common.GenerateExamplePubKeys()
 	publicKeys := [][]byte{buyerPubKey, sellerPubKey, arbiterPubKey}
 
 	// Create escrow paywall configuration
@@ -138,8 +119,8 @@ func main() {
 	// 2. Signatures collected via MultisigCoordinator API
 	// 3. Transaction broadcast when 2 signatures collected
 
-	buyerSig := mockSignature(paywall.RoleBuyer, buyerPubKey)
-	sellerSig := mockSignature(paywall.RoleSeller, sellerPubKey)
+	buyerSig := common.MockSignature(paywall.RoleBuyer, buyerPubKey)
+	sellerSig := common.MockSignature(paywall.RoleSeller, sellerPubKey)
 	err = escrowMgr.ReleaseToSeller(paymentID, buyerSig, sellerSig)
 	if err != nil {
 		log.Fatalf("Failed to release to seller: %v", err)
@@ -178,8 +159,8 @@ func main() {
 
 	// Arbiter resolves in favor of buyer (refund)
 	// ResolveDispute requires arbiter + winner signatures
-	arbiterSig := mockSignature(paywall.RoleArbiter, arbiterPubKey)
-	buyerSig2 := mockSignature(paywall.RoleBuyer, buyerPubKey)
+	arbiterSig := common.MockSignature(paywall.RoleArbiter, arbiterPubKey)
+	buyerSig2 := common.MockSignature(paywall.RoleBuyer, buyerPubKey)
 	err = escrowMgr.ResolveDispute(disputePaymentID, arbiterSig, buyerSig2)
 	if err != nil {
 		log.Fatalf("Failed to resolve dispute: %v", err)

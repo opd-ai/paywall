@@ -70,87 +70,113 @@ func deepCopyPayment(p *Payment) *Payment {
 		return nil
 	}
 
-	// Copy the struct
 	paymentCopy := *p
-
-	// Deep copy maps and slices
-	if p.Addresses != nil {
-		paymentCopy.Addresses = make(map[wallet.WalletType]string, len(p.Addresses))
-		for k, v := range p.Addresses {
-			paymentCopy.Addresses[k] = v
-		}
-	}
-
-	if p.Amounts != nil {
-		paymentCopy.Amounts = make(map[wallet.WalletType]float64, len(p.Amounts))
-		for k, v := range p.Amounts {
-			paymentCopy.Amounts[k] = v
-		}
-	}
-
-	if p.MultisigMetadata != nil {
-		paymentCopy.MultisigMetadata = make(map[wallet.WalletType]*wallet.MultisigMetadata, len(p.MultisigMetadata))
-		for k, v := range p.MultisigMetadata {
-			if v != nil {
-				metaCopy := *v
-				// Deep copy nested slices in metadata
-				if v.RedeemScript != nil {
-					metaCopy.RedeemScript = make([]byte, len(v.RedeemScript))
-					copy(metaCopy.RedeemScript, v.RedeemScript)
-				}
-				if v.PublicKeys != nil {
-					metaCopy.PublicKeys = make([][]byte, len(v.PublicKeys))
-					for i, pk := range v.PublicKeys {
-						if pk != nil {
-							metaCopy.PublicKeys[i] = make([]byte, len(pk))
-							copy(metaCopy.PublicKeys[i], pk)
-						}
-					}
-				}
-				paymentCopy.MultisigMetadata[k] = &metaCopy
-			}
-		}
-	}
-
-	if p.RequiredSignatures != nil {
-		paymentCopy.RequiredSignatures = make(map[wallet.WalletType]int, len(p.RequiredSignatures))
-		for k, v := range p.RequiredSignatures {
-			paymentCopy.RequiredSignatures[k] = v
-		}
-	}
-
-	if p.Signatures != nil {
-		paymentCopy.Signatures = make(map[wallet.WalletType][]SignatureData, len(p.Signatures))
-		for k, sigs := range p.Signatures {
-			if sigs != nil {
-				sigsCopy := make([]SignatureData, len(sigs))
-				for i, sig := range sigs {
-					sigsCopy[i] = sig
-					// Deep copy byte slices in SignatureData
-					if sig.Signature != nil {
-						sigsCopy[i].Signature = make([]byte, len(sig.Signature))
-						copy(sigsCopy[i].Signature, sig.Signature)
-					}
-					if sig.PublicKey != nil {
-						sigsCopy[i].PublicKey = make([]byte, len(sig.PublicKey))
-						copy(sigsCopy[i].PublicKey, sig.PublicKey)
-					}
-					if sig.Nonce != nil {
-						sigsCopy[i].Nonce = make([]byte, len(sig.Nonce))
-						copy(sigsCopy[i].Nonce, sig.Nonce)
-					}
-				}
-				paymentCopy.Signatures[k] = sigsCopy
-			}
-		}
-	}
-
-	if p.StateTransitionHistory != nil {
-		paymentCopy.StateTransitionHistory = make([]StateTransitionHistory, len(p.StateTransitionHistory))
-		copy(paymentCopy.StateTransitionHistory, p.StateTransitionHistory)
-	}
+	paymentCopy.Addresses = copyAddresses(p.Addresses)
+	paymentCopy.Amounts = copyAmounts(p.Amounts)
+	paymentCopy.MultisigMetadata = copyMultisigMetadata(p.MultisigMetadata)
+	paymentCopy.RequiredSignatures = copyRequiredSignatures(p.RequiredSignatures)
+	paymentCopy.Signatures = copySignatures(p.Signatures)
+	paymentCopy.StateTransitionHistory = copyStateHistory(p.StateTransitionHistory)
 
 	return &paymentCopy
+}
+
+func copyAddresses(src map[wallet.WalletType]string) map[wallet.WalletType]string {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[wallet.WalletType]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func copyAmounts(src map[wallet.WalletType]float64) map[wallet.WalletType]float64 {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[wallet.WalletType]float64, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func copyMultisigMetadata(src map[wallet.WalletType]*wallet.MultisigMetadata) map[wallet.WalletType]*wallet.MultisigMetadata {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[wallet.WalletType]*wallet.MultisigMetadata, len(src))
+	for k, v := range src {
+		if v != nil {
+			metaCopy := *v
+			metaCopy.RedeemScript = copyBytes(v.RedeemScript)
+			metaCopy.PublicKeys = copyPublicKeys(v.PublicKeys)
+			dst[k] = &metaCopy
+		}
+	}
+	return dst
+}
+
+func copyPublicKeys(src [][]byte) [][]byte {
+	if src == nil {
+		return nil
+	}
+	dst := make([][]byte, len(src))
+	for i, pk := range src {
+		dst[i] = copyBytes(pk)
+	}
+	return dst
+}
+
+func copyRequiredSignatures(src map[wallet.WalletType]int) map[wallet.WalletType]int {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[wallet.WalletType]int, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func copySignatures(src map[wallet.WalletType][]SignatureData) map[wallet.WalletType][]SignatureData {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[wallet.WalletType][]SignatureData, len(src))
+	for k, sigs := range src {
+		if sigs != nil {
+			sigsCopy := make([]SignatureData, len(sigs))
+			for i, sig := range sigs {
+				sigsCopy[i] = sig
+				sigsCopy[i].Signature = copyBytes(sig.Signature)
+				sigsCopy[i].PublicKey = copyBytes(sig.PublicKey)
+				sigsCopy[i].Nonce = copyBytes(sig.Nonce)
+			}
+			dst[k] = sigsCopy
+		}
+	}
+	return dst
+}
+
+func copyBytes(src []byte) []byte {
+	if src == nil {
+		return nil
+	}
+	dst := make([]byte, len(src))
+	copy(dst, src)
+	return dst
+}
+
+func copyStateHistory(src []StateTransitionHistory) []StateTransitionHistory {
+	if src == nil {
+		return nil
+	}
+	dst := make([]StateTransitionHistory, len(src))
+	copy(dst, src)
+	return dst
 }
 
 // UpdatePayment updates an existing payment record.

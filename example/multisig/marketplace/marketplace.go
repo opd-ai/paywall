@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/opd-ai/paywall"
+	"github.com/opd-ai/paywall/example/multisig/common"
 	"github.com/opd-ai/paywall/wallet"
 )
 
@@ -45,8 +46,7 @@ type Marketplace struct {
 // NewMarketplace creates a new marketplace instance
 func NewMarketplace() (*Marketplace, error) {
 	// Marketplace arbiter keys (in production, load from secure storage)
-	arbiterPubKey := make([]byte, 33)
-	copy(arbiterPubKey, []byte{0x02}) // Arbiter's public key
+	arbiterPubKey := common.GenerateSinglePubKey(0x02)
 
 	// Create marketplace paywall configuration
 	// Note: This uses placeholder keys; in production, combine with participant keys dynamically
@@ -276,12 +276,7 @@ func main() {
 	fmt.Println("✓ Marketplace initialized with 2-of-3 multisig escrow")
 
 	// Create mock public keys for participants
-	buyerPubKey := make([]byte, 33)
-	sellerPubKey := make([]byte, 33)
-	arbiterPubKey := make([]byte, 33)
-	copy(buyerPubKey, []byte{0x02})
-	copy(sellerPubKey, []byte{0x03})
-	copy(arbiterPubKey, []byte{0x04})
+	buyerPubKey, sellerPubKey, arbiterPubKey := common.GenerateExamplePubKeys()
 
 	// Start API server in background (for signature coordination)
 	go func() {

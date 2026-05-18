@@ -18,20 +18,9 @@ import (
 	"time"
 
 	"github.com/opd-ai/paywall"
+	"github.com/opd-ai/paywall/example/multisig/common"
 	"github.com/opd-ai/paywall/wallet"
 )
-
-// mockSignature creates a placeholder signature for examples
-// In production, use actual cryptographic signing
-func mockSignature(role paywall.MultisigRole, pubKey []byte) *paywall.SignatureData {
-	return &paywall.SignatureData{
-		SignerID:  fmt.Sprintf("%s-signer", string(role)),
-		Role:      role,
-		Signature: []byte("mock-signature-" + string(role)),
-		PublicKey: pubKey,
-		SignedAt:  time.Now(),
-	}
-}
 
 // Subscription represents a recurring payment subscription
 type Subscription struct {
@@ -56,13 +45,9 @@ type SubscriptionService struct {
 // NewSubscriptionService creates a new subscription service
 func NewSubscriptionService() (*SubscriptionService, error) {
 	// Service arbiter keys (in production, use real keys)
-	servicePubKey := make([]byte, 33)
-	arbiterPubKey := make([]byte, 33)
-	subscriberPubKey := make([]byte, 33)
-
-	copy(servicePubKey, []byte{0x02})    // Service provider key
-	copy(arbiterPubKey, []byte{0x03})    // Neutral arbiter key
-	copy(subscriberPubKey, []byte{0x04}) // Subscriber key (varies per subscriber)
+	servicePubKey := common.GenerateSinglePubKey(0x02)
+	arbiterPubKey := common.GenerateSinglePubKey(0x03)
+	subscriberPubKey := common.GenerateSinglePubKey(0x04)
 
 	config := paywall.Config{
 		PriceInBTC:       0.001, // Base subscription price
@@ -171,8 +156,8 @@ func (s *SubscriptionService) CompleteBillingPeriod(subscriberID string, buyerPu
 	}
 
 	// Release payment to service provider (both parties sign)
-	buyerSig := mockSignature(paywall.RoleBuyer, buyerPubKey)
-	sellerSig := mockSignature(paywall.RoleSeller, sellerPubKey)
+	buyerSig := common.MockSignature(paywall.RoleBuyer, buyerPubKey)
+	sellerSig := common.MockSignature(paywall.RoleSeller, sellerPubKey)
 	err := s.escrowMgr.ReleaseToSeller(subscription.PaymentID, buyerSig, sellerSig)
 	if err != nil {
 		return fmt.Errorf("failed to release payment: %w", err)
@@ -208,8 +193,8 @@ func (s *SubscriptionService) CancelSubscription(subscriberID, reason string, si
 		fmt.Printf("[SUB] Pro-rated refund: %.0f%% of %.8f BTC\n", refundPercent*100, subscription.PriceInBTC)
 
 		// Create signatures for refund (buyer + seller OR buyer + arbiter)
-		sig1 := mockSignature(role1, sig1PubKey)
-		sig2 := mockSignature(role2, sig2PubKey)
+		sig1 := common.MockSignature(role1, sig1PubKey)
+		sig2 := common.MockSignature(role2, sig2PubKey)
 		err := s.escrowMgr.RefundBuyer(subscription.PaymentID, sig1, sig2)
 		if err != nil {
 			return fmt.Errorf("failed to refund: %w", err)
@@ -252,12 +237,12 @@ func (s *SubscriptionService) ResolveServiceDispute(subscriberID string, favorSu
 	fmt.Printf("\n[DISPUTE] Arbiter resolution: %s\n", resolution)
 
 	// Create signatures from arbiter and winner
-	arbiterSig := mockSignature(paywall.RoleArbiter, arbiterPubKey)
+	arbiterSig := common.MockSignature(paywall.RoleArbiter, arbiterPubKey)
 	var winnerSig *paywall.SignatureData
 	if favorSubscriber {
-		winnerSig = mockSignature(paywall.RoleBuyer, winnerPubKey)
+		winnerSig = common.MockSignature(paywall.RoleBuyer, winnerPubKey)
 	} else {
-		winnerSig = mockSignature(paywall.RoleSeller, winnerPubKey)
+		winnerSig = common.MockSignature(paywall.RoleSeller, winnerPubKey)
 	}
 
 	err := s.escrowMgr.ResolveDispute(subscription.PaymentID, arbiterSig, winnerSig)
@@ -293,12 +278,7 @@ func main() {
 
 	fmt.Println("✓ Subscription service initialized with 2-of-3 multisig escrow")
 	// Create mock public keys for participants
-	buyerPubKey := make([]byte, 33)
-	sellerPubKey := make([]byte, 33)
-	arbiterPubKey := make([]byte, 33)
-	copy(buyerPubKey, []byte{0x02})
-	copy(sellerPubKey, []byte{0x03})
-	copy(arbiterPubKey, []byte{0x04})
+	buyerPubKey, sellerPubKey, arbiterPubKey := common.GenerateExamplePubKeys()
 	// Scenario 1: Normal subscription flow
 	fmt.Println("\n=== Scenario 1: Normal Subscription ===")
 

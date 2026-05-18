@@ -137,97 +137,94 @@ func (em *EscrowManager) validateSignatureData(sig *SignatureData, payment *Paym
 		return fmt.Errorf("signature data cannot be nil")
 	}
 
-	// Validate public key
+	if err := em.validatePublicKey(sig, payment); err != nil {
+		return err
+	}
+
+	if err := em.validateSignatureFormat(sig); err != nil {
+		return err
+	}
+
+	if err := em.validateParticipant(sig, payment); err != nil {
+		return err
+	}
+
+	return em.validateSignatureReplayWithBackwardCompat(sig, payment)
+}
+
+func (em *EscrowManager) validatePublicKey(sig *SignatureData, payment *Payment) error {
 	if len(sig.PublicKey) == 0 {
 		return fmt.Errorf("%w: public key is empty", ErrInvalidPublicKey)
 	}
 
-	// Parse and validate public key only if we're doing full participant validation
-	// In test/mock scenarios without participant lists, skip curve validation
 	if payment.MultisigEnabled && em.paywall.participantPubKeys != nil && len(em.paywall.participantPubKeys) > 0 {
-		// Parse and validate public key is on secp256k1 curve
 		_, err := btcec.ParsePubKey(sig.PublicKey)
 		if err != nil {
 			return fmt.Errorf("%w: failed to parse public key: %v", ErrInvalidPublicKey, err)
 		}
 	}
+	return nil
+}
 
-	// Validate signature format
+func (em *EscrowManager) validateSignatureFormat(sig *SignatureData) error {
 	if len(sig.Signature) == 0 {
 		return fmt.Errorf("%w: signature is empty", ErrInvalidSignature)
 	}
 
-	// Basic format check: DER signatures typically start with 0x30 (SEQUENCE tag)
-	// Full validation happens at transaction broadcast time
-	// For now, we do a lenient check to catch obviously invalid signatures
-	// while allowing mock signatures in tests
 	if len(sig.Signature) < 8 {
 		return fmt.Errorf("%w: signature too short (minimum 8 bytes)", ErrInvalidSignature)
 	}
 
-	// If signature starts with 0x30 (DER format), try to parse it
-	// Otherwise, assume it's a test/mock signature and skip parsing
 	if sig.Signature[0] == 0x30 {
-		// Extract signature bytes (remove hash type byte if present)
 		sigBytes := sig.Signature
 		if len(sig.Signature) > 0 && (sig.Signature[len(sig.Signature)-1]&0x1f) <= 3 {
 			sigBytes = sig.Signature[:len(sig.Signature)-1]
 		}
 
-		// Validate signature is properly formatted DER-encoded ECDSA signature
 		_, err := ecdsa.ParseDERSignature(sigBytes)
 		if err != nil {
 			return fmt.Errorf("%w: failed to parse DER signature: %v", ErrInvalidSignature, err)
 		}
 	}
+	return nil
+}
 
-	// Validate the signer is a recognized participant
-	// Skip this check if multisig is not enabled or participant keys are not configured
-	if payment.MultisigEnabled && em.paywall.participantPubKeys != nil && len(em.paywall.participantPubKeys) > 0 {
-		// Check if public key appears in any of the participant lists
-		found := false
-		var derivedRole MultisigRole
-		var walletTypeForRole wallet.WalletType
-
-		for walletType, walletParticipants := range em.paywall.participantPubKeys {
-			for _, participantKey := range walletParticipants {
-				if bytesEqual(sig.PublicKey, participantKey) {
-					found = true
-					walletTypeForRole = walletType
-					break
-				}
-			}
-			if found {
-				break
-			}
-		}
-
-		if !found {
-			return fmt.Errorf("%w: public key not found in participant list", ErrUnknownParticipant)
-		}
-
-		// Derive the role from the public key position in the participant list
-		// This prevents role spoofing by verifying against canonical role assignment
-		var err error
-		derivedRole, err = em.paywall.getRoleForPubKey(sig.PublicKey, walletTypeForRole)
-		if err != nil {
-			return fmt.Errorf("failed to derive role for public key: %w", err)
-		}
-
-		// Verify the declared role matches the derived role
-		if sig.Role != "" && sig.Role != derivedRole {
-			return fmt.Errorf("%w: declared role '%s' does not match derived role '%s'",
-				ErrRoleMismatch, sig.Role, derivedRole)
-		}
+func (em *EscrowManager) validateParticipant(sig *SignatureData, payment *Payment) error {
+	if !payment.MultisigEnabled || em.paywall.participantPubKeys == nil || len(em.paywall.participantPubKeys) == 0 {
+		return nil
 	}
 
-	// Check for signature replay attacks
-	// NOTE: Replay protection is optional for backward compatibility
-	// Signatures without nonces are allowed but logged as a warning
+	found, walletType := em.findParticipantKey(sig.PublicKey)
+	if !found {
+		return fmt.Errorf("%w: public key not found in participant list", ErrUnknownParticipant)
+	}
+
+	derivedRole, err := em.paywall.getRoleForPubKey(sig.PublicKey, walletType)
+	if err != nil {
+		return fmt.Errorf("failed to derive role for public key: %w", err)
+	}
+
+	if sig.Role != "" && sig.Role != derivedRole {
+		return fmt.Errorf("%w: declared role '%s' does not match derived role '%s'",
+			ErrRoleMismatch, sig.Role, derivedRole)
+	}
+	return nil
+}
+
+func (em *EscrowManager) findParticipantKey(pubKey []byte) (bool, wallet.WalletType) {
+	for walletType, walletParticipants := range em.paywall.participantPubKeys {
+		for _, participantKey := range walletParticipants {
+			if bytesEqual(pubKey, participantKey) {
+				return true, walletType
+			}
+		}
+	}
+	return false, wallet.Bitcoin
+}
+
+func (em *EscrowManager) validateSignatureReplayWithBackwardCompat(sig *SignatureData, payment *Payment) error {
 	if err := em.validateSignatureReplay(sig, payment); err != nil {
-		// Check if error is due to missing nonce (backward compatibility)
 		if len(sig.Nonce) == 0 {
-			// Log warning but allow the signature for backward compatibility
 			if em.paywall.logger != nil {
 				em.paywall.logger.log(LogEntry{
 					Level:     LogLevelWarn,
@@ -236,12 +233,10 @@ func (em *EscrowManager) validateSignatureData(sig *SignatureData, payment *Paym
 					PaymentID: payment.ID,
 				})
 			}
-		} else {
-			// Strict replay protection for signatures with nonces
-			return err
+			return nil
 		}
+		return err
 	}
-
 	return nil
 }
 
@@ -955,114 +950,129 @@ func (em *EscrowManager) CheckEscrowTimeouts() ([]string, error) {
 // Requires signatures from 2 of the 3 participants (buyer, seller, arbiter)
 // The extension must not exceed the 7-day roadmap cap enforced by maxExtension.
 func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration, sig1, sig2 *SignatureData) error {
+	payment, err := em.validateExtensionPayment(paymentID)
+	if err != nil {
+		return err
+	}
+
+	if err := em.validateExtensionSignatures(sig1, sig2, payment); err != nil {
+		return err
+	}
+
+	if err := em.validateExtensionDuration(extension); err != nil {
+		return err
+	}
+
+	arbiterInvolved, arbiterSig, err := em.validateExtensionRoles(sig1, sig2)
+	if err != nil {
+		return err
+	}
+
+	if arbiterInvolved && !em.paywall.IsAuthorizedArbiter(arbiterSig.PublicKey) {
+		return fmt.Errorf("arbiter is not authorized: public key not in authorized list")
+	}
+
+	if err := em.validateExtensionAuthorizations(sig1, sig2, payment, extension); err != nil {
+		return err
+	}
+
+	if err := em.applyExtension(payment, extension, sig1, sig2, arbiterInvolved); err != nil {
+		return err
+	}
+
+	em.paywall.logger.LogTimeoutAutomation(paymentID, fmt.Sprintf("Escrow timeout extended by %s to %s", extension, payment.EscrowTimeout.Format(time.RFC3339)))
+	return nil
+}
+
+func (em *EscrowManager) validateExtensionPayment(paymentID string) (*Payment, error) {
 	payment, err := em.paywall.Store.GetPayment(paymentID)
 	if err != nil {
-		return fmt.Errorf("failed to get payment: %w", err)
+		return nil, fmt.Errorf("failed to get payment: %w", err)
 	}
-
 	if payment == nil {
-		return fmt.Errorf("payment not found: %s", paymentID)
+		return nil, fmt.Errorf("payment not found: %s", paymentID)
 	}
-
 	if payment.EscrowState == EscrowNone {
-		return ErrEscrowNotEnabled
+		return nil, ErrEscrowNotEnabled
 	}
-
-	// Can only extend timeout for funded or disputed escrows
 	if payment.EscrowState != EscrowFunded && payment.EscrowState != EscrowDisputed {
-		return fmt.Errorf("%w: cannot extend timeout from state %s", ErrInvalidEscrowState, payment.EscrowState.String())
+		return nil, fmt.Errorf("%w: cannot extend timeout from state %s", ErrInvalidEscrowState, payment.EscrowState.String())
 	}
+	return payment, nil
+}
 
-	// Verify we have two valid signatures
+func (em *EscrowManager) validateExtensionSignatures(sig1, sig2 *SignatureData, payment *Payment) error {
 	if sig1 == nil || sig2 == nil {
 		return ErrInsufficientSignatures
 	}
-
-	// Validate signature formats and cryptographic properties
 	if err := em.validateSignatureData(sig1, payment); err != nil {
 		return fmt.Errorf("invalid first signature: %w", err)
 	}
 	if err := em.validateSignatureData(sig2, payment); err != nil {
 		return fmt.Errorf("invalid second signature: %w", err)
 	}
-
-	// Validate extension duration
-	if extension <= 0 {
-		return fmt.Errorf("extension duration must be positive, got %s", extension)
-	}
-
-	// Get the max extension (default: 7 days per ROADMAP specification)
-	maxExtension := 7 * 24 * time.Hour
-
-	if extension > maxExtension {
-		return fmt.Errorf("extension %s exceeds maximum allowed extension %s", extension, maxExtension)
-	}
-
-	// Verify signatures are from 2 different participants
 	if sig1.Role == sig2.Role {
 		return fmt.Errorf("extension requires signatures from 2 different participants")
 	}
+	return nil
+}
 
-	// Valid extension combinations (any 2 of 3):
-	// 1. Buyer + Seller
-	// 2. Buyer + Arbiter
-	// 3. Seller + Arbiter
-	validExtension := false
+func (em *EscrowManager) validateExtensionDuration(extension time.Duration) error {
+	if extension <= 0 {
+		return fmt.Errorf("extension duration must be positive, got %s", extension)
+	}
+	maxExtension := 7 * 24 * time.Hour
+	if extension > maxExtension {
+		return fmt.Errorf("extension %s exceeds maximum allowed extension %s", extension, maxExtension)
+	}
+	return nil
+}
+
+func (em *EscrowManager) validateExtensionRoles(sig1, sig2 *SignatureData) (bool, *SignatureData, error) {
 	arbiterInvolved := false
 	var arbiterSig *SignatureData
 
-	// Check for buyer + seller
-	if (sig1.Role == RoleBuyer && sig2.Role == RoleSeller) ||
-		(sig1.Role == RoleSeller && sig2.Role == RoleBuyer) {
-		validExtension = true
+	if (sig1.Role == RoleBuyer && sig2.Role == RoleSeller) || (sig1.Role == RoleSeller && sig2.Role == RoleBuyer) {
+		return false, nil, nil
 	}
 
-	// Check for buyer + arbiter
-	if (sig1.Role == RoleBuyer && sig2.Role == RoleArbiter) ||
-		(sig1.Role == RoleArbiter && sig2.Role == RoleBuyer) {
-		validExtension = true
+	if (sig1.Role == RoleBuyer && sig2.Role == RoleArbiter) || (sig1.Role == RoleArbiter && sig2.Role == RoleBuyer) {
 		arbiterInvolved = true
 		if sig1.Role == RoleArbiter {
 			arbiterSig = sig1
 		} else {
 			arbiterSig = sig2
 		}
+		return arbiterInvolved, arbiterSig, nil
 	}
 
-	// Check for seller + arbiter
-	if (sig1.Role == RoleSeller && sig2.Role == RoleArbiter) ||
-		(sig1.Role == RoleArbiter && sig2.Role == RoleSeller) {
-		validExtension = true
+	if (sig1.Role == RoleSeller && sig2.Role == RoleArbiter) || (sig1.Role == RoleArbiter && sig2.Role == RoleSeller) {
 		arbiterInvolved = true
 		if sig1.Role == RoleArbiter {
 			arbiterSig = sig1
 		} else {
 			arbiterSig = sig2
 		}
+		return arbiterInvolved, arbiterSig, nil
 	}
 
-	if !validExtension {
-		return fmt.Errorf("extension requires signatures from 2 of 3 participants (buyer/seller/arbiter)")
-	}
+	return false, nil, fmt.Errorf("extension requires signatures from 2 of 3 participants (buyer/seller/arbiter)")
+}
 
-	// Validate arbiter is authorized if arbiter is involved
-	if arbiterInvolved && !em.paywall.IsAuthorizedArbiter(arbiterSig.PublicKey) {
-		return fmt.Errorf("arbiter is not authorized: public key not in authorized list")
-	}
-
-	// Verify both signatures explicitly authorize this specific extension.
+func (em *EscrowManager) validateExtensionAuthorizations(sig1, sig2 *SignatureData, payment *Payment, extension time.Duration) error {
 	if err := validateTimeoutExtensionSignature(sig1, payment, extension); err != nil {
 		return fmt.Errorf("invalid first extension authorization: %w", err)
 	}
 	if err := validateTimeoutExtensionSignature(sig2, payment, extension); err != nil {
 		return fmt.Errorf("invalid second extension authorization: %w", err)
 	}
+	return nil
+}
 
-	// Apply the extension
+func (em *EscrowManager) applyExtension(payment *Payment, extension time.Duration, sig1, sig2 *SignatureData, arbiterInvolved bool) error {
 	oldTimeout := payment.EscrowTimeout
 	payment.EscrowTimeout = payment.EscrowTimeout.Add(extension)
 
-	// Build audit metadata for extension event.
 	metadata := map[string]string{
 		"old_timeout":      oldTimeout.Format(time.RFC3339),
 		"extension":        extension.String(),
@@ -1072,58 +1082,58 @@ func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration
 		"sig2_role":        string(sig2.Role),
 	}
 
-	// Persist extension signatures to enforce replay protection.
-	if payment.Signatures == nil {
-		payment.Signatures = make(map[wallet.WalletType][]SignatureData)
+	if err := em.persistExtensionSignatures(payment, sig1, sig2); err != nil {
+		return err
 	}
 
-	targetWalletType := wallet.Bitcoin
-	foundWalletType := false
-	for walletType, participants := range em.paywall.participantPubKeys {
-		for _, participant := range participants {
-			if bytesEqual(sig1.PublicKey, participant) {
-				targetWalletType = walletType
-				foundWalletType = true
-				break
-			}
-		}
-		if foundWalletType {
-			break
-		}
-	}
-	if !foundWalletType {
-		for walletType := range payment.Addresses {
-			targetWalletType = walletType
-			break
-		}
-	}
-	payment.Signatures[targetWalletType] = append(payment.Signatures[targetWalletType], *sig1, *sig2)
-
-	// Update payment in store
 	if err := em.paywall.Store.UpdatePayment(payment); err != nil {
 		return fmt.Errorf("failed to update payment with extended timeout: %w", err)
 	}
 
-	// Log extension in audit trail
-	_, err = em.auditLogger.LogAction(&AuditLogEntry{
-		PaymentID:     paymentID,
-		Action:        "extend_timeout",
-		PreviousState: payment.EscrowState,
-		NewState:      payment.EscrowState,
-		Metadata:      metadata,
-	})
-	if err != nil {
+	if err := em.logExtension(payment.ID, payment.EscrowState, metadata); err != nil {
 		em.paywall.logger.log(LogEntry{
 			Level:     LogLevelWarn,
 			Event:     "audit_log_failed",
 			Message:   fmt.Sprintf("Failed to log timeout extension: %v", err),
-			PaymentID: paymentID,
+			PaymentID: payment.ID,
 		})
 	}
-
-	em.paywall.logger.LogTimeoutAutomation(paymentID, fmt.Sprintf("Escrow timeout extended by %s to %s", extension, payment.EscrowTimeout.Format(time.RFC3339)))
-
 	return nil
+}
+
+func (em *EscrowManager) persistExtensionSignatures(payment *Payment, sig1, sig2 *SignatureData) error {
+	if payment.Signatures == nil {
+		payment.Signatures = make(map[wallet.WalletType][]SignatureData)
+	}
+
+	targetWalletType := em.determineWalletType(sig1, payment)
+	payment.Signatures[targetWalletType] = append(payment.Signatures[targetWalletType], *sig1, *sig2)
+	return nil
+}
+
+func (em *EscrowManager) determineWalletType(sig *SignatureData, payment *Payment) wallet.WalletType {
+	for walletType, participants := range em.paywall.participantPubKeys {
+		for _, participant := range participants {
+			if bytesEqual(sig.PublicKey, participant) {
+				return walletType
+			}
+		}
+	}
+	for walletType := range payment.Addresses {
+		return walletType
+	}
+	return wallet.Bitcoin
+}
+
+func (em *EscrowManager) logExtension(paymentID string, state EscrowState, metadata map[string]string) error {
+	_, err := em.auditLogger.LogAction(&AuditLogEntry{
+		PaymentID:     paymentID,
+		Action:        "extend_timeout",
+		PreviousState: state,
+		NewState:      state,
+		Metadata:      metadata,
+	})
+	return err
 }
 
 func validateTimeoutExtensionSignature(sig *SignatureData, payment *Payment, extension time.Duration) error {
