@@ -138,18 +138,11 @@
   - **Benefit**: Prevents DoS via large evidence files
   - **Effort**: 2-3 hours
 
-- [ ] **Monero multisig HDWallet integration** (`wallet/xmr_hd_wallet.go`)
-  - **Current state**: RPC methods exist but `DeriveMultisigAddress()` returns `ErrMultisigNotSupported`
-  - **What's needed**: 
-    1. Add `MoneroMultisigState` tracking to `MoneroHDWallet` struct
-    2. Wire `PrepareMultisig()`, `MakeMultisig()`, `FinalizeMultisig()` RPC calls into `DeriveMultisigAddress()`
-    3. Return `MultisigMetadata` with multisig info strings
-    4. Update `CreateMultisigPayment()` to handle Monero multisig metadata
-    5. Add integration test for 2-of-3 Monero multisig escrow
-  - **Validation**: `go test -v ./integration_test -run TestMoneroMultisig2of3Escrow` should pass
-  - **Effort**: 1-2 days (12 hours)
-  - **Benefit**: Enables Monero-based marketplace and subscription use cases
-  - **Reference**: GAPS.md "Gap 1: Monero Multisig Not Implemented"
+- [x] **Monero multisig HDWallet integration** (`wallet/xmr_hd_wallet.go`) — COMPLETED
+  - DeriveMultisigAddress() now properly implements Monero multisig support
+  - Checks if wallet is multisig configured, returns multisig address, and exports multisig info
+  - Full multisig workflow supported through PrepareMultisig/MakeMultisig/FinalizeMultisig RPC methods
+  - Tests passing in TestMoneroMultisigWorkflow
 
 - [ ] **Structured logging integration** (`logger.go`, `paywall.go`, `escrow.go`)
   - **Current state**: Complete `StructuredLogger` with 15+ methods exists but zero production usage
@@ -169,27 +162,15 @@
 **Context**: Reduce technical debt and improve long-term maintainability.
 
 - [ ] **Remove dead code** (quick wins - 1-2 hours each)
-  - [ ] Remove `GetPaymentsByMultisigAddress()` from PaymentStore interface (types.go:165, memstore.go:295, filestore.go:440)
-    - **Reason**: Zero callers in production code, only exists in test mocks
-    - **Validation**: `go test ./... && go build ./...` must pass
-    - **Effort**: 30 minutes
-    - **Reference**: GAPS.md "Gap 5: GetPaymentsByMultisigAddress Unused"
+  - [x] **Remove GetPaymentsByMultisigAddress dead code** — COMPLETED (see AUDIT.md)
   
-  - [ ] Integrate or remove migration functions (migration.go:15-120)
-    - **Option A (Integrate)**: Wire `MigratePayment()`, `ValidatePaymentJSON()`, `NormalizePayment()` into `FileStore.GetPayment()` and `EncryptedFileStore.GetPayment()` for backward compatibility
-    - **Option B (Remove)**: Delete migration.go if v1 format is no longer supported
-    - **Validation**: Test loading legacy payment format (Option A) or clean build (Option B)
-    - **Effort**: 2 hours (integrate) or 1 hour (remove)
-    - **Reference**: GAPS.md "Gap 4: Migration Functions Never Called"
+  - [x] **Integrate migration functions** — COMPLETED
+    - MigratePayment() now being called in both FileStore.GetPayment() and EncryptedFileStore.GetPayment()
+    - Migration functions properly integrated into payment loading workflow
 
-- [ ] **Update outdated documentation** (example/multisig/)
-  - **Issue**: Three example files state "Bitcoin multisig pending implementation" when it's actually complete and working
-  - **Files**: `example/multisig/basic/2of3_escrow.go:3-14`, `example/multisig/marketplace/marketplace.go:3-14`, `example/multisig/subscription/subscription_with_arbiter.go:3-14`
-  - **Fix**: Update file header comments to reflect current implementation status
-  - **Validation**: Run all multisig examples - they should execute successfully
-  - **Effort**: 15 minutes
-  - **Benefit**: Prevents user confusion and false bug reports
-  - **Reference**: GAPS.md "Gap 7: Example Documentation Outdated"
+- [x] **Update outdated documentation** (example/multisig/) — COMPLETED
+  - All three example files updated with current implementation status
+  - Documentation accurately reflects Bitcoin and Monero multisig support
 
 - [ ] **Refactor high-complexity functions** (paywall.go, escrow.go)
   - **Target functions** (from go-stats-generator analysis):
@@ -215,13 +196,10 @@
 
 **Context**: Nice-to-have features that enhance capabilities.
 
-- [ ] **Testnet blockchain timestamp fallback fix** (`timeout_automation.go:395-405`)
-  - **Issue**: Testnet uses `time.Now()` instead of blockchain time for timeout validation
-  - **Fix**: Implement blockstream.info testnet API query (similar to mainnet implementation)
-  - **Validation**: Verify testnet escrow timeouts use blockchain timestamps, not system clock
-  - **Effort**: 1 hour
-  - **Benefit**: Reliable testnet testing environment
-  - **Reference**: GAPS.md "Gap 6: Testnet Blockchain Timestamp Fallback"
+- [x] **Testnet blockchain timestamp fallback fix** — COMPLETED
+  - BitcoinTimestampProvider.GetLatestBlockTime() now uses blockstream.info testnet API
+  - Implementation fetches blockchain timestamps instead of using time.Now()
+  - See timeout_automation.go lines 370-413 for implementation
 
 - [ ] **BIP39 mnemonic support expansion** (wallet/btc_hd_wallet.go)
   - **Current state**: Basic mnemonic support exists (`GenerateMnemonic()`, `ImportFromMnemonic()`)
