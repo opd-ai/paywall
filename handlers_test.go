@@ -2,6 +2,8 @@
 package paywall
 
 import (
+	"encoding/json"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,48 @@ import (
 
 	"github.com/opd-ai/paywall/wallet"
 )
+
+type handlerTestHDWallet struct {
+	enabled bool
+	config  *wallet.MultisigConfig
+	err     error
+}
+
+func (m *handlerTestHDWallet) DeriveNextAddress() (string, error) {
+	return "", nil
+}
+
+func (m *handlerTestHDWallet) GetAddress() (string, error) {
+	return "", nil
+}
+
+func (m *handlerTestHDWallet) Currency() string {
+	return "TEST"
+}
+
+func (m *handlerTestHDWallet) GetAddressBalance(string) (float64, error) {
+	return 0, nil
+}
+
+func (m *handlerTestHDWallet) GetTransactionConfirmations(string) (int, error) {
+	return 0, nil
+}
+
+func (m *handlerTestHDWallet) IsMultisigEnabled() bool {
+	return m.enabled
+}
+
+func (m *handlerTestHDWallet) GetMultisigConfig() (*wallet.MultisigConfig, error) {
+	return m.config, m.err
+}
+
+func (m *handlerTestHDWallet) DeriveMultisigAddress(pubKeys [][]byte, requiredSigs int) (string, *wallet.MultisigMetadata, error) {
+	return "", nil, wallet.ErrMultisigNotSupported
+}
+
+func (m *handlerTestHDWallet) CreateRedeemScript(pubKeys [][]byte, requiredSigs int) ([]byte, error) {
+	return nil, wallet.ErrMultisigNotSupported
+}
 
 // mockTemplate is a simple template for testing
 const mockTemplateContent = `
@@ -449,6 +493,129 @@ func TestPaywall_validatePaymentData_EdgeCases(t *testing.T) {
 		// Should not trigger price validation error since both are below limits
 		if invalid {
 			t.Error("validatePaymentData() should not fail with zero prices")
+		}
+	})
+}
+
+func TestPaywall_HandleWalletMultisigStatus(t *testing.T) {
+	t.Run("returns wallet multisig status for configured wallet", func(t *testing.T) {
+		pw := &Paywall{
+			HDWallets: map[wallet.WalletType]wallet.HDWallet{
+				wallet.Bitcoin: &handlerTestHDWallet{
+					enabled: true,
+					config: &wallet.MultisigConfig{
+						RequiredSigs: 2,
+						TotalSigners: 3,
+					},
+				},
+			},
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/wallet/BTC/multisig/status", nil)
+		w := httptest.NewRecorder()
+
+		pw.HandleWalletMultisigStatus(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+
+		if ct := w.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+			t.Fatalf("content-type = %q, want application/json", ct)
+		}
+
+		var resp WalletMultisigStatusResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+
+		if resp.WalletType != wallet.Bitcoin {
+			t.Fatalf("wallet_type = %q, want %q", resp.WalletType, wallet.Bitcoin)
+		}
+		if !resp.MultisigEnabled {
+			t.Fatalf("multisig_enabled = false, want true")
+		}
+		if resp.MultisigConfig == nil || resp.MultisigConfig.RequiredSigs != 2 || resp.MultisigConfig.TotalSigners != 3 {
+			t.Fatalf("unexpected multisig config: %+v", resp.MultisigConfig)
+		}
+	})
+
+	t.Run("returns 405 for non-GET methods", func(t *testing.T) {
+		pw := &Paywall{}
+		req := httptest.NewRequest(http.MethodPost, "/api/admin/wallet/BTC/multisig/status", nil)
+		w := httptest.NewRecorder()
+
+		pw.HandleWalletMultisigStatus(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+		}
+	})
+
+	t.Run("returns 400 for invalid wallet type", func(t *testing.T) {
+		pw := &Paywall{}
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/wallet/invalid/multisig/status", nil)
+		w := httptest.NewRecorder()
+
+		pw.HandleWalletMultisigStatus(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("returns 404 when wallet is not configured", func(t *testing.T) {
+		pw := &Paywall{HDWallets: map[wallet.WalletType]wallet.HDWallet{}}
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/wallet/BTC/multisig/status", nil)
+		w := httptest.NewRecorder()
+
+		pw.HandleWalletMultisigStatus(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("returns 500 when wallet config query fails", func(t *testing.T) {
+		pw := &Paywall{
+			HDWallets: map[wallet.WalletType]wallet.HDWallet{
+				wallet.Bitcoin: &handlerTestHDWallet{enabled: true, err: errors.New("rpc unavailable")},
+			},
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/wallet/BTC/multisig/status", nil)
+		w := httptest.NewRecorder()
+
+		pw.HandleWalletMultisigStatus(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+		}
+	})
+
+	t.Run("allows multisig-not-supported config calls and returns status", func(t *testing.T) {
+		pw := &Paywall{
+			HDWallets: map[wallet.WalletType]wallet.HDWallet{
+				wallet.Monero: &handlerTestHDWallet{enabled: false, err: wallet.ErrMultisigNotSupported},
+			},
+		}
+		req := httptest.NewRequest(http.MethodGet, "/api/admin/wallet/monero/multisig/status", nil)
+		w := httptest.NewRecorder()
+
+		pw.HandleWalletMultisigStatus(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+
+		var resp WalletMultisigStatusResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp.WalletType != wallet.Monero {
+			t.Fatalf("wallet_type = %q, want %q", resp.WalletType, wallet.Monero)
+		}
+		if resp.MultisigConfig != nil {
+			t.Fatalf("multisig_config = %+v, want nil", resp.MultisigConfig)
 		}
 	})
 }

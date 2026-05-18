@@ -385,28 +385,28 @@
 ## Success Metrics
 
 ### Phase 1 (P0) - Security Foundation
-- [ ] All CRITICAL and HIGH severity vulnerabilities in AUDIT.md resolved
+- [x] All CRITICAL and HIGH severity vulnerabilities in AUDIT.md resolved
 - [ ] External security audit completed with no critical findings
 - [ ] 100% of escrow operations covered by automated tests with race detection
 - [x] Zero test failures in `go test -race ./...`
 
 ### Phase 2 (P1) - Core Functionality
 - [ ] Transaction broadcasting functional on testnet and mainnet
-- [ ] Payment timeout automation fully implemented (all TODOs resolved)
-- [ ] State machine validated with property-based testing
-- [ ] Signature replay protection tested with fuzzing
+- [x] Payment timeout automation fully implemented (all TODOs resolved)
+- [x] State machine validated with property-based testing
+- [x] Signature replay protection tested with fuzzing
 
 ### Phase 3 (P2) - Production Ready
-- [ ] Multi-arbiter consensus operational with reputation tracking
+- [x] Multi-arbiter consensus operational with reputation tracking
 - [ ] Dispute spam prevention rate limits tested under load
 - [ ] Timeout checking performance <1s for 10,000 escrows
 - [ ] All background workers gracefully shutdown with context cancellation
 
 ### Phase 4 (P3) - Developer Experience
-- [ ] NewPaywall cyclomatic complexity reduced to <15
-- [ ] CI pipeline passes on all PRs with >70% code coverage
-- [ ] 5+ working examples covering main use cases
-- [ ] Getting started tutorial completable in <30 minutes
+- [x] NewPaywall cyclomatic complexity reduced to <15
+- [x] CI pipeline passes on all PRs with >70% code coverage
+- [x] 5+ working examples covering main use cases
+- [x] Getting started tutorial completable in <30 minutes
 
 ### Phase 5 (P4) - Documentation
 - [ ] 100% of exported functions documented in API.md

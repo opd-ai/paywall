@@ -2,14 +2,87 @@
 package paywall
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/opd-ai/paywall/wallet"
 )
+
+// WalletMultisigStatusResponse contains runtime multisig status for a wallet.
+// Exposed through the admin status endpoint for wallet introspection.
+type WalletMultisigStatusResponse struct {
+	WalletType      wallet.WalletType      `json:"wallet_type"`
+	MultisigEnabled bool                   `json:"multisig_enabled"`
+	MultisigConfig  *wallet.MultisigConfig `json:"multisig_config,omitempty"`
+}
+
+// HandleWalletMultisigStatus processes GET /api/admin/wallet/{type}/multisig/status requests.
+// It exposes runtime multisig status and configuration for the selected wallet type.
+func (p *Paywall) HandleWalletMultisigStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	const prefix = "/api/admin/wallet/"
+	const suffix = "/multisig/status"
+
+	if !strings.HasPrefix(r.URL.Path, prefix) || !strings.HasSuffix(r.URL.Path, suffix) {
+		http.Error(w, "invalid path, expected /api/admin/wallet/{type}/multisig/status", http.StatusBadRequest)
+		return
+	}
+
+	walletSegment := strings.TrimPrefix(r.URL.Path, prefix)
+	walletSegment = strings.TrimSuffix(walletSegment, suffix)
+	walletSegment = strings.Trim(walletSegment, "/")
+
+	walletType, err := parseWalletType(walletSegment)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	hdWallet, ok := p.HDWallets[walletType]
+	if !ok {
+		http.Error(w, fmt.Sprintf("wallet not configured for type: %s", walletType), http.StatusNotFound)
+		return
+	}
+
+	resp := WalletMultisigStatusResponse{
+		WalletType:      walletType,
+		MultisigEnabled: hdWallet.IsMultisigEnabled(),
+	}
+
+	config, err := hdWallet.GetMultisigConfig()
+	if err != nil && !errors.Is(err, wallet.ErrMultisigNotSupported) {
+		http.Error(w, fmt.Sprintf("failed to get multisig config for %s: %v", walletType, err), http.StatusInternalServerError)
+		return
+	}
+	resp.MultisigConfig = config
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("failed to encode wallet multisig status response: %v", err)
+	}
+}
+
+func parseWalletType(value string) (wallet.WalletType, error) {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "BTC", "BITCOIN":
+		return wallet.Bitcoin, nil
+	case "XMR", "MONERO":
+		return wallet.Monero, nil
+	default:
+		return "", fmt.Errorf("invalid wallet type: %s", value)
+	}
+}
 
 // renderPaymentPage generates and serves the HTML payment page for a given payment
 // Parameters:

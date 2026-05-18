@@ -462,6 +462,52 @@ func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.H
 	}
 }
 
+func applyDefaultConfig(config *Config) {
+	if config.MinEscrowTimeout <= 0 {
+		config.MinEscrowTimeout = 24 * time.Hour
+	}
+	if config.MaxEscrowTimeout <= 0 {
+		config.MaxEscrowTimeout = 90 * 24 * time.Hour
+	}
+}
+
+func initializeBroadcasters(p *Paywall, config Config) {
+	if config.BTCRPCHost != "" {
+		chainParams, err := getChaincfgParams(config.TestNet)
+		if err != nil {
+			log.Printf("Warning: failed to get chain params: %v", err)
+			return
+		}
+		btcBroadcaster, err := NewBTCBroadcaster(
+			config.BTCRPCHost,
+			config.BTCRPCUser,
+			config.BTCRPCPass,
+			!config.BTCDisableTLS,
+			chainParams,
+		)
+		if err != nil {
+			log.Printf("Warning: failed to initialize Bitcoin broadcaster: %v", err)
+		} else {
+			p.btcBroadcaster = btcBroadcaster
+			log.Printf("Bitcoin transaction broadcaster initialized (RPC: %s)", config.BTCRPCHost)
+		}
+	}
+
+	if config.XMRRPC != "" && config.XMRUser != "" && config.XMRPassword != "" {
+		xmrBroadcaster, err := NewXMRBroadcaster(
+			config.XMRRPC,
+			config.XMRUser,
+			config.XMRPassword,
+		)
+		if err != nil {
+			log.Printf("Warning: failed to initialize Monero broadcaster: %v", err)
+		} else {
+			p.xmrBroadcaster = xmrBroadcaster
+			log.Printf("Monero transaction broadcaster initialized (RPC: %s)", config.XMRRPC)
+		}
+	}
+}
+
 // NewPaywall creates and initializes a new Paywall instance
 // Parameters:
 //   - config: Configuration options for the paywall
@@ -481,6 +527,8 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, err
 	}
 
+	applyDefaultConfig(&config)
+
 	hdWallets, prices, err := initializeWallets(config)
 	if err != nil {
 		return nil, err
@@ -492,15 +540,6 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 
 	pctx, pcancel := context.WithCancel(context.Background())
-
-	minEscrowTimeout := config.MinEscrowTimeout
-	if minEscrowTimeout <= 0 {
-		minEscrowTimeout = 24 * time.Hour
-	}
-	maxEscrowTimeout := config.MaxEscrowTimeout
-	if maxEscrowTimeout <= 0 {
-		maxEscrowTimeout = 90 * 24 * time.Hour
-	}
 
 	p := &Paywall{
 		HDWallets:             hdWallets,
@@ -518,8 +557,8 @@ func NewPaywall(config Config) (*Paywall, error) {
 		participantPubKeys:    config.ParticipantPubKeys,
 		multisigRole:          config.MultisigRole,
 		authorizedArbiters:    config.AuthorizedArbiters,
-		minEscrowTimeout:      minEscrowTimeout,
-		maxEscrowTimeout:      maxEscrowTimeout,
+		minEscrowTimeout:      config.MinEscrowTimeout,
+		maxEscrowTimeout:      config.MaxEscrowTimeout,
 		disputeFeePercent:     config.DisputeFeePercent,
 		maxDisputesPerPeriod:  config.MaxDisputesPerPeriod,
 		disputePeriod:         config.DisputePeriod,
@@ -529,8 +568,6 @@ func NewPaywall(config Config) (*Paywall, error) {
 	}
 
 	if p.logger == nil {
-		// Keep default logging disabled for performance-sensitive paths.
-		// Callers can provide Config.Logger to enable structured event output.
 		p.logger = NewStructuredLogger(io.Discard, LogLevelError, true)
 	}
 
@@ -544,8 +581,6 @@ func NewPaywall(config Config) (*Paywall, error) {
 		p.extendEscrowOnDispute = 7 * 24 * time.Hour
 	}
 
-	// Initialize reputation tracker for arbiter performance tracking
-	// This is used for both single-arbiter and multi-arbiter dispute resolution
 	p.reputationTracker = NewArbiterReputationTracker()
 
 	p.consensusManager, err = setupMultisig(config, p.reputationTracker)
@@ -554,46 +589,8 @@ func NewPaywall(config Config) (*Paywall, error) {
 		return nil, err
 	}
 
-	// Initialize transaction broadcasters if RPC config is provided
-	if config.BTCRPCHost != "" {
-		chainParams, err := getChaincfgParams(config.TestNet)
-		if err != nil {
-			pcancel()
-			return nil, fmt.Errorf("failed to get chain params: %w", err)
-		}
-		btcBroadcaster, err := NewBTCBroadcaster(
-			config.BTCRPCHost,
-			config.BTCRPCUser,
-			config.BTCRPCPass,
-			!config.BTCDisableTLS,
-			chainParams,
-		)
-		if err != nil {
-			log.Printf("Warning: failed to initialize Bitcoin broadcaster: %v", err)
-			// Don't fail initialization - broadcasting is optional
-		} else {
-			p.btcBroadcaster = btcBroadcaster
-			log.Printf("Bitcoin transaction broadcaster initialized (RPC: %s)", config.BTCRPCHost)
-		}
-	}
+	initializeBroadcasters(p, config)
 
-	// Initialize Monero broadcaster if XMR config is provided
-	if config.XMRRPC != "" && config.XMRUser != "" && config.XMRPassword != "" {
-		xmrBroadcaster, err := NewXMRBroadcaster(
-			config.XMRRPC,
-			config.XMRUser,
-			config.XMRPassword,
-		)
-		if err != nil {
-			log.Printf("Warning: failed to initialize Monero broadcaster: %v", err)
-			// Don't fail initialization - broadcasting is optional
-		} else {
-			p.xmrBroadcaster = xmrBroadcaster
-			log.Printf("Monero transaction broadcaster initialized (RPC: %s)", config.XMRRPC)
-		}
-	}
-
-	// Initialize escrow manager if multisig is enabled
 	if config.MultisigEnabled {
 		escrowMgr, err := NewEscrowManager(p)
 		if err != nil {
@@ -601,7 +598,6 @@ func NewPaywall(config Config) (*Paywall, error) {
 			return nil, fmt.Errorf("failed to initialize escrow manager: %w", err)
 		}
 
-		// Initialize metrics collector for escrow operations
 		metrics := NewMetricsCollector()
 		escrowMgr.SetMetrics(metrics)
 
