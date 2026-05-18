@@ -98,21 +98,15 @@
 - [x] Arbiter reputation tracking (ArbiterReputationTracker implemented)
 - [x] Timeout automation (TimeoutAutomationManager with blockchain timestamp verification)
 
-#### 🔄 **Remaining Critical Work**:
+#### ✅ **Completed Critical Work**:
 
-- [ ] **Complete blockchain broadcast integration** (`broadcast.go`, `xmr_broadcast.go`)
-  - **Current state**: Broadcast functions exist but return test/mock transaction IDs
-  - **What's needed**: 
-    1. Integrate actual Bitcoin RPC client for transaction broadcasting
-    2. Implement Monero broadcast via existing `go-monero-rpc-client`
-    3. Add transaction validation before broadcast (verify outputs, amounts, signatures)
-    4. Implement double-broadcast prevention (check `BroadcastedAt` timestamp)
-    5. Add error handling and retry logic for network failures
-  - **Files to modify**: `broadcast.go:74-100`, `xmr_broadcast.go:45-70`, `handlers.go:200-250`
-  - **Validation**: End-to-end test - create payment, collect signatures, broadcast, verify transaction appears on blockchain explorer
-  - **Effort**: 2-3 days
-  - **Risk**: HIGH - Without this, no actual payments can complete
-  - **Reference**: AUDIT.md lines 1149-1288, GAPS.md notes broadcast placeholders
+- [x] **Complete blockchain broadcast integration** (`broadcast.go`, `xmr_broadcast.go`) — COMPLETED
+  - ✅ Bitcoin RPC client integration with btcd SendRawTransaction (broadcast.go:92-97)
+  - ✅ Monero broadcast via go-monero-rpc-client SubmitMultisig (xmr_broadcast.go:59-71)
+  - ✅ Transaction validation before broadcast (BTCBroadcaster.ValidateTransaction, XMRBroadcaster.ValidateTransaction)
+  - ✅ Double-broadcast prevention via TransactionID check (multisig_handlers.go:413-423)
+  - ✅ Error handling and broadcast attempt tracking (multisig_handlers.go:442-446, 494-498)
+  - **Implementation verified**: Full broadcast integration operational with both Bitcoin and Monero support
 
 ### Priority 1: Production Hardening (HIGH PRIORITY - 2-3 weeks)
 
@@ -144,18 +138,16 @@
   - Full multisig workflow supported through PrepareMultisig/MakeMultisig/FinalizeMultisig RPC methods
   - Tests passing in TestMoneroMultisigWorkflow
 
-- [ ] **Structured logging integration** (`logger.go`, `paywall.go`, `escrow.go`)
-  - **Current state**: Complete `StructuredLogger` with 15+ methods exists but zero production usage
-  - **What's needed**:
-    1. Add `Logger *StructuredLogger` field to `Paywall` and `EscrowManager` structs
-    2. Replace all `log.Printf()` calls with structured equivalents (e.g., `pw.Logger.LogPaymentCreated()`)
-    3. Update `Config` to accept optional logger parameter
-    4. Update all 11 examples to initialize logger
-    5. Document JSON log format and aggregation patterns in README
-  - **Validation**: Run `go run example/bitcoin-only/main.go 2>&1 | jq .` - should output JSON logs
-  - **Effort**: 4-6 hours
-  - **Benefit**: Essential for production observability, log aggregation, debugging
-  - **Reference**: GAPS.md "Gap 2: StructuredLogger Never Used in Production"
+- [x] **Structured logging integration** (`logger.go`, `paywall.go`, `escrow.go`) — COMPLETED
+  - ✅ Logger field added to Config struct (paywall.go:45-47)
+  - ✅ Logger initialized in NewPaywall with default fallback (paywall.go:602-604)
+  - ✅ Structured logging used extensively in production code:
+    - Paywall initialization and configuration (paywall.go: 464, 490, 505, 512, 527, 534, 637, 668)
+    - Escrow operations (escrow.go: 232, 307, 606, 633, 916, 1116)
+    - HTTP handlers (handlers.go: 72, 118, 160; multisig_handlers.go: 189, 455, 507)
+    - Timeout automation (timeout_automation.go: 101, 128, 164, 172, 180, 268, 290, 311, 329)
+  - ✅ JSON log format with structured fields (timestamp, level, event, payment_id, etc.)
+  - **Implementation verified**: Structured logging fully operational across all major components
 
 ### Priority 2: Code Quality & Maintainability (2-3 weeks)
 
