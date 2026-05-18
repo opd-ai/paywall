@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"log"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -69,7 +69,11 @@ func (p *Paywall) HandleWalletMultisigStatus(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("failed to encode wallet multisig status response: %v", err)
+		p.logger.log(LogEntry{
+			Level:   LogLevelError,
+			Event:   "response_encoding_failed",
+			Message: fmt.Sprintf("Failed to encode wallet multisig status response: %v", err),
+		})
 	}
 }
 
@@ -101,12 +105,21 @@ func parseWalletType(value string) (wallet.WalletType, error) {
 //
 // Related types: Payment, PaymentPageData, template.Template
 func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
+	// Ensure logger is initialized for safety in tests
+	if p.logger == nil {
+		p.logger = NewStructuredLogger(io.Discard, LogLevelError, true)
+	}
+
 	if invalidPayment := p.validatePaymentData(payment, w); invalidPayment {
 		return
 	}
 	qrCodeJsBytes, err := QrcodeJs.ReadFile("static/qrcode.min.js")
 	if err != nil {
-		log.Println("QR Code error", err)
+		p.logger.log(LogEntry{
+			Level:   LogLevelError,
+			Event:   "qrcode_load_failed",
+			Message: fmt.Sprintf("Failed to load QR code JavaScript: %v", err),
+		})
 		http.Error(w, "QR Code Error", http.StatusInternalServerError)
 		qrCodeJsBytes = []byte("")
 		// don't return here, let people manually type in the address
@@ -144,7 +157,11 @@ func (p *Paywall) renderPaymentPage(w http.ResponseWriter, payment *Payment) {
 	}
 
 	if err := p.template.Execute(w, data); err != nil {
-		log.Println("Failed to render payment page:", err)
+		p.logger.log(LogEntry{
+			Level:   LogLevelError,
+			Event:   "template_render_failed",
+			Message: fmt.Sprintf("Failed to render payment page: %v", err),
+		})
 		http.Error(w, "Failed to render payment page", http.StatusInternalServerError)
 		return
 	}

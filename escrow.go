@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"log"
+	"io"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -50,6 +50,10 @@ func NewEscrowManager(pw *Paywall) (*EscrowManager, error) {
 	if pw == nil {
 		return nil, errors.New("paywall cannot be nil")
 	}
+	// Ensure logger is initialized
+	if pw.logger == nil {
+		pw.logger = NewStructuredLogger(io.Discard, LogLevelError, true)
+	}
 	return &EscrowManager{
 		paywall:        pw,
 		auditLogger:    NewMemoryAuditLogger(),
@@ -65,6 +69,10 @@ func NewEscrowManagerWithAudit(pw *Paywall, logger AuditLogger) (*EscrowManager,
 	}
 	if logger == nil {
 		return nil, errors.New("audit logger cannot be nil")
+	}
+	// Ensure logger is initialized
+	if pw.logger == nil {
+		pw.logger = NewStructuredLogger(io.Discard, LogLevelError, true)
 	}
 	return &EscrowManager{
 		paywall:        pw,
@@ -220,7 +228,14 @@ func (em *EscrowManager) validateSignatureData(sig *SignatureData, payment *Paym
 		// Check if error is due to missing nonce (backward compatibility)
 		if len(sig.Nonce) == 0 {
 			// Log warning but allow the signature for backward compatibility
-			log.Printf("WARNING: Signature for payment %s missing nonce (backward compatibility mode)", payment.ID)
+			if em.paywall.logger != nil {
+				em.paywall.logger.log(LogEntry{
+					Level:     LogLevelWarn,
+					Event:     "signature_missing_nonce",
+					Message:   "Signature missing nonce (backward compatibility mode)",
+					PaymentID: payment.ID,
+				})
+			}
 		} else {
 			// Strict replay protection for signatures with nonces
 			return err
@@ -289,7 +304,12 @@ func (em *EscrowManager) CreateEscrow(priceMultiplier float64, escrowTimeout tim
 	if auditErr != nil {
 		// Log audit failure but don't fail the operation
 		// Audit failures should be logged but not block escrow creation
-		log.Printf("WARNING: failed to log escrow creation: %v", auditErr)
+		em.paywall.logger.log(LogEntry{
+			Level:     LogLevelWarn,
+			Event:     "audit_log_failed",
+			Message:   fmt.Sprintf("Failed to log escrow creation: %v", auditErr),
+			PaymentID: payment.ID,
+		})
 	}
 
 	// Track metrics
@@ -583,7 +603,12 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 			payment.DisputeReason = ""
 			if rollbackErr := em.paywall.Store.UpdatePayment(payment); rollbackErr != nil {
 				// Log rollback failure but return original error
-				log.Printf("ERROR: Failed to rollback payment state after arbiter registration failure: %v", rollbackErr)
+				em.paywall.logger.log(LogEntry{
+					Level:     LogLevelError,
+					Event:     "rollback_failed",
+					Message:   fmt.Sprintf("Failed to rollback payment state after arbiter registration failure: %v", rollbackErr),
+					PaymentID: payment.ID,
+				})
 			}
 			em.auditLogger.LogAction(&AuditLogEntry{
 				PaymentID:     paymentID,
@@ -605,7 +630,12 @@ func (em *EscrowManager) RequestDispute(paymentID string, requesterRole Multisig
 	if em.paywall.consensusManager != nil {
 		if _, err := em.paywall.consensusManager.InitiateConsensus(paymentID); err != nil {
 			// Log consensus initiation failure but don't fail the dispute
-			log.Printf("WARNING: Failed to initiate multi-arbiter consensus for payment %s: %v", paymentID, err)
+			em.paywall.logger.log(LogEntry{
+				Level:     LogLevelWarn,
+				Event:     "consensus_initiation_failed",
+				Message:   fmt.Sprintf("Failed to initiate multi-arbiter consensus: %v", err),
+				PaymentID: paymentID,
+			})
 		}
 	}
 
@@ -883,7 +913,12 @@ func (em *EscrowManager) logStateTransition(paymentID string, action AuditAction
 	if err != nil {
 		// Log audit failure but don't fail the operation
 		// Audit failures should be logged but not block escrow operations
-		log.Printf("WARNING: failed to log state transition %s for payment %s: %v", action, paymentID, err)
+		em.paywall.logger.log(LogEntry{
+			Level:     LogLevelWarn,
+			Event:     "audit_log_failed",
+			Message:   fmt.Sprintf("Failed to log state transition %s: %v", action, err),
+			PaymentID: paymentID,
+		})
 	}
 
 	if em.paywall.logger != nil {
@@ -1078,11 +1113,15 @@ func (em *EscrowManager) ExtendTimeout(paymentID string, extension time.Duration
 		Metadata:      metadata,
 	})
 	if err != nil {
-		log.Printf("WARNING: failed to log timeout extension for payment %s: %v", paymentID, err)
+		em.paywall.logger.log(LogEntry{
+			Level:     LogLevelWarn,
+			Event:     "audit_log_failed",
+			Message:   fmt.Sprintf("Failed to log timeout extension: %v", err),
+			PaymentID: paymentID,
+		})
 	}
 
-	log.Printf("escrow timeout extended for payment %s by %s to %s",
-		paymentID, extension, payment.EscrowTimeout.Format(time.RFC3339))
+	em.paywall.logger.LogTimeoutAutomation(paymentID, fmt.Sprintf("Escrow timeout extended by %s to %s", extension, payment.EscrowTimeout.Format(time.RFC3339)))
 
 	return nil
 }

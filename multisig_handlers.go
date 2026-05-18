@@ -4,7 +4,6 @@ package paywall
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -187,7 +186,11 @@ func (mc *MultisigCoordinator) HandleInitiate(w http.ResponseWriter, r *http.Req
 	// Create multisig payment
 	payment, err := mc.createMultisigPayment(&req)
 	if err != nil {
-		log.Printf("Failed to create multisig payment: %v", err)
+		mc.paywall.logger.log(LogEntry{
+			Level:   LogLevelError,
+			Event:   "multisig_payment_creation_failed",
+			Message: fmt.Sprintf("Failed to create multisig payment: %v", err),
+		})
 		http.Error(w, fmt.Sprintf("Failed to create payment: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -449,7 +452,12 @@ func (mc *MultisigCoordinator) HandleBroadcast(w http.ResponseWriter, r *http.Re
 		payment.BroadcastAttempts++
 
 		if err := mc.paywall.Store.UpdatePayment(payment); err != nil {
-			log.Printf("WARNING: Transaction broadcast succeeded but failed to update payment: %v", err)
+			mc.paywall.logger.log(LogEntry{
+				Level:     LogLevelWarn,
+				Event:     "payment_update_failed",
+				Message:   fmt.Sprintf("Transaction broadcast succeeded but failed to update payment: %v", err),
+				PaymentID: payment.ID,
+			})
 			// Continue anyway - transaction is on the blockchain
 		}
 
@@ -496,7 +504,12 @@ func (mc *MultisigCoordinator) HandleBroadcast(w http.ResponseWriter, r *http.Re
 		payment.BroadcastAttempts++
 
 		if err := mc.paywall.Store.UpdatePayment(payment); err != nil {
-			log.Printf("WARNING: Transaction broadcast succeeded but failed to update payment: %v", err)
+			mc.paywall.logger.log(LogEntry{
+				Level:     LogLevelWarn,
+				Event:     "payment_update_failed",
+				Message:   fmt.Sprintf("Transaction broadcast succeeded but failed to update payment: %v", err),
+				PaymentID: payment.ID,
+			})
 			// Continue anyway - transaction is on the blockchain
 		}
 

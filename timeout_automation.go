@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -99,7 +98,11 @@ func (tm *TimeoutMonitor) monitorLoop() {
 			return
 		case <-ticker.C:
 			if err := tm.checkAndProcessTimeouts(); err != nil {
-				log.Printf("timeout monitor error: %v", err)
+				tm.em.paywall.logger.log(LogEntry{
+					Level:   LogLevelError,
+					Event:   "timeout_monitor_error",
+					Message: fmt.Sprintf("Timeout monitor error: %v", err),
+				})
 			}
 		}
 	}
@@ -122,7 +125,12 @@ func (tm *TimeoutMonitor) checkAndProcessTimeouts() error {
 	// Process each timed-out escrow
 	for _, paymentID := range timedOut {
 		if err := tm.processTimeout(paymentID); err != nil {
-			log.Printf("failed to process timeout for %s: %v", paymentID, err)
+			tm.em.paywall.logger.log(LogEntry{
+				Level:     LogLevelError,
+				Event:     "timeout_processing_failed",
+				Message:   fmt.Sprintf("Failed to process timeout: %v", err),
+				PaymentID: paymentID,
+			})
 			// Continue processing other timeouts
 		}
 	}
@@ -148,18 +156,33 @@ func (tm *TimeoutMonitor) processTimeout(paymentID string) error {
 	}()
 
 	// Log timeout detection
-	log.Printf("timeout detected for payment %s", paymentID)
+	tm.em.paywall.logger.LogEscrowTimeout(paymentID, EscrowFunded, time.Since(time.Now()).Milliseconds())
 
 	// If auto-refund is enabled, trigger the automatic refund
 	if tm.autoRefund {
 		if err := tm.executeAutomaticRefund(paymentID); err != nil {
-			log.Printf("automatic refund failed for payment %s: %v", paymentID, err)
+			tm.em.paywall.logger.log(LogEntry{
+				Level:     LogLevelError,
+				Event:     "automatic_refund_failed",
+				Message:   fmt.Sprintf("Automatic refund failed: %v", err),
+				PaymentID: paymentID,
+			})
 			return fmt.Errorf("automatic refund failed: %w", err)
 		}
-		log.Printf("automatic refund completed for payment %s", paymentID)
+		tm.em.paywall.logger.log(LogEntry{
+			Level:     LogLevelInfo,
+			Event:     "automatic_refund_completed",
+			Message:   "Automatic refund completed",
+			PaymentID: paymentID,
+		})
 	} else {
 		// Just log detection without processing
-		log.Printf("manual refund required for payment %s (auto-refund disabled)", paymentID)
+		tm.em.paywall.logger.log(LogEntry{
+			Level:     LogLevelInfo,
+			Event:     "manual_refund_required",
+			Message:   "Manual refund required (auto-refund disabled)",
+			PaymentID: paymentID,
+		})
 	}
 
 	return nil
@@ -242,7 +265,12 @@ func (tm *TimeoutMonitor) executeAutomaticRefund(paymentID string) error {
 			},
 		})
 		if auditErr != nil {
-			log.Printf("WARNING: failed to log automatic refund for payment %s: %v", paymentID, auditErr)
+			tm.em.paywall.logger.log(LogEntry{
+				Level:     LogLevelWarn,
+				Event:     "audit_log_failed",
+				Message:   fmt.Sprintf("Failed to log automatic refund: %v", auditErr),
+				PaymentID: paymentID,
+			})
 		}
 	}
 
@@ -259,7 +287,11 @@ func (tm *TimeoutMonitor) getCurrentTime() (time.Time, error) {
 	blockTime, err := tm.getBlockchainTimestamp()
 	if err != nil {
 		// Fallback to system time if blockchain unavailable
-		log.Printf("blockchain timestamp unavailable, using system time: %v", err)
+		tm.em.paywall.logger.log(LogEntry{
+			Level:   LogLevelDebug,
+			Event:   "blockchain_timestamp_unavailable",
+			Message: fmt.Sprintf("Blockchain timestamp unavailable, using system time: %v", err),
+		})
 		return time.Now(), nil
 	}
 
@@ -276,7 +308,11 @@ func (tm *TimeoutMonitor) getBlockchainTimestamp() (time.Time, error) {
 			if err == nil {
 				return blockTime, nil
 			}
-			log.Printf("monero block time unavailable: %v", err)
+			tm.em.paywall.logger.log(LogEntry{
+				Level:   LogLevelDebug,
+				Event:   "monero_block_time_unavailable",
+				Message: fmt.Sprintf("Monero block time unavailable: %v", err),
+			})
 		}
 	}
 
@@ -290,7 +326,11 @@ func (tm *TimeoutMonitor) getBlockchainTimestamp() (time.Time, error) {
 		if err == nil {
 			return blockTime, nil
 		}
-		log.Printf("bitcoin block time unavailable: %v", err)
+		tm.em.paywall.logger.log(LogEntry{
+			Level:   LogLevelDebug,
+			Event:   "bitcoin_block_time_unavailable",
+			Message: fmt.Sprintf("Bitcoin block time unavailable: %v", err),
+		})
 	}
 
 	return time.Time{}, fmt.Errorf("no blockchain timestamp available from any wallet")

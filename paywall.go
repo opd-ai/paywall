@@ -385,8 +385,16 @@ func initializeWallets(config Config) (map[wallet.WalletType]wallet.HDWallet, ma
 		RPCPassword: config.XMRPassword,
 	}, config.MinConfirmations)
 	if err != nil {
-		log.Printf("WARNING: XMR wallet configuration was provided but wallet creation failed: %v", err)
-		log.Printf("Continuing with Bitcoin-only support. Please check your Monero RPC configuration.")
+		if config.Logger != nil {
+			config.Logger.log(LogEntry{
+				Level:   LogLevelWarn,
+				Event:   "xmr_wallet_init_failed",
+				Message: fmt.Sprintf("XMR wallet configuration provided but creation failed: %v. Continuing with Bitcoin-only support.", err),
+			})
+		} else {
+			log.Printf("WARNING: XMR wallet configuration was provided but wallet creation failed: %v", err)
+			log.Printf("Continuing with Bitcoin-only support. Please check your Monero RPC configuration.")
+		}
 	}
 
 	hdWallets := make(map[wallet.WalletType]wallet.HDWallet)
@@ -453,7 +461,11 @@ func startBackgroundWorkers(p *Paywall, hdWallets map[wallet.WalletType]wallet.H
 		}
 		timeoutMonitor.Start()
 		p.timeoutMonitor = timeoutMonitor
-		log.Printf("Timeout monitor started (check interval: %v, auto-refund: %v)", timeoutConfig.CheckInterval, timeoutConfig.AutoRefund)
+		p.logger.log(LogEntry{
+			Level:   LogLevelInfo,
+			Event:   "timeout_monitor_started",
+			Message: fmt.Sprintf("Timeout monitor started (check interval: %v, auto-refund: %v)", timeoutConfig.CheckInterval, timeoutConfig.AutoRefund),
+		})
 	}
 
 	// Start consensus manager background worker if multi-arbiter mode is enabled
@@ -475,7 +487,11 @@ func initializeBroadcasters(p *Paywall, config Config) {
 	if config.BTCRPCHost != "" {
 		chainParams, err := getChaincfgParams(config.TestNet)
 		if err != nil {
-			log.Printf("Warning: failed to get chain params: %v", err)
+			p.logger.log(LogEntry{
+				Level:   LogLevelWarn,
+				Event:   "btc_chain_params_failed",
+				Message: fmt.Sprintf("Failed to get chain params: %v", err),
+			})
 			return
 		}
 		btcBroadcaster, err := NewBTCBroadcaster(
@@ -486,10 +502,18 @@ func initializeBroadcasters(p *Paywall, config Config) {
 			chainParams,
 		)
 		if err != nil {
-			log.Printf("Warning: failed to initialize Bitcoin broadcaster: %v", err)
+			p.logger.log(LogEntry{
+				Level:   LogLevelWarn,
+				Event:   "btc_broadcaster_init_failed",
+				Message: fmt.Sprintf("Failed to initialize Bitcoin broadcaster: %v", err),
+			})
 		} else {
 			p.btcBroadcaster = btcBroadcaster
-			log.Printf("Bitcoin transaction broadcaster initialized (RPC: %s)", config.BTCRPCHost)
+			p.logger.log(LogEntry{
+				Level:   LogLevelInfo,
+				Event:   "btc_broadcaster_initialized",
+				Message: fmt.Sprintf("Bitcoin transaction broadcaster initialized (RPC: %s)", config.BTCRPCHost),
+			})
 		}
 	}
 
@@ -500,10 +524,18 @@ func initializeBroadcasters(p *Paywall, config Config) {
 			config.XMRPassword,
 		)
 		if err != nil {
-			log.Printf("Warning: failed to initialize Monero broadcaster: %v", err)
+			p.logger.log(LogEntry{
+				Level:   LogLevelWarn,
+				Event:   "xmr_broadcaster_init_failed",
+				Message: fmt.Sprintf("Failed to initialize Monero broadcaster: %v", err),
+			})
 		} else {
 			p.xmrBroadcaster = xmrBroadcaster
-			log.Printf("Monero transaction broadcaster initialized (RPC: %s)", config.XMRRPC)
+			p.logger.log(LogEntry{
+				Level:   LogLevelInfo,
+				Event:   "xmr_broadcaster_initialized",
+				Message: fmt.Sprintf("Monero transaction broadcaster initialized (RPC: %s)", config.XMRRPC),
+			})
 		}
 	}
 }
@@ -602,7 +634,11 @@ func NewPaywall(config Config) (*Paywall, error) {
 		escrowMgr.SetMetrics(metrics)
 
 		p.escrowManager = escrowMgr
-		log.Printf("Escrow manager initialized for multisig payments with metrics tracking")
+		p.logger.log(LogEntry{
+			Level:   LogLevelInfo,
+			Event:   "escrow_manager_initialized",
+			Message: "Escrow manager initialized for multisig payments with metrics tracking",
+		})
 	}
 
 	startBackgroundWorkers(p, hdWallets, config)
@@ -629,7 +665,11 @@ func (p *Paywall) btcWalletAddress() (string, error) {
 
 func (p *Paywall) xmrWalletAddress() (string, error) {
 	if _, ok := p.HDWallets[wallet.Monero]; !ok {
-		log.Printf("Warning: XMR wallet is not in use, your privacy is sub-optimal")
+		p.logger.log(LogEntry{
+			Level:   LogLevelWarn,
+			Event:   "xmr_wallet_not_configured",
+			Message: "XMR wallet is not in use, privacy is sub-optimal",
+		})
 		return "", nil
 	}
 	xmrAddress, err := p.HDWallets[wallet.Monero].GetAddress()

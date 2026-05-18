@@ -4,7 +4,6 @@ package paywall
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -62,13 +61,21 @@ func (m *CryptoChainMonitor) Start(ctx context.Context) {
 						backoffDelay = maxBackoffInterval
 					}
 					ticker.Reset(backoffDelay)
-					log.Printf("Payment monitoring failed (attempt %d), backing off for %v: %v", consecutiveFailures, backoffDelay, err)
+					m.paywall.logger.log(LogEntry{
+						Level:   LogLevelWarn,
+						Event:   "payment_monitoring_failed",
+						Message: fmt.Sprintf("Payment monitoring failed (attempt %d), backing off for %v: %v", consecutiveFailures, backoffDelay, err),
+					})
 				} else {
 					// Reset on success
 					if consecutiveFailures > 0 {
 						consecutiveFailures = 0
 						ticker.Reset(10 * time.Second)
-						log.Println("Payment monitoring recovered, returning to normal interval")
+						m.paywall.logger.log(LogEntry{
+							Level:   LogLevelInfo,
+							Event:   "payment_monitoring_recovered",
+							Message: "Payment monitoring recovered, returning to normal interval",
+						})
 					}
 				}
 			}
@@ -98,13 +105,21 @@ func (m *CryptoChainMonitor) checkPendingPayments() error {
 	hasErrors := false
 	for _, payment := range payments {
 		if err := m.CheckBTCPayments(payment); err != nil {
-			// log error but continue processing other payments
-			log.Printf("CheckBTCPayments error for payment %s: %v", payment.ID, err)
+			m.paywall.logger.log(LogEntry{
+				Level:     LogLevelError,
+				Event:     "check_btc_payments_error",
+				Message:   fmt.Sprintf("CheckBTCPayments error: %v", err),
+				PaymentID: payment.ID,
+			})
 			hasErrors = true
 		}
 		if err := m.CheckXMRPayments(payment); err != nil {
-			// log error but continue processing other payments
-			log.Printf("CheckXMRPayments error for payment %s: %v", payment.ID, err)
+			m.paywall.logger.log(LogEntry{
+				Level:     LogLevelError,
+				Event:     "check_xmr_payments_error",
+				Message:   fmt.Sprintf("CheckXMRPayments error: %v", err),
+				PaymentID: payment.ID,
+			})
 			hasErrors = true
 		}
 	}
@@ -147,12 +162,22 @@ func (m *CryptoChainMonitor) checkWalletPayment(payment *Payment, walletType wal
 			// The address is derived from the script hash, so if funds are at the address,
 			// the script hash is implicitly validated. Additional validation could be done
 			// by parsing the UTXO script, but that requires full node access.
-			log.Printf("Verifying multisig Bitcoin payment %s at address %s (script hash: %s)",
-				payment.ID, address, metadata.ScriptHash)
+			m.paywall.logger.log(LogEntry{
+				Level:     LogLevelDebug,
+				Event:     "multisig_btc_verification",
+				Message:   fmt.Sprintf("Verifying multisig Bitcoin payment at address %s (script hash: %s)", address, metadata.ScriptHash),
+				PaymentID: payment.ID,
+				Currency:  wallet.Bitcoin,
+			})
 		} else if walletType == wallet.Monero {
 			// For Monero, verify the multisig address structure
-			log.Printf("Verifying multisig Monero payment %s at address %s",
-				payment.ID, address)
+			m.paywall.logger.log(LogEntry{
+				Level:     LogLevelDebug,
+				Event:     "multisig_xmr_verification",
+				Message:   fmt.Sprintf("Verifying multisig Monero payment at address %s", address),
+				PaymentID: payment.ID,
+				Currency:  wallet.Monero,
+			})
 		}
 	}
 
@@ -166,8 +191,15 @@ func (m *CryptoChainMonitor) checkWalletPayment(payment *Payment, walletType wal
 		// Payment confirmed by balance
 		// Confirmations are checked inline during GetAddressBalance
 		if payment.MultisigEnabled {
-			log.Printf("Multisig payment %s confirmed for %s: balance %.8f >= required %.8f",
-				payment.ID, walletType, balance, requiredAmount)
+			m.paywall.logger.LogPaymentConfirmed(payment.ID, payment.Confirmations, "")
+			m.paywall.logger.log(LogEntry{
+				Level:     LogLevelDebug,
+				Event:     "multisig_payment_balance_confirmed",
+				Message:   fmt.Sprintf("Multisig payment confirmed: balance %.8f >= required %.8f", balance, requiredAmount),
+				PaymentID: payment.ID,
+				Amount:    balance,
+				Currency:  walletType,
+			})
 		}
 		payment.Status = StatusConfirmed
 		payment.Confirmations = m.paywall.minConfirmations
