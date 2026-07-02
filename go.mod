@@ -26,3 +26,5 @@ require (
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 )
+
+exclude github.com/monero-ecosystem/go-monero-rpc-client v0.0.0-20250208023320-c16fcacc53ad
