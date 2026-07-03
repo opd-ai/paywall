@@ -34,6 +34,10 @@ func TestXMRBroadcaster_NewXMRBroadcaster(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if testing.Short() && tt.rpcURL != "" {
+				t.Skip("skipping Monero RPC connectivity test in short mode")
+			}
+
 			_, err := NewXMRBroadcaster(tt.rpcURL, tt.rpcUser, tt.rpcPass)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewXMRBroadcaster() error = %v, wantErr %v", err, tt.wantErr)

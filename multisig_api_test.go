@@ -337,6 +337,10 @@ func TestMultisigClient_SetAuthToken(t *testing.T) {
 }
 
 func TestMultisigClient_NetworkError(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping network-dependent client test in short mode")
+	}
+
 	// Use invalid URL to trigger network error
 	client := NewMultisigClient("http://invalid-url-that-does-not-exist:99999", "token")
 	client.SetTimeout(100 * time.Millisecond)

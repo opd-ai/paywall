@@ -10,6 +10,10 @@ import (
 
 // TestPaywall_CreatePayment tests the newly implemented CreatePayment method
 func TestPaywall_CreatePayment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that configures Monero RPC in short mode")
+	}
+
 	// Create test paywall with memory store
 	pw, err := NewPaywall(Config{
 		PriceInBTC:       0.001,

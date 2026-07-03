@@ -335,6 +335,10 @@ func TestNewPaywall_PriceValidation(t *testing.T) {
 	})
 
 	t.Run("ZeroBTCPrice", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("skipping Monero RPC-initializing path in short mode")
+		}
+
 		config := baseConfig
 		config.PriceInBTC = 0
 		// When XMR price is positive, zero BTC price is valid (Monero-only mode)

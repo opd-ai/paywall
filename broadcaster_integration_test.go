@@ -10,6 +10,10 @@ import (
 )
 
 func TestPaywall_BroadcasterIntegration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping broadcaster integration tests that require RPC/network resources in short mode")
+	}
+
 	t.Run("broadcasters not initialized without RPC config", func(t *testing.T) {
 		config := Config{
 			PriceInBTC:       0.0001,
