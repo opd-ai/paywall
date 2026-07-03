@@ -329,6 +329,10 @@ func TestNewBitcoinTimestampProvider(t *testing.T) {
 }
 
 func TestBitcoinTimestampProvider_GetLatestBlockTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test that depends on external blockchain API in short mode")
+	}
+
 	provider := NewBitcoinTimestampProvider("http://localhost:8332", true)
 
 	// Implementation now connects to public API
